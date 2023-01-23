@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "RelocaTE3"
+version = "0.0.1"
+dependencies = [
+    "pybedtools",
+    "biopython",
+    "multiprocessing",
+    "collections",
+]
+description = "Tool for identifying Transposable transposition from resequencing data comparison to a reference genome"
+readme = "README.md"
+requires-python = ">=3.7"
+keywords = ["transposable elements", "bioinformatics"]
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dynamic = ["version"]

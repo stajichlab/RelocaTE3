@@ -1,2 +1,2 @@
-# ReLocateTE3
-ReLocaTE code for identifying Transposons (TE) in genomes using re-sequencing data
+# RelocaTE3
+RelocaTE code for identifying Transposons (TE) in genomes using re-sequencing data
