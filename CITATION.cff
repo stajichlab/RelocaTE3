@@ -1,0 +1,28 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: RelocaTE3
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Jason E.
+    family-names: Stajich
+    email: jasonstajich.phd@gmail.com
+    affiliation: University of California-Riverside
+    orcid: 'https://orcid.org/0000-0002-7591-0020'
+repository-code: 'https://github.com/stajichlab/RelocaTE3'
+abstract: >-
+  RelocaTE software tool for transposon transposition data
+  detection in population resequencing data.
+keywords:
+  - transposon
+  - bioinformatics
+  - genomics
+  - population biology
+license: MIT
+commit: 62958307a8fa9830b2dd0157a43990b035bb195b
+version: '0.1'
+date-released: '2023-01-31'
