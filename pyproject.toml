@@ -1,27 +1,38 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=61.0", "pytest>=6.0", "versioningit"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "RelocaTE3"
-version = "0.1"
 authors = [
   { name = "Jason Stajich", email = "jasonstajich.phd@gmail.com" },
   { name = "Nathan Mathieu", email = "nmath020@ucr.edu" },
-]
-dependencies = [
-    "pybedtools",
-    "biopython",
-    "multiprocessing",
-    "collections",
-    "pysam",
 ]
 description = "Tool for identifying Transposable transposition from resequencing data comparison to a reference genome"
 readme = "README.md"
 requires-python = ">=3.7"
 keywords = ["transposable elements", "bioinformatics"]
-license = {text = "MIT"}
+license = { file = "LICENSE" }
 classifiers = [
-    "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3",
 ]
-dynamic = ["version"]
+dynamic = ["dependencies", "version"]
+
+[project.scripts]
+relocaTE3 = "RelocaTE3.__main__:main"
+
+[project.urls]
+"Homepage" = "https://github.com/stajichlab/RelocaTE3"
+"Bug Tracker" = "https://github.com/stajichlab/RelocaTE3/issues"
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+
+[tool.versioningit.vcs]
+method = "git"
+default-tag = "0.0.0"
