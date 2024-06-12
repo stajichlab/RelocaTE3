@@ -13,6 +13,11 @@ authors:
     email: jasonstajich.phd@gmail.com
     affiliation: University of California-Riverside
     orcid: 'https://orcid.org/0000-0002-7591-0020'
+  - given-names: Nathan
+    family-names: Mathieu
+    email: nmath020@ucr.edu
+    affiliation: University of California-Riverside
+    orcid: 'https://orcid.org/0000-0002-4822-5095'
 repository-code: 'https://github.com/stajichlab/RelocaTE3'
 abstract: >-
   RelocaTE software tool for transposon transposition data
@@ -23,6 +28,6 @@ keywords:
   - genomics
   - population biology
 license: MIT
-commit: 62958307a8fa9830b2dd0157a43990b035bb195b
+commit: XXXX
 version: '0.1'
-date-released: '2023-01-31'
+date-released: '2024-07-01'
