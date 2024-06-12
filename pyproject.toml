@@ -5,11 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "RelocaTE3"
 version = "0.1"
+authors = [
+  { name = "Jason Stajich", email = "jasonstajich.phd@gmail.com" },
+  { name = "Nathan Mathieu", email = "nmath020@ucr.edu" },
+]
 dependencies = [
     "pybedtools",
     "biopython",
     "multiprocessing",
     "collections",
+    "pysam",
 ]
 description = "Tool for identifying Transposable transposition from resequencing data comparison to a reference genome"
 readme = "README.md"
