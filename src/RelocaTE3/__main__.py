@@ -28,14 +28,13 @@ class CustomHelpFormatter(argparse.HelpFormatter):
         return formatted_text
 
     def _get_help_string(self, action):
-        help = action.help
+        helpstr = action.help
         pattern = r"\(default: .+\)"
-        if re.search(pattern, action.help) is None:
-            if action.default not in [argparse.SUPPRESS, None, False]:
-                defaulting_nargs = [argparse.OPTIONAL, argparse.ZERO_OR_MORE]
-                if action.option_strings or action.nargs in defaulting_nargs:
-                    help += " (default: %(default)s)"
-        return help
+        if (re.search(pattern, action.help) is None and action.default not in [argparse.SUPPRESS, None, False]):
+            defaulting_nargs = [argparse.OPTIONAL, argparse.ZERO_OR_MORE]
+            if action.option_strings or action.nargs in defaulting_nargs:
+                helpstr += " (default: %(default)s)"
+        return helpstr
 
 
 def args_parser(
@@ -59,7 +58,7 @@ def args_parser(
         )
         parser = parser_func(parser)
 
-        args = args if args else sys.argv[1:]
+        args = args or sys.argv[1:]
         if not args or "help" in args:
             parser.print_help(sys.stderr)
             raise SystemExit(0)
@@ -95,7 +94,7 @@ def _menu(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 
 def main(args: list[str] | None = None) -> int:
-    """Tool for identifying Transposable transposition from resequencing data comparison to a reference genome"""
+    """Tool for identifying Transposable transposition from resequencing data by comparison to a reference genome"""
     return args_parser(_menu, args, prog=__entry_points__[__name__], description=main.__doc__, epilog=f"Written by {__author__}")
 
 
