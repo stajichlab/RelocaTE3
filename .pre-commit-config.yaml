@@ -2,7 +2,7 @@
 # See https://pre-commit.com/hooks.html for more hooks
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v4.6.0
     hooks:
       - id: check-symlinks
       - id: destroyed-symlinks
@@ -18,14 +18,14 @@ repos:
       - id: detect-private-key
       - id: debug-statements
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.2.2
+    rev: v2.3.0
     hooks:
       - id: codespell
         exclude: ^tests/augustus*
         args:
           - --ignore-words-list=nd,reacher,thist,ths,ure,referenc,wile,nin,pid
   - repo: https://github.com/PyCQA/flake8
-    rev: 6.0.0
+    rev: 7.1.0
     hooks:
       - id: flake8
         args:
@@ -35,13 +35,13 @@ repos:
           - --statistics
         exclude: ^tests/augustus*
   - repo: https://github.com/asottile/pyupgrade
-    rev: v3.3.1
+    rev: v3.16.0
     hooks:
       - id: pyupgrade
         args: ["--py37-plus"]
         exclude: ^tests
   - repo: https://github.com/PyCQA/isort
-    rev: 5.12.0
+    rev: 5.13.2
     hooks:
       - id: isort
         exclude: ^tests
