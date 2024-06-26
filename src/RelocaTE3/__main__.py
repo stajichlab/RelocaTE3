@@ -8,6 +8,7 @@ import textwrap
 from typing import Callable
 
 from RelocaTE3 import __author__, __entry_points__, __version__, logger
+from RelocaTE3.pipeline import align
 
 
 class CustomHelpFormatter(argparse.HelpFormatter):
@@ -86,15 +87,15 @@ def args_parser(
 
 def _menu(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Menu for this entry point."""
-# do we want to have multiple libraries processed for each strain in a run?
-#
-    parser.add_argument("-i", "--input", type=argparse.FileType("r"),
-                        default=sys.stdin,
-                        help="Input file (or by stdin) (default: stdin)")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                        help="Verbose mode for debug")
-    parser.add_argument("-V", "--version", action="version",
-                        version=__version__)
+    # do we want to have multiple libraries processed for each strain in a run?
+    #
+    parser.add_argument(
+        "-i", "--input", type=argparse.FileType("r"), default=sys.stdin, help="Input file (or by stdin) (default: stdin)"
+    )
+    parser.add_argument("-o", "--output", type=str, default="relocate.out", help="Output file name")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose mode for debug")
+    parser.add_argument("-V", "--version", action="version", version=__version__)
+    parser.set_defaults(func=align)
 
     return parser
 
