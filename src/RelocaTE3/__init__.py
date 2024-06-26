@@ -5,6 +5,8 @@ try:
 except ImportError:
     from importlib.metadata import entry_points, metadata
 
+import logging
+
 
 def _map_entry_point_module(project_name):
     """Get the dictionary that map the scripts to their entry point names."""
@@ -19,3 +21,6 @@ _meta = metadata("RelocaTE3")
 __version__ = _meta["Version"]
 __author__ = _meta["Author-email"]
 __entry_points__ = _map_entry_point_module(_meta["Name"])
+
+logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s", level="INFO")
+logger = logging.getLogger(__name__)

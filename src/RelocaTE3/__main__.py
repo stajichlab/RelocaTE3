@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import re
 import sys
 import textwrap
 from typing import Callable
 
-from RelocaTE3 import __author__, __entry_points__, __version__
+from RelocaTE3 import __author__, __entry_points__, __version__, logger
 
 
 class CustomHelpFormatter(argparse.HelpFormatter):
@@ -47,9 +46,6 @@ def args_parser(
 ):
     """Preset menu structure for entry-point scripts."""
     try:
-        logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s", level="INFO")
-        logger = logging.getLogger(prog)
-
         parser = argparse.ArgumentParser(
             prog=prog,
             formatter_class=CustomHelpFormatter,
@@ -68,18 +64,22 @@ def args_parser(
             logger.setLevel("DEBUG")
             for handler in logger.handlers:
                 handler.setLevel("DEBUG")
-            logging.debug("Debug mode enabled.")
+            logger.debug("Debug mode enabled.")
 
         args.func(**vars(args))
 
     except KeyboardInterrupt:
-        logging.warning("Terminated by user.")
+        logger.warning("Terminated by user.")
         return 1
 
     except SystemExit as err:
         if err.code != 0:
-            logging.error(err)
+            logger.error(err)
             return 1
+
+    except Exception as err:
+        logger.error(err)
+        return 1
 
     return 0
 
