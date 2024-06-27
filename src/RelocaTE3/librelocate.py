@@ -1,26 +1,26 @@
-"""RelocaTE3 identify and process transposon sequence containing reads."""
+"""RelocaTE3 to genotype individuals for Transposon polymorphism."""
 
 from __future__ import annotations
 
+import RelocaTE3.align as align
+import RelocaTE3.ReadLibrary as ReadLibrary
+
 # from Bio import SeqIO
-from Bio.Seq import Seq
-
-# import subprocess
-# from multiprocessing import Manager, Pool
-# from multiprocessing.pool import ThreadPool
+# from Bio.Seq import Seq
+# possibly support either a list of Seqs or a SeqLibrary fasta file?
 
 
-class ReadLibrary():
-    """Represent sequence library typically a single or paired-end FASTQ read files."""
-    def __init__(self, fileset):
-        """Initialize the ReadLibrary."""
-        if fileset is not None:
-            if len(fileset > 2):
-                raise ValueError("Fileset needs to be either one or two files provided")
-            self.is_paired = len(fileset) == 2
-            self.fileset = fileset
+class RelocaTE:
+    """Process reads and mapping to identify transposon insertion and excision sites."""
 
-    def search_TE_containing_reads(self, transposon_library: list[Seq], search_tool: str = "minimap2") -> int:
+    cpu_threads = 1         # number of CPU threads to use
+
+    def __init__(self, threads: int = 1):
+        """Initialize the RelocaTE object."""
+        self.cpu_threads = threads
+
+    def search_TE_containing_reads(self, seqreads: ReadLibrary, transposon_library: str,
+                                   search_tool: str = "minimap2") -> int:
         """Search for sequence reads containing transposon sequences.
 
         Args:
@@ -29,4 +29,7 @@ class ReadLibrary():
         Returns:
             int: number of reads (or read pairs) identified as containing transposon sequences.
         """
+        if "minimap" in search_tool.lower():
+            align._index_minimap(transposon_library)
+#            align._map_minimap_genome()
         print(transposon_library)
