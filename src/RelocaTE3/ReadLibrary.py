@@ -16,3 +16,11 @@ class ReadLibrary():
             self.is_paired = len(fileset) == 2
             self.file_set = fileset
             self.name = ind_name
+
+    def left(self) -> str:
+        """Shortcut to get left read pair."""
+        return self.file_set[0]
+
+    def right(self) -> str:
+        """Shortcut to get right read pair."""
+        return self.file_set[1]
