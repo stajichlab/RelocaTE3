@@ -24,9 +24,17 @@ class Aligner:
     bwamem2 = "bwa-mem2"
     samtools = "samtools"
     verbose = False
+    cpu_threads = 1
+    aligntool = "minimap2"   # or BLAT or bwa OR others?
     # add threads as a state for this? but may use diff thread count for diff tools?
 
-    def _index_minimap(self, db: str, indexfile: str = "", force: bool = False) -> int:
+    def __init__(self, threads: int = 1, default_aligner: str = "minimap2"):
+        """Initialize the aligner object."""
+        self.cpu_threads = threads
+        self.aligntool = default_aligner
+
+    def index_minimap(self, db: str, indexfile: str = "", force: bool = False) -> int:
+        """Create minimap index of target DB."""
         if len(indexfile) == 0:
             indexfile = Path(db+".mmi")
         else:
@@ -54,7 +62,7 @@ class Aligner:
             warnings.warn(p.stderr.decode("utf-8"))
         return 0
 
-    def _map_minimap_library(self, transposon_library: str, reads: ReadLibrary, outdir: str, tmpdir: str = "", cpu_threads: int = 1) -> list[str]:
+    def map_minimap_library(self, transposon_library: str, reads: ReadLibrary, outdir: str, tmpdir: str = "", cpu_threads: int = 0) -> list[Path]:
         """Align short reads to transposon library to find those informative for insertions.
 
         input:
@@ -63,6 +71,8 @@ class Aligner:
             - outdir: string of where to write the resulting BAM file
             - tmpdir: string of tempfile (SAM) file creation - will use current directory if not
         """
+        if cpu_threads <= 0:
+            cpu_threads = self.cpu_threads
         tmpdirhandle = None
         if len(tmpdir) == 0:
             tmpdirhandle = tempfile.TemporaryDirectory()
@@ -73,7 +83,7 @@ class Aligner:
         # also best practice may be creating index on a SSD scratch volume anyways or loading memory
         # in general these are tiny DBs so it makes little difference I expect.
         index = transposon_library + ".mmi"
-        self._index_minimap(transposon_library, str(index))
+        self.index_minimap(transposon_library, str(index))
 
         temp_sam = os.path.join(tmpdir, "mm.sam")
         temp_bam = os.path.join(tmpdir, "mm.bam")
@@ -119,7 +129,7 @@ class Aligner:
                 '0x4',  # unmapped
                 temp_bam
             ])
-            bam_files.append(bamfile)
+            bam_files.append(Path(bamfile))
         if tmpdirhandle:
             tmpdirhandle.cleanup()
         return bam_files

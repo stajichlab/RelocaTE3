@@ -1,5 +1,7 @@
 """ReadLibrary for paired-end or single-end read file set."""
 
+from __future__ import annotations
+
 
 class ReadLibrary():
     """Represent sequence library typically a single or paired-end FASTQ read files."""

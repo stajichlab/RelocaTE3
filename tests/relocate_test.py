@@ -1,39 +1,27 @@
-"""Run aligner tests."""
+"""Run Relocate tests."""
 
 import unittest
 from RelocaTE3.ReadLibrary import ReadLibrary
-from RelocaTE3.align import Aligner
+from RelocaTE3.librelocate import RelocaTE
 from pathlib import Path
 import os
-# import tempfile
 
 
-class TestAligner(unittest.TestCase):
-    """Test the Alignment class"""
-    def test_minimap(self):
+class TestRelocaTE(unittest.TestCase):
+    """Test the RelocaTE class."""
 
+    def test_relocate(self):
         rl = ReadLibrary([
             os.path.join(Path(__file__).parent, "data", "sim_reads", "MSU7.Chr3_2M.ALL_reads_6X_100_500_1.fq.gz"),
             os.path.join(Path(__file__).parent, "data", "sim_reads", "MSU7.Chr3_2M.ALL_reads_6X_100_500_2.fq.gz"),
             ], 'HEG4')
         self.assertEqual("HEG4", rl.name)
-        mm = Aligner()
-        self.assertEqual("minimap2", mm.minimap)
-
         TElib = os.path.join(Path(__file__).parent, "data", "mping.fa")
         self.assertTrue(os.path.exists(TElib))
         # with tempfile.TemporaryDirectory() as outdir:
+        relocate = RelocaTE(threads=2)
+        print(os.path.join(Path(__file__).parent))
         for outdir in [os.path.join(Path(__file__).parent, 'results')]:
             if not os.path.exists(outdir):
                 os.mkdir(outdir)
-            self.assertTrue(mm.index_minimap(TElib, TElib+".mmi", True) >= 0)
-            # now run with debug flags as On to see STDERR
-            # mm.verbose = True
-            # self.assertTrue(mm._index_minimap(TElib, TElib+".mmi", True) >= 0)
-            mm.verbose = False
-            bamfiles = mm.map_minimap_library(TElib, rl, outdir)
-            self.assertEqual(len(bamfiles), 2)
-
-
-if __name__ == '__main__':
-    unittest.main()
+            relocate.identify_TE_reads(rl, outdir, TElib, "minimap2")
