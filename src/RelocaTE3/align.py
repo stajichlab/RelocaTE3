@@ -62,7 +62,7 @@ class Aligner:
             warnings.warn(p.stderr.decode("utf-8"))
         return 0
 
-    def map_minimap_library(self, transposon_library: str, reads: ReadLibrary, outdir: str, tmpdir: str = "", cpu_threads: int = 0) -> list[Path]:
+    def map_minimap_library(self, reads: ReadLibrary, outdir: str, transposon_library: str, tmpdir: str = "", cpu_threads: int = 0) -> list[Path]:
         """Align short reads to transposon library to find those informative for insertions.
 
         input:
@@ -129,10 +129,22 @@ class Aligner:
                 '0x4',  # unmapped
                 temp_bam
             ])
+            self.index_bam(bamfile)
+
             bam_files.append(Path(bamfile))
-        if tmpdirhandle:
+        if tmpdirhandle is not None:
             tmpdirhandle.cleanup()
         return bam_files
+
+    def index_bam(self, bamfile: Path) -> bool:
+        """Index BAM files."""
+        subprocess.run([
+                self.samtools,
+                'index',
+                bamfile
+            ])
+        # catch errors ...
+        return True
 
     def _map_minimap_genome(self, genome: str, reads: ReadLibrary, outdir: str, tmpdir: str = "", thread_count: int = 1) -> str:
         """Align reads to genome with minimap2 - this may not be best tool so testing."""

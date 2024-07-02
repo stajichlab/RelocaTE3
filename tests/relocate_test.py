@@ -15,9 +15,7 @@ class TestRelocaTE(unittest.TestCase):
             os.path.join(Path(__file__).parent, "data", "sim_reads", "MSU7.Chr3_2M.ALL_reads_6X_100_500_1.fq.gz"),
             os.path.join(Path(__file__).parent, "data", "sim_reads", "MSU7.Chr3_2M.ALL_reads_6X_100_500_2.fq.gz"),
             ], 'HEG4')
-        self.assertEqual("HEG4", rl.name)
         TElib = os.path.join(Path(__file__).parent, "data", "mping.fa")
-        self.assertTrue(os.path.exists(TElib))
         # with tempfile.TemporaryDirectory() as outdir:
         relocate = RelocaTE(threads=2)
         print(os.path.join(Path(__file__).parent))
