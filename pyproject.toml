@@ -35,4 +35,4 @@ testpaths = ["tests"]
 
 [tool.versioningit.vcs]
 method = "git"
-default-tag = "0.0.0"
+default-tag = "0.1.0"

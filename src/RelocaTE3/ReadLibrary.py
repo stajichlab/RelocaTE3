@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
+
 
 class ReadLibrary():
     """Represent sequence library typically a single or paired-end FASTQ read files."""
@@ -33,6 +35,7 @@ class TrimmedReadLibrary():
 
     name = ""            # Name of the individual strain (eg ReadGroup)
     is_paired = False    # Paired library status
+    trimmed_coordinates = defaultdict(lambda: defaultdict(lambda: str))
     flanking_reads = [dict(), dict()]     # reads trimmed of TE sequence and reads matched to the middle of TE
     containing_reads = [dict(), dict()]   # all reads have matches to TE
     read_TE_match = {'five_prime': [None, None],   # TE proportion of reads that matched to TE

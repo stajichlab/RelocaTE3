@@ -18,7 +18,7 @@ from RelocaTE3.ReadLibrary import ReadLibrary, TrimmedReadLibrary
 class RelocaTE:
     """Process reads and mapping to identify transposon insertion and excision sites."""
 
-    cpu_threads = 1         # number of CPU threads to use
+    cpu_threads = 1  # number of CPU threads to use
     transposon_library = None
     verbose = 0
 
@@ -28,11 +28,13 @@ class RelocaTE:
         self.cpu_threads = threads
         self.verbose = verbose
 
-    def identify_TE_reads(self,
-                          seqreads: ReadLibrary,
-                          outdir: Path,
-                          TE_library: str = "",
-                          search_tool: str = "minimap2") -> int:
+    def identify_TE_reads(
+        self,
+        seqreads: ReadLibrary,
+        outdir: Path,
+        TE_library: str = "",
+        search_tool: str = "minimap2",
+    ) -> int:
         """Search for sequence reads containing transposon sequences.
 
         Args:
@@ -51,11 +53,14 @@ class RelocaTE:
             TE_to_readinfo = self.trim_TE_reads(seqreads, bamfiles)
             print(TE_to_readinfo)
 
-    def trim_TE_reads(self, reads: ReadLibrary,
-                      bamfiles: Path[list],
-                      minimum_match_length: int = 10,
-                      minimum_trimmed_length: int = 10,
-                      mismatch_allowance: int = 0) -> TrimmedReadLibrary:
+    def trim_TE_reads(
+        self,
+        reads: ReadLibrary,
+        bamfiles: Path[list],
+        minimum_match_length: int = 10,
+        minimum_trimmed_length: int = 10,
+        mismatch_allowance: int = 0,
+    ) -> TrimmedReadLibrary:
         """Function to process transposons aligned to reads."""
         trimlib = TrimmedReadLibrary(reads.name)
         coord = defaultdict(lambda: defaultdict(lambda: str))
@@ -72,6 +77,7 @@ class RelocaTE:
             reflengths = fbam.lengths
             qlen_c = 0
             for TE_ref in refnames:
+                # each TE in the DB matched would be a sep entry / query / analysis
                 query = fbam.fetch(reference=TE_ref, until_eof=True)
                 for record in query:
                     qName = record.query_name
@@ -95,12 +101,10 @@ class RelocaTE:
                     # match and mismatch
                     tag = record.tags if record.tags else []
                     tags = self._convert_tag(tag)
-                    # mismatch = int(tags['NM'])
-                    # match = int(record.query_alignment_length) - mismatch
                     match = 0
                     ins0 = 0
                     del0 = 0
-                    for (key, length) in record.cigartuples:
+                    for key, length in record.cigartuples:
                         # print key, length
                         if int(key) == 0:
                             match += length
@@ -108,15 +112,15 @@ class RelocaTE:
                             ins0 += length
                         elif int(key) == 2:
                             del0 += length
-                    mismatch = int(tags['NM']) - int(ins0) - int(del0)
+                    mismatch = int(tags["NM"]) - int(ins0) - int(del0)
                     match = match - mismatch
                     # strand, flag is 0 is read if read is unpaired and mapped to plus strand
-                    strand = ''
+                    strand = ""
                     flag = record.flag
                     if int(flag) == 0:
-                        strand = '+'
+                        strand = "+"
                     else:
-                        strand = '-' if record.is_reverse else '+'
+                        strand = "-" if record.is_reverse else "+"
                     # update data
                     # boundary = 1 if int(qStart) == 0 or int(qEnd) + 1 == int(qLen) else 0
                     addRecord = 0
@@ -135,16 +139,34 @@ class RelocaTE:
                         boundary_tar_right = 1
                     # max boundary should be 2: 1. match one read end and one repeat end; 2. match two read end and internal of repeat
                     # we expect more boundary and compare match length when having equal number of boundary
-                    boundary = boundary_qry_left + boundary_tar_left + boundary_qry_right + boundary_tar_right
+                    boundary = (
+                        boundary_qry_left
+                        + boundary_tar_left
+                        + boundary_qry_right
+                        + boundary_tar_right
+                    )
                     # change to use warnings?
                     if self.verbose >= 3:
-                        print(qName, qLen, qStart, qEnd, tName, tLen, tStart, tEnd, match, mismatch, boundary, file=sys.stderr)
+                        print(
+                            qName,
+                            qLen,
+                            qStart,
+                            qEnd,
+                            tName,
+                            tLen,
+                            tStart,
+                            tEnd,
+                            match,
+                            mismatch,
+                            boundary,
+                            file=sys.stderr,
+                        )
                     if qName in coord:
                         # keep the best match to TE
-                        if int(boundary) > int(coord[qName]['boundary']):
+                        if int(boundary) > int(coord[qName]["boundary"]):
                             addRecord = 1
-                        elif int(boundary) == int(coord[qName]['boundary']):
-                            if int(match) > int(coord[qName]['match']):
+                        elif int(boundary) == int(coord[qName]["boundary"]):
+                            if int(match) > int(coord[qName]["match"]):
                                 addRecord = 1
                             else:
                                 addRecord = 0
@@ -152,20 +174,20 @@ class RelocaTE:
                             addRecord = 0
                     else:
                         addRecord = 1
-
                     if addRecord == 1:
-                        coord[qName]['match'] = match
-                        coord[qName]['len'] = qLen
-                        coord[qName]['start'] = qStart
-                        coord[qName]['end'] = qEnd
-                        coord[qName]['tLen'] = tLen
-                        coord[qName]['mismatch'] = mismatch
-                        coord[qName]['strand'] = strand
-                        coord[qName]['tName'] = tName
-                        coord[qName]['tStart'] = tStart
-                        coord[qName]['tEnd'] = tEnd
-                        coord[qName]['boundary'] = boundary
+                        coord[qName]["match"] = match
+                        coord[qName]["len"] = qLen
+                        coord[qName]["start"] = qStart
+                        coord[qName]["end"] = qEnd
+                        coord[qName]["tLen"] = tLen
+                        coord[qName]["mismatch"] = mismatch
+                        coord[qName]["strand"] = strand
+                        coord[qName]["tName"] = tName
+                        coord[qName]["tStart"] = tStart
+                        coord[qName]["tEnd"] = tEnd
+                        coord[qName]["boundary"] = boundary
             fbam.close()
+        trimlib.trimmed_coordinates(coord)
         return trimlib
 
     def _convert_tag(self, tag: list):
@@ -174,3 +196,28 @@ class RelocaTE:
         for t in tag:
             tags[t[0]] = t[1]
         return tags
+
+    def _update_coord(self, header1, header, coord):
+        coord[header]["start"] = int(coord[header1]["start"])
+        coord[header]["len"] = int(coord[header1]["len"])
+        coord[header]["end"] = int(coord[header1]["end"])
+        coord[header]["tName"] = coord[header1]["tName"]
+        coord[header]["tStart"] = int(coord[header1]["tStart"])
+        coord[header]["tEnd"] = int(coord[header1]["tEnd"])
+        coord[header]["tLen"] = int(coord[header1]["tLen"])
+        coord[header]["mismatch"] = int(coord[header1]["mismatch"])
+        coord[header]["match"] = int(coord[header1]["match"])
+        coord[header]["strand"] = coord[header1]["strand"]
+        coord[header]["boundary"] = int(coord[header1]["boundary"])
+
+        del coord[header1]["start"]
+        del coord[header1]["len"]
+        del coord[header1]["end"]
+        del coord[header1]["tName"]
+        del coord[header1]["tStart"]
+        del coord[header1]["tEnd"]
+        del coord[header1]["tLen"]
+        del coord[header1]["mismatch"]
+        del coord[header1]["match"]
+        del coord[header1]["strand"]
+        del coord[header1]["boundary"]
