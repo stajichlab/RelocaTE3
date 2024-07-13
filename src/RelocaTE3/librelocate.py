@@ -92,6 +92,8 @@ class RelocaTE:
                     try:
                         qEnd = int(record.query_alignment_end) - 1
                     except ValueError:
+                        # clarify this means the alignment end is too long?
+                        print(f'{qEnd} is not a valid alignment end', file=sys.stderr)
                         continue
                     if qLen == 0:
                         qLen = qlen_c
@@ -145,10 +147,10 @@ class RelocaTE:
                     # max boundary should be 2: 1. match one read end and one repeat end; 2. match two read end and internal of repeat
                     # we expect more boundary and compare match length when having equal number of boundary
                     boundary = (
-                        boundary_qry_left
-                        + boundary_tar_left
-                        + boundary_qry_right
-                        + boundary_tar_right
+                        boundary_qry_left +
+                        boundary_tar_left +
+                        boundary_qry_right +
+                        boundary_tar_right
                     )
                     # change to use warnings?
                     if self.verbose >= 3:
