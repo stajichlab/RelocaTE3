@@ -16,7 +16,7 @@ from RelocaTE3.ReadLibrary import ReadLibrary, TrimmedReadLibrary
 
 
 class RelocaTE:
-    """Process reads and mapping to identify transposon insertion and excision sites."""
+    """Process reads to identify transposon insertion and excision sites."""
 
     cpu_threads = 1  # number of CPU threads to use
     transposon_library = None
@@ -43,15 +43,20 @@ class RelocaTE:
         Returns:
             int: number of reads (or read pairs) identified as containing transposon sequences.
         """
-        if TE_library == "":
+        if not TE_library:
             TE_library = self.transposon_library
-
-        alntool = Aligner(self.cpu_threads)
+        reads_written = 0
         if "minimap" in search_tool.lower():
+            alntool = Aligner(self.cpu_threads)
             alntool.index_minimap(TE_library)
             bamfiles = alntool.map_minimap_library(seqreads, outdir, TE_library)
             TE_to_readinfo = self.trim_TE_reads(seqreads, bamfiles)
-            print(TE_to_readinfo)
+            print(TE_to_readinfo, file=sys.stderr)
+
+            for TE in TE_to_readinfo:
+                reads_written += TE_to_readinfo[TE].write_reads(outdir)
+
+        return reads_written
 
     def trim_TE_reads(
         self,
@@ -69,7 +74,7 @@ class RelocaTE:
         # for each read, identify reference (eg mPing or Ping etc) aligned to
         # keep track of orientation and start/end of alignment to the transposable element seq
         for bam in bamfiles:
-            if not os.path.exists(str(bam) + ".bai"):
+            if not os.path.exists(f"{str(bam)}.bai"):
                 alntool = Aligner()
                 alntool.index_bam(bam)
             fbam = pysam.AlignmentFile(bam, "rb")
@@ -129,13 +134,13 @@ class RelocaTE:
                     boundary_tar_left = 0
                     boundary_qry_right = 0
                     boundary_tar_right = 0
-                    if int(qStart) == 0 or int(qStart) <= 2:
+                    if qStart == 0 or qStart <= 2:
                         boundary_qry_left = 1
-                    if int(qEnd) + 1 == int(qLen) or int(qEnd) >= int(qLen) - 3:
+                    if qEnd + 1 == int(qLen) or qEnd >= int(qLen) - 3:
                         boundary_qry_right = 1
-                    if int(tStart) == 0 or int(tStart) <= 2:
+                    if tStart == 0 or tStart <= 2:
                         boundary_tar_left = 1
-                    if int(tEnd) + 1 == int(tLen) or int(tEnd) >= int(tLen) - 3:
+                    if int(tEnd) + 1 == tLen or int(tEnd) >= tLen - 3:
                         boundary_tar_right = 1
                     # max boundary should be 2: 1. match one read end and one repeat end; 2. match two read end and internal of repeat
                     # we expect more boundary and compare match length when having equal number of boundary
@@ -163,13 +168,12 @@ class RelocaTE:
                         )
                     if qName in coord:
                         # keep the best match to TE
-                        if int(boundary) > int(coord[qName]["boundary"]):
+                        if boundary > int(coord[qName]["boundary"]):
                             addRecord = 1
-                        elif int(boundary) == int(coord[qName]["boundary"]):
-                            if int(match) > int(coord[qName]["match"]):
-                                addRecord = 1
-                            else:
-                                addRecord = 0
+                        elif boundary == int(coord[qName]["boundary"]):
+                            addRecord = (
+                                1 if int(match) > int(coord[qName]["match"]) else 0
+                            )
                         else:
                             addRecord = 0
                     else:
@@ -192,10 +196,7 @@ class RelocaTE:
 
     def _convert_tag(self, tag: list):
         """Convert SAM tags."""
-        tags = {}
-        for t in tag:
-            tags[t[0]] = t[1]
-        return tags
+        return {t[0]: t[1] for t in tag}
 
     def _update_coord(self, header1, header, coord):
         coord[header]["start"] = int(coord[header1]["start"])
