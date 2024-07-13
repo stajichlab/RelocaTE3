@@ -1,3 +1,5 @@
+*.bam
+*.bai
 *.mmi
 *.fai
 *.gzi
