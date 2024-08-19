@@ -1,5 +1,16 @@
 {
     "cSpell.words": [
+        "alntool",
+        "bamfiles",
+        "cigartuples",
+        "FASTQ",
+        "fbam",
+        "fileset",
+        "outdir",
+        "pysam",
+        "readinfo",
+        "refnames",
+        "seqreads",
         "transposon"
     ]
 }
