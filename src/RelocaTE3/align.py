@@ -83,19 +83,14 @@ class Aligner:
             tmpdir = tmpdirhandle.name
         elif not Path(tmpdir).exists():
             os.mkdir(tmpdir)
-        # this may not be necessary/performance boost for Transposon library anyways so we might skip this
-        # also best practice may be creating index on a SSD scratch volume anyways or loading memory
-        # in general these are tiny DBs so it makes little difference I expect.
-        index = f"{transposon_library}.mmi"
-        self.index_minimap(transposon_library, str(index))
-
         temp_sam = os.path.join(tmpdir, "mm.sam")
         temp_bam = os.path.join(tmpdir, "mm.bam")
 
-        # an option here is to run left and right separately as single --sr runs
-        # then process the LEFT BAM/SAM file result, keep all mapping reads, AND retrieve the reads from the RIGHT file
-        # then process the RIGHT BAM/SAM file and retrieve the LEFT reads that are the paired end of any match
-        # do this without duplicating
+        # Map reads to the (tiny) TE library with sensitive short-read seeding.
+        # blat (RelocaTE2's default) finds short/divergent TE matches that minimap2
+        # `-x sr` defaults miss; small seeds (-k 11 -w 5) and keeping secondary
+        # alignments recover those reads. We map the FASTA directly (not a prebuilt
+        # .mmi) so the custom k/w take effect.
         read_set = {"left": reads.left()}
         if reads.is_paired:
             read_set["right"] = reads.right()
@@ -109,9 +104,17 @@ class Aligner:
                     "-a",
                     "-x",
                     "sr",
+                    "-k",
+                    "11",
+                    "-w",
+                    "5",
+                    "-N",
+                    "20",
+                    "-p",
+                    "0.5",
                     "-o",
                     temp_sam,
-                    str(index),
+                    str(transposon_library),
                     read_file,
                 ],
                 stderr=None,
@@ -191,6 +194,8 @@ class Aligner:
                 with open(f, "rb") as src:
                     shutil.copyfileobj(src, out)
 
+        # Sensitive short-read seeding helps place short trimmed flanks; the
+        # downstream clustering and full-read false-junction filter guard precision.
         cmd = [
             self.minimap,
             "-t",
@@ -198,6 +203,10 @@ class Aligner:
             "-a",
             "-x",
             "sr",
+            "-k",
+            "13",
+            "-w",
+            "6",
             "-o",
             temp_sam,
             str(genome),
@@ -214,6 +223,57 @@ class Aligner:
             [self.samtools, "view", "-b", "-F", "0x4", "-o", str(outbam), temp_bam],
             check=True,
         )
+        self.index_bam(outbam)
+
+        if tmpdirhandle is not None:
+            tmpdirhandle.cleanup()
+        return Path(outbam)
+
+    def map_library_to_genome(
+        self,
+        genome: str,
+        reads: ReadLibrary.ReadLibrary,
+        outbam: str,
+        tmpdir: str = "",
+        cpu_threads: int = 0,
+    ) -> Path:
+        """Map the original (untrimmed) read library to ``genome`` for genotyping.
+
+        Paired-end reads are mapped as proper pairs (minimap2 ``-x sr`` with two
+        read files); the result is coordinate-sorted and indexed. This whole-genome
+        alignment is what the genotyping step (Step 7) uses to count reference-allele
+        reads spanning each insertion site.
+        """
+        if cpu_threads <= 0:
+            cpu_threads = self.cpu_threads
+
+        tmpdirhandle = None
+        if not tmpdir:
+            tmpdirhandle = tempfile.TemporaryDirectory()
+            tmpdir = tmpdirhandle.name
+        elif not Path(tmpdir).exists():
+            os.makedirs(tmpdir)
+
+        temp_sam = os.path.join(tmpdir, "lib.sam")
+        read_files = [reads.left()] + ([reads.right()] if reads.is_paired else [])
+        cmd = [
+            self.minimap,
+            "-t",
+            str(cpu_threads),
+            "-a",
+            "-x",
+            "sr",
+            "-o",
+            temp_sam,
+            str(genome),
+            *[str(f) for f in read_files],
+        ]
+        p = subprocess.run(cmd, capture_output=True, check=True)
+        if self.verbose:
+            warnings.warn(p.stderr.decode("utf-8"))
+
+        os.makedirs(os.path.dirname(os.path.abspath(outbam)), exist_ok=True)
+        pysam.sort("-@", str(cpu_threads), "-o", str(outbam), temp_sam)
         self.index_bam(outbam)
 
         if tmpdirhandle is not None:

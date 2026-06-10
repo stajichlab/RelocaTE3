@@ -13,15 +13,21 @@ import textwrap
 from pathlib import Path
 
 from RelocaTE3 import __author__, __version__, logger
+from RelocaTE3.characterize import characterize_insertions, write_characterized
 from RelocaTE3.genome_align import align_to_genome, read_read_repeat
 from RelocaTE3.insertions import (
     find_insertions,
+    read_insertions_gff,
     write_insertions_gff,
     write_insertions_txt,
 )
 from RelocaTE3.librelocate import RelocaTE
 from RelocaTE3.pipeline import run_sample
 from RelocaTE3.ReadLibrary import ReadLibrary
+from RelocaTE3.reference_te import (
+    find_reference_insertions,
+    write_existing_te_bed_from_rm,
+)
 
 
 class CustomHelpFormatter(argparse.HelpFormatter):
@@ -252,6 +258,15 @@ def _add_run_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     p.add_argument("-g", "--genome", required=True, help="Reference genome FASTA")
     p.add_argument("-o", "--outdir", required=True, help="Output directory")
+    p.add_argument(
+        "--repeatmasker",
+        help="RepeatMasker .out for the genome (enables reference/shared insertions + FP filter)",
+    )
+    p.add_argument(
+        "--genotype",
+        action="store_true",
+        help="Align original reads to the genome and classify zygosity (Step 7)",
+    )
     p.add_argument("--sample", default="sample", help="Sample/strain name")
     p.add_argument("-c", "--threads", type=int, default=1, help="Number of CPU threads")
     p.add_argument(
@@ -276,18 +291,99 @@ def _run_pipeline(args: argparse.Namespace) -> int:
     """Execute the ``run`` subcommand."""
     fileset = [args.left] + ([args.right] if args.right else [])
     reads = ReadLibrary(fileset, args.sample)
-    bam = run_sample(
+    gff = run_sample(
         reads,
         args.te_library,
         args.genome,
         args.outdir,
+        repeatmasker=args.repeatmasker,
+        genotype=args.genotype,
         threads=args.threads,
         len_cut_match=args.len_cut_match,
         len_cut_trim=args.len_cut_trim,
         mismatch_allowance=args.mismatch,
         verbose=1 if args.verbose else 0,
     )
-    logger.info("Pipeline complete; genome alignment at %s", bam)
+    logger.info("Pipeline complete; non-reference insertions at %s", gff)
+    return 0
+
+
+def _add_characterize_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``characterize`` subcommand (Step 7: genotyping)."""
+    p = subparsers.add_parser(
+        "characterize",
+        help="Genotype insertions (homo/heterozygous/somatic) from a reads-to-genome BAM",
+        formatter_class=CustomHelpFormatter,
+    )
+    p.add_argument(
+        "-i", "--insertions", required=True, help="Non-reference insertion GFF"
+    )
+    p.add_argument(
+        "-b",
+        "--reads-bam",
+        required=True,
+        help="Original reads aligned to the genome (sorted+indexed BAM)",
+    )
+    p.add_argument("-o", "--outdir", required=True, help="Output directory")
+    p.add_argument("--sample", default="sample", help="Sample/strain name")
+    p.set_defaults(func=_run_characterize)
+
+
+def _run_characterize(args: argparse.Namespace) -> int:
+    """Execute the ``characterize`` subcommand."""
+    insertions = read_insertions_gff(args.insertions)
+    characterize_insertions(insertions, args.reads_bam)
+    results_dir = Path(args.outdir) / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    write_characterized(
+        insertions,
+        results_dir / f"{args.sample}.all_nonref_insert.characTErized.gff",
+        results_dir / f"{args.sample}.all_nonref_insert.characTErized.txt",
+        args.sample,
+    )
+    logger.info("Genotyping complete for %d insertions", len(insertions))
+    return 0
+
+
+def _add_find_reference_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``find-reference`` subcommand (Steps 0/6: reference TEs)."""
+    p = subparsers.add_parser(
+        "find-reference",
+        help="Build existingTE.bed and call reference/shared insertions",
+        formatter_class=CustomHelpFormatter,
+    )
+    p.add_argument(
+        "-b", "--bam", required=True, help="Genome BAM from the align-genome step"
+    )
+    p.add_argument(
+        "--repeatmasker", required=True, help="RepeatMasker .out for the genome"
+    )
+    p.add_argument(
+        "--read-repeat",
+        required=True,
+        help="read_repeat_name.txt table written by the trim step",
+    )
+    p.add_argument("-o", "--outdir", required=True, help="Output directory")
+    p.add_argument("--sample", default="sample", help="Sample/strain name")
+    p.set_defaults(func=_run_find_reference)
+
+
+def _run_find_reference(args: argparse.Namespace) -> int:
+    """Execute the ``find-reference`` subcommand."""
+    outdir = Path(args.outdir)
+    results_dir = outdir / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    reference_tes = write_existing_te_bed_from_rm(
+        args.repeatmasker, outdir / "existingTE.bed"
+    )
+    read_repeat = read_read_repeat(Path(args.read_repeat))
+    ref_insertions = find_reference_insertions(args.bam, read_repeat, reference_tes)
+    gff = results_dir / f"{args.sample}.all_ref_insert.gff"
+    write_insertions_gff(ref_insertions, gff, args.sample)
+    write_insertions_txt(
+        ref_insertions, results_dir / f"{args.sample}.all_ref_insert.txt"
+    )
+    logger.info("Wrote %d reference/shared insertions to %s", len(ref_insertions), gff)
     return 0
 
 
@@ -307,6 +403,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_trim_parser(subparsers)
     _add_align_genome_parser(subparsers)
     _add_find_insertions_parser(subparsers)
+    _add_find_reference_parser(subparsers)
+    _add_characterize_parser(subparsers)
     _add_run_parser(subparsers)
     return parser
 

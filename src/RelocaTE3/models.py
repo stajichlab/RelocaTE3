@@ -137,6 +137,9 @@ class Insertion:
     right_support_reads: int = 0
     note: str = "Non-reference, not found in reference"
     read_names: list = None  # type: ignore[assignment]
+    # genotyping (Step 7); populated by characterize.py
+    status: str = ""  # homozygous / heterozygous / somatic_insertion / ...
+    spanners: int = 0  # reference-allele reads mapping cleanly across the site
 
     def __post_init__(self) -> None:
         """Default the read-name list to empty."""
@@ -147,3 +150,8 @@ class Insertion:
     def feature_id(self) -> str:
         """Stable GFF feature id: ``repeat_<chrom>_<start>_<end>``."""
         return f"repeat_{self.chrom}_{self.start}_{self.end}"
+
+    @property
+    def avg_flankers(self) -> float:
+        """RelocaTE2 ``average_flankers``: total junction reads divided by two."""
+        return (self.left_junction_reads + self.right_junction_reads) / 2

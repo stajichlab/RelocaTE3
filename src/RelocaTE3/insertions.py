@@ -30,6 +30,8 @@ TSD_WINDOW = 100
 MAX_TSD = 20
 # a full read extending this far past a breakpoint indicates no insertion
 FULLREAD_EXTEND = 10
+# minimum bracketing reads per strand for a support-only (no junction) call
+MIN_SUPPORT_ONLY = 2
 
 
 def _junction_info(
@@ -244,6 +246,40 @@ def _count_support(ins: Insertion, cluster: _Cluster) -> None:
     ins.right_support_reads = right
 
 
+def _call_support_only(
+    cluster: _Cluster, min_support: int = MIN_SUPPORT_ONLY
+) -> Insertion | None:
+    """Call an insertion from supporting reads alone, when junctions failed to map.
+
+    Mirrors RelocaTE2's both-strand ``supporting_reads`` path: forward-strand mates
+    bracket the insertion on the left, reverse-strand mates on the right, and the
+    site lies in the gap between the innermost reads (``get_boundary``). Requires
+    ``min_support`` reads on each strand. Lower confidence than a junction call —
+    short junction flanks often don't map uniquely, but the paired-end mates do.
+    """
+    plus_ends = [gend for _n, _s, gend, strand in cluster.support if strand == "+"]
+    minus_starts = [
+        gstart for _n, gstart, _e, strand in cluster.support if strand == "-"
+    ]
+    if len(plus_ends) < min_support or len(minus_starts) < min_support:
+        return None
+    ins_start = max(plus_ends)  # rightmost extent of left-bracketing reads
+    ins_end = min(minus_starts)  # leftmost extent of right-bracketing reads
+    if ins_start > ins_end:
+        return None  # reads overlap: ambiguous, not a clean bracket
+    return Insertion(
+        chrom=cluster.chrom,
+        start=ins_start,
+        end=ins_end,
+        te_name="NA",
+        strand="+",
+        tsd="supporting_reads",
+        left_support_reads=len(plus_ends),
+        right_support_reads=len(minus_starts),
+        note="Non-reference, supporting reads only",
+    )
+
+
 def _load_fullread_spans(
     fullreads_bam: str | None,
 ) -> dict[str, list[tuple[str, int, int]]]:
@@ -323,19 +359,24 @@ def find_insertions(
     genome_fasta: str,
     fullreads_bam: str | None = None,
     required_junction_reads: int = 1,
+    include_support_only: bool = True,
 ) -> list[Insertion]:
     """Call non-reference insertions from the Step-4 genome BAM.
 
     Keeps clusters with at least ``required_junction_reads`` junction reads on
     either side, dropping false junctions identified via ``fullreads_bam`` (the
-    untrimmed junction reads aligned to the genome). Returns insertions sorted by
-    chromosome and position.
+    untrimmed junction reads aligned to the genome). When ``include_support_only``
+    is set, clusters with no mapped junction reads but two-sided paired-end support
+    are also called (lower confidence; recovers sites whose short junction flanks
+    failed to map). Returns insertions sorted by chromosome and position.
     """
     fullread_spans = _load_fullread_spans(fullreads_bam)
     insertions: list[Insertion] = []
     n_false = 0
+    n_support_only = 0
     with pysam.FastaFile(genome_fasta) as genome:
         for cluster in _stream_clusters(genome_bam, read_repeat):
+            calls = []
             for ins in _call_insertions(cluster, genome):
                 if (
                     ins.left_junction_reads < required_junction_reads
@@ -345,11 +386,19 @@ def find_insertions(
                 if _is_false_junction(ins, fullread_spans):
                     n_false += 1
                     continue
-                insertions.append(ins)
+                calls.append(ins)
+            if not calls and include_support_only:
+                support_call = _call_support_only(cluster)
+                if support_call is not None:
+                    calls.append(support_call)
+                    n_support_only += 1
+            insertions.extend(calls)
     insertions.sort(key=lambda i: (i.chrom, i.start, i.end))
     logger.info(
-        "Called %d non-reference insertions (%d false junctions filtered)",
+        "Called %d non-reference insertions (%d junction-based, %d support-only, %d false junctions filtered)",
         len(insertions),
+        len(insertions) - n_support_only,
+        n_support_only,
         n_false,
     )
     return insertions
@@ -374,6 +423,47 @@ def write_insertions_gff(
             fh.write(
                 f"{ins.chrom}\t{source}\t{sample}\t{ins.start}\t{ins.end}\t.\t{ins.strand}\t.\t{attrs}\n"
             )
+
+
+def _gff_attr(attrs: str, key: str, default: str = "") -> str:
+    """Extract ``key=value`` from a GFF attribute column."""
+    m = re.search(rf"{key}=([^;]*)", attrs)
+    return m.group(1) if m else default
+
+
+def read_insertions_gff(path: str | Path) -> list[Insertion]:
+    """Parse a RelocaTE3 insertion GFF back into :class:`Insertion` records."""
+    insertions: list[Insertion] = []
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith("#") or not line.strip():
+                continue
+            f = line.rstrip("\n").split("\t")
+            if len(f) < 9:
+                continue
+            attrs = f[8]
+            insertions.append(
+                Insertion(
+                    chrom=f[0],
+                    start=int(f[3]),
+                    end=int(f[4]),
+                    te_name=_gff_attr(attrs, "Name", "NA"),
+                    strand=f[6],
+                    tsd=_gff_attr(attrs, "TSD", "UNK"),
+                    left_junction_reads=int(
+                        _gff_attr(attrs, "Left_junction_reads", "0")
+                    ),
+                    right_junction_reads=int(
+                        _gff_attr(attrs, "Right_junction_reads", "0")
+                    ),
+                    left_support_reads=int(_gff_attr(attrs, "Left_support_reads", "0")),
+                    right_support_reads=int(
+                        _gff_attr(attrs, "Right_support_reads", "0")
+                    ),
+                    note=_gff_attr(attrs, "Note", ""),
+                )
+            )
+    return insertions
 
 
 def write_insertions_txt(insertions: list[Insertion], path: str | Path) -> None:

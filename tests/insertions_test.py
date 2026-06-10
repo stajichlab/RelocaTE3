@@ -9,6 +9,7 @@ import pysam
 
 from RelocaTE3.insertions import (
     _call_insertions,
+    _call_support_only,
     _Cluster,
     _junction_info,
     _pair_breakpoints,
@@ -78,6 +79,38 @@ def test_call_insertions_splits_two_sites():
         assert len(ins.tsd) == 3  # 3 bp TSD from the 2 bp overlap span
 
 
+def test_call_support_only():
+    """Two-sided bracketing support with a clean gap yields a support-only call."""
+    cluster = _Cluster("Chr3")
+    # forward (left-bracketing) mates ending before the site; reverse (right) after
+    cluster.support = [
+        ("a", 800, 900, "+"),
+        ("b", 820, 920, "+"),
+        ("c", 1100, 1200, "-"),
+        ("d", 1120, 1220, "-"),
+    ]
+    ins = _call_support_only(cluster)
+    assert ins is not None
+    assert ins.start == 920 and ins.end == 1100  # max(+ end) .. min(- start)
+    assert ins.left_support_reads == 2 and ins.right_support_reads == 2
+    assert ins.left_junction_reads == 0 and "supporting" in ins.note
+
+
+def test_call_support_only_rejects_overlap_and_one_sided():
+    overlap = _Cluster("Chr3")
+    overlap.support = [
+        ("a", 800, 1150, "+"),
+        ("b", 820, 1160, "+"),
+        ("c", 1100, 1200, "-"),
+        ("d", 1120, 1220, "-"),
+    ]
+    assert _call_support_only(overlap) is None  # + reads end past - read starts
+
+    one_sided = _Cluster("Chr3")
+    one_sided.support = [("a", 800, 900, "+"), ("b", 820, 920, "+")]
+    assert _call_support_only(one_sided) is None  # only one strand
+
+
 def test_find_insertions_recovers_mping(tmp_path: Path):
     """End-to-end: most calls match true mPing insertions within 10 bp."""
     reads = ReadLibrary([str(R1), str(R2)], "HEG4")
@@ -96,8 +129,10 @@ def test_find_insertions_recovers_mping(tmp_path: Path):
     assert len(calls) >= 10
     truth = _load_truth_mping(TRUTH)
     matched = sum(1 for c in calls if _near(c, truth))
-    assert matched >= 0.7 * len(calls)
-    assert matched >= 12
+    assert matched >= 0.85 * len(calls)  # precision
+    # recall: support-only calls recover short-flank sites (>= 20 of 23 mPing)
+    recovered = {t for t in truth for c in calls if _near(c, [t])}
+    assert len(recovered) >= 20
 
 
 def _load_truth_mping(path: Path) -> list[tuple[str, int, int]]:
