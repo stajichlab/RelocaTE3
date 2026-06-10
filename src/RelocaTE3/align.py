@@ -151,8 +151,7 @@ class Aligner:
 
     def index_bam(self, bamfile: Path) -> bool:
         """Index BAM files."""
-        subprocess.run([self.samtools, "index", str(bamfile)])
-        # catch errors ...
+        subprocess.run([self.samtools, "index", str(bamfile)], check=True)
         return True
 
     def map_reads_to_genome(
