@@ -38,4 +38,4 @@ method = "git"
 default-tag = "0.1.0"
 
 [tool.codespell]
-ignore-words-list = "crate"
+ignore-words-list = "crate,te"
