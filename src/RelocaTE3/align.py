@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+
 # import re
 import subprocess
 import tempfile
@@ -146,25 +148,74 @@ class Aligner:
 
     def index_bam(self, bamfile: Path) -> bool:
         """Index BAM files."""
-        subprocess.run([self.samtools, "index", bamfile])
+        subprocess.run([self.samtools, "index", str(bamfile)])
         # catch errors ...
         return True
 
-    def _map_minimap_genome(
+    def map_reads_to_genome(
         self,
         genome: str,
-        reads: ReadLibrary,
-        outdir: str,
+        fastq_files: list[str],
+        outbam: str,
         tmpdir: str = "",
-        thread_count: int = 1,
-    ) -> str:
-        """Align reads to genome with minimap2 - this may not be best tool so testing."""
-        bamfile = os.path.join(outdir, reads.name + ".bam")
-        bamfile
+        cpu_threads: int = 0,
+    ) -> Path:
+        """Map (single-end) reads in ``fastq_files`` to ``genome`` with minimap2.
 
-    def _map_bwa_genome(
-        self, genome: str, reads: ReadLibrary, outdir: str, thread_count: int = 1
-    ) -> str:
-        """Align reads to genome with minimap2 - this may not be best tool so testing."""
-        bamfile = os.path.join(outdir, reads.name + ".bam")
-        bamfile
+        The reads are mapped as single-end (each flanking/supporting read is
+        independent), unmapped reads are dropped, and the result is written to
+        ``outbam`` coordinate-sorted and indexed.
+
+        The genome FASTA is passed directly to minimap2 with the ``sr`` preset so
+        the appropriate short-read index is built; no external ``.mmi`` is needed.
+        """
+        if cpu_threads <= 0:
+            cpu_threads = self.cpu_threads
+
+        tmpdirhandle = None
+        if not tmpdir:
+            tmpdirhandle = tempfile.TemporaryDirectory()
+            tmpdir = tmpdirhandle.name
+        elif not Path(tmpdir).exists():
+            os.makedirs(tmpdir)
+
+        temp_sam = os.path.join(tmpdir, "genome.sam")
+        temp_bam = os.path.join(tmpdir, "genome.bam")
+
+        # minimap2 accepts at most two read files (and treats two as paired-end).
+        # We map every flanking/supporting read independently, so concatenate all
+        # inputs into a single uncompressed FASTQ and map it single-end.
+        combined_fq = os.path.join(tmpdir, "reads.fq")
+        with open(combined_fq, "wb") as out:
+            for f in fastq_files:
+                with open(f, "rb") as src:
+                    shutil.copyfileobj(src, out)
+
+        cmd = [
+            self.minimap,
+            "-t",
+            str(cpu_threads),
+            "-a",
+            "-x",
+            "sr",
+            "-o",
+            temp_sam,
+            str(genome),
+            combined_fq,
+        ]
+        p = subprocess.run(cmd, capture_output=True, check=True)
+        if self.verbose:
+            warnings.warn(p.stderr.decode("utf-8"))
+
+        # coordinate-sort, then keep only mapped reads (-F 0x4)
+        pysam.sort("-@", str(cpu_threads), "-o", temp_bam, temp_sam)
+        os.makedirs(os.path.dirname(os.path.abspath(outbam)), exist_ok=True)
+        subprocess.run(
+            [self.samtools, "view", "-b", "-F", "0x4", "-o", str(outbam), temp_bam],
+            check=True,
+        )
+        self.index_bam(outbam)
+
+        if tmpdirhandle is not None:
+            tmpdirhandle.cleanup()
+        return Path(outbam)
