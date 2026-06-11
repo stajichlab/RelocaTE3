@@ -317,14 +317,21 @@ src/RelocaTE3/
 - **Deferred:** the optional excision-with-footprint VCF analysis (bcftools) from
   the Perl tool.
 
-### Phase 6 — CLI, pipeline orchestration, docs
-- `cli.py`: subcommands `trim`, `align-genome`, `find-insertions`,
-  `find-reference`, `characterize`, and `run` (end-to-end single sample). Fix the
-  duplicate-argument bug and remove the placeholder wiring.
-- `pipeline.py`: a single-node driver that runs all steps for one sample with a
-  thread pool (laptop path). Provenance/log of commands and versions.
-- Update README + Sphinx; document the output GFF and parameters; migration
-  notes from RelocaTE2 flags.
+### Phase 6 — CLI, pipeline orchestration, docs  ✅ DONE
+- `cli.py`: all six subcommands (`trim`, `align-genome`, `find-insertions`,
+  `find-reference`, `characterize`, `run`) implemented; duplicate-argument bug
+  fixed; placeholder wiring removed.
+- `pipeline.py`: `run_sample` orchestrates all steps (3–7); `run_samples` runs
+  multiple samples in parallel via `concurrent.futures.ThreadPoolExecutor`
+  (`sample_threads` samples at a time, `step_threads` CPU threads each);
+  `log_provenance` logs RelocaTE3, minimap2, samtools, and bedtools versions
+  plus key run parameters at the start of every run.
+- Sphinx docs built out: `conf.py` (autodoc + intersphinx), `index.rst`,
+  `installation.rst`, `usage.rst`, `output.rst` (GFF attribute reference),
+  `migration.rst` (RelocaTE2 flag mapping), `api.rst` (autodoc for all modules).
+  Build with `pixi run docs` or `make html` in `docs/`.
+- README updated with migration table, output layout, and GFF attribute docs.
+  `pixi run docs` task added to `pixi.toml`.
 
 **Milestone = "reference implementation validated":** end of Phase 5, when
 `relocaTE3 run` on the rice Chr3 2 Mb set reproduces RelocaTE2's non-reference,
