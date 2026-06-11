@@ -46,9 +46,10 @@ def _make_bam(tmp_path: Path, reads: list[tuple[int, int, str, int]]) -> Path:
             rec.cigarstring = cigar
             rec.set_tag("NM", nm)
             bam.write(rec)
-    pysam.sort("-o", str(bam_path), str(bam_path))
-    pysam.index(str(bam_path))
-    return bam_path
+    sorted_path = tmp_path / "reads.sorted.bam"
+    pysam.sort("-o", str(sorted_path), str(bam_path))
+    pysam.index(str(sorted_path))
+    return sorted_path
 
 
 def test_count_spanners(tmp_path: Path):
