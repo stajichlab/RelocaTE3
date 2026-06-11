@@ -16,6 +16,8 @@ pip = ">=26.1.2,<27"
 
 [pypi-dependencies]
 RelocaTE3 = { path = ".", editable = true }
+sphinx = ">=7.0"
 
 [tasks]
 test = "pytest -ra -q"
+docs = "sphinx-build -b html docs/source docs/_build/html"
