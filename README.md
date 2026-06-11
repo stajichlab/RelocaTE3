@@ -40,8 +40,8 @@ relocaTE3 run \
   --genome reference.fa \
   --outdir HEG4_out --sample HEG4 \
   --threads 8 --mismatch 2 \
-  --repeatmasker reference.fa.RepeatMasker.out \   # optional: reference/shared calls + FP filter
-  --genotype                                       # optional: homo/heterozygous/somatic
+  --repeatmasker reference.fa.RepeatMasker.out \
+  --genotype
 ```
 
 ### Individual steps
