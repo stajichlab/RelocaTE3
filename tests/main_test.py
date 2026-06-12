@@ -1,34 +1,33 @@
+"""Tests for the RelocaTE3 command-line interface."""
+
 from __future__ import annotations
 
 import logging
-from typing import Generator
 
 import pytest
 
-from RelocaTE3 import __main__, __version__
-from RelocaTE3.__main__ import main
-
-
-def mockreturn(**kwargs):
-    for k, v in kwargs.items():
-        print(f"{k}: {v}")
+from RelocaTE3 import __version__
+from RelocaTE3.cli import main
 
 
 def test_main_version(capsys: pytest.CaptureFixture):
-    assert main(["--version"]) == main(["-V"])
-    captured: str = capsys.readouterr().out
-    captured = captured.split("\n")
-    assert captured[0] == captured[1] == __version__
+    """--version prints the version and exits 0."""
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+    captured = capsys.readouterr().out.strip()
+    assert captured == __version__
 
 
-def test_main_align(monkeypatch: Generator):
-    monkeypatch.setattr(__main__, "align", mockreturn)
-    assert main(["-i", "tests/data/example_input"]) == 0
+def test_main_no_command_prints_help(capsys: pytest.CaptureFixture):
+    """Running with no subcommand prints help and returns 0."""
+    assert main([]) == 0
+    err = capsys.readouterr().err
+    assert "usage" in err.lower()
 
 
-def test_main_align_verbose(monkeypatch: Generator, caplog: pytest.LogCaptureFixture):
-    monkeypatch.setattr(__main__, "align", mockreturn)
+def test_main_verbose_enables_debug(caplog: pytest.LogCaptureFixture):
+    """The global -v flag turns on debug logging."""
     with caplog.at_level(logging.DEBUG):
-        main(["-i", "tests/data/example_input", "-v"])
-    assert any(record.levelname == "DEBUG" for record in caplog.records)
+        main(["-v"])
     assert "Debug mode enabled." in caplog.text

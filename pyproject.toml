@@ -10,7 +10,7 @@ authors = [
 ]
 description = "Tool for identifying Transposable transposition from resequencing data comparison to a reference genome"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 keywords = ["transposable elements", "bioinformatics"]
 license = { file = "LICENSE" }
 classifiers = [
@@ -36,3 +36,6 @@ testpaths = ["tests"]
 [tool.versioningit.vcs]
 method = "git"
 default-tag = "0.1.0"
+
+[tool.codespell]
+ignore-words-list = "crate,te"

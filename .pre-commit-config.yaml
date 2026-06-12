@@ -34,6 +34,12 @@ repos:
 #          - --show-source
 #          - --statistics
 #        exclude: ^tests/augustus*
+#  - repo: https://github.com/pycqa/isort
+#    rev: 8.0.1
+#    hooks:
+#      - id: isort
+#        args: ["--profile", "black"]  # also make sure isort & black don't conflict
+#        exclude: ^tests
   - repo: https://github.com/psf/black-pre-commit-mirror
     rev: 24.4.2
     hooks:
@@ -47,12 +53,7 @@ repos:
     rev: v3.16.0
     hooks:
       - id: pyupgrade
-        args: ["--py37-plus"]
-        exclude: ^tests
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
-    hooks:
-      - id: isort
+        args: ["--py310-plus"]
         exclude: ^tests
   - repo: https://github.com/pycqa/pydocstyle
     rev: 6.3.0
