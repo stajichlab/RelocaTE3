@@ -41,14 +41,14 @@ Each pipeline step is also a standalone subcommand so a workflow engine
 
    # Step 5 — call non-reference insertions
    relocaTE3 find-insertions \
-     --bam sample_out/genome_aln/HEG4.flanking.genome.bam \
+     --bam sample_out/genome_aln/HEG4.genome.bam \
      --genome reference.fa \
      --read-repeat sample_out/te_containing/HEG4.read_repeat_name.txt \
      --outdir sample_out --sample HEG4
 
    # Steps 0/6 — reference and shared insertions
    relocaTE3 find-reference \
-     --bam sample_out/genome_aln/HEG4.flanking.genome.bam \
+     --bam sample_out/genome_aln/HEG4.genome.bam \
      --repeatmasker reference.fa.RepeatMasker.out \
      --read-repeat sample_out/te_containing/HEG4.read_repeat_name.txt \
      --outdir sample_out --sample HEG4
