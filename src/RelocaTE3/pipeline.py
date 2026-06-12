@@ -193,7 +193,7 @@ def run_samples(
     mismatch_allowance: int = 0,
     required_junction_reads: int = 1,
     verbose: int = 0,
-) -> list[Path]:
+) -> list[Path | None]:
     """Run the pipeline for multiple samples, up to ``sample_threads`` at a time.
 
     Each sample runs :func:`run_sample` in its own subdirectory
