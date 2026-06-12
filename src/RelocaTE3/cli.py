@@ -118,6 +118,8 @@ def _add_trim_parser(subparsers: argparse._SubParsersAction) -> None:
 
 def _run_trim(args: argparse.Namespace) -> int:
     """Execute the ``trim`` subcommand."""
+    outdir = Path(args.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
     fileset = [args.left] + ([args.right] if args.right else [])
     reads = ReadLibrary(fileset, args.sample)
     relocate = RelocaTE(
@@ -125,7 +127,7 @@ def _run_trim(args: argparse.Namespace) -> int:
     )
     relocate.identify_TE_reads(
         reads,
-        args.outdir,
+        outdir,
         TE_library=args.te_library,
         len_cut_match=args.len_cut_match,
         len_cut_trim=args.len_cut_trim,
