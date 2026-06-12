@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+
 # import re
 import subprocess
 import tempfile
@@ -150,21 +151,91 @@ class Aligner:
         # catch errors ...
         return True
 
-    def _map_minimap_genome(
+    def index_genome(self, genome: str, force: bool = False) -> int:
+        """Format/index the reference genome (RelocaTE2 step 1).
+
+        Creates a samtools ``.fai`` index and a minimap2 ``.mmi`` index so the
+        genome is ready for read alignment and per-site sequence lookups.
+        """
+        genome = Path(genome)
+        if not genome.exists():
+            raise FileNotFoundError(f"Genome file {genome} does not exist.")
+        fai = Path(f"{genome}.fai")
+        if force or not fai.exists():
+            pysam.faidx(str(genome))
+        self.index_minimap(str(genome), f"{genome}.mmi", force=force)
+        return 0
+
+    def map_genome_minimap(
         self,
         genome: str,
-        reads: ReadLibrary,
+        fastqs: list[str],
+        name: str,
         outdir: str,
         tmpdir: str = "",
-        thread_count: int = 1,
-    ) -> str:
-        """Align reads to genome with minimap2 - this may not be best tool so testing."""
-        bamfile = os.path.join(outdir, reads.name + ".bam")
-        bamfile
+        cpu_threads: int = 0,
+        paired: bool = False,
+    ) -> Path:
+        """Align trimmed flanking reads to the genome (RelocaTE2 step 4).
 
-    def _map_bwa_genome(
-        self, genome: str, reads: ReadLibrary, outdir: str, thread_count: int = 1
-    ) -> str:
-        """Align reads to genome with minimap2 - this may not be best tool so testing."""
-        bamfile = os.path.join(outdir, reads.name + ".bam")
-        bamfile
+        Produces a coordinate-sorted, indexed BAM of the flanking reads aligned
+        to the reference genome, named ``{name}.repeat.minimap.sorted.bam`` to
+        parallel RelocaTE2's ``{ref}.repeat.bwa.sorted.bam``.
+
+        Args:
+            genome: reference genome FASTA.
+            fastqs: trimmed flanking-read FASTQ files. When ``paired`` is True the
+                first two entries are treated as an R1/R2 pair.
+            name: output prefix (typically the sample/individual name).
+            outdir: directory for the sorted BAM.
+            tmpdir: scratch directory (a temp dir is used if empty).
+            cpu_threads: minimap2 threads (falls back to the instance default).
+            paired: align the first two FASTQs as a read pair.
+
+        Returns:
+            Path to the sorted, indexed BAM file.
+        """
+        if cpu_threads <= 0:
+            cpu_threads = self.cpu_threads
+        if not fastqs:
+            raise ValueError("No FASTQ files provided for genome alignment")
+
+        outdir = Path(outdir)
+        outdir.mkdir(parents=True, exist_ok=True)
+        index = f"{genome}.mmi"
+        self.index_minimap(str(genome), index)
+
+        tmpdirhandle = None
+        if not tmpdir:
+            tmpdirhandle = tempfile.TemporaryDirectory()
+            tmpdir = tmpdirhandle.name
+        elif not Path(tmpdir).exists():
+            os.mkdir(tmpdir)
+
+        temp_sam = os.path.join(tmpdir, "genome.sam")
+        sorted_bam = outdir / f"{name}.repeat.minimap.sorted.bam"
+
+        # short-read preset; -a for SAM output. A paired run passes R1 + R2,
+        # otherwise every FASTQ is aligned as unpaired (minimap2 takes many).
+        read_args = list(fastqs[:2]) if paired else list(fastqs)
+        cmd = [
+            self.minimap,
+            "-t",
+            str(cpu_threads),
+            "-a",
+            "-x",
+            "sr",
+            "-o",
+            temp_sam,
+            str(index),
+        ] + read_args
+        p = subprocess.run(cmd, stderr=None, capture_output=True, check=True)
+        if self.verbose:
+            warnings.warn(p.stderr.decode("utf-8"))
+
+        pysam.sort("-o", str(sorted_bam), temp_sam)
+        self.index_bam(sorted_bam)
+
+        if tmpdirhandle is not None:
+            tmpdirhandle.cleanup()
+        return sorted_bam
