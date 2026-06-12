@@ -24,6 +24,12 @@ repos:
         exclude: ^tests/augustus*
         args:
           - --ignore-words-list=nd,reacher,thist,ths,ure,referenc,wile,nin,pid,TE,te,assertIn
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.17  # Use the latest stable version
+    hooks:
+      - id: ruff-check
+        args: [ --fix ]
+      - id: ruff-format
 #  - repo: https://github.com/PyCQA/flake8
 #    rev: 7.1.0
 #    hooks:
@@ -34,15 +40,6 @@ repos:
 #          - --show-source
 #          - --statistics
 #        exclude: ^tests/augustus*
-  - repo: https://github.com/psf/black-pre-commit-mirror
-    rev: 24.4.2
-    hooks:
-      - id: black
-        # It is recommended to specify the latest version of Python
-        # supported by your project here, or alternatively use
-        # pre-commit's default_language_version, see
-        # https://pre-commit.com/#top_level-default_language_version
-        language_version: python3.11
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.16.0
     hooks:
