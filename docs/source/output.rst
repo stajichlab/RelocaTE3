@@ -12,6 +12,7 @@ Directory layout
      flanking/
        <sample>.left.flankingReads.fq    trimmed flanking reads (R1)
        <sample>.right.flankingReads.fq   trimmed flanking reads (R2)
+     te_portions/
        <sample>.five_prime.fa            5′ TE-matching portions
        <sample>.three_prime.fa           3′ TE-matching portions
      genome_aln/
