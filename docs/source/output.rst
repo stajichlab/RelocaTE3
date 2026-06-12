@@ -56,11 +56,11 @@ column entries, preserving the RelocaTE2 convention:
 ``Right_support_reads``
     Paired-end support reads on the right flank.
 
-``Zygosity`` *(--genotype only)*
-    ``homozygous``, ``heterozygous``, or ``somatic``.
-
-``Span_reads`` *(--genotype only)*
-    Reference-allele reads spanning the insertion site.
+Genotyping outputs
+    When ``--genotype`` is enabled, genotyping results are written to
+    ``<sample>.all_nonref_insert.characTErized.gff`` and
+    ``<sample>.all_nonref_insert.characTErized.txt`` (the non-reference insertion
+    GFF is unchanged).
 
 Tab-delimited TXT format
 ------------------------
