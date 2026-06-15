@@ -136,6 +136,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-
-# pixi environment
-.pixi/
+# pixi environments
+.pixi/*
+!.pixi/config.toml

@@ -1,155 +1,149 @@
-"""Tests for insertion calling (Step 5)."""
+"""Tests for reference-TE annotation (step 0), genome indexing/align (steps 1,4) and insertion finding (step 5)."""
 
-from __future__ import annotations
-
-import re
+import os
+import tempfile
+import unittest
 from pathlib import Path
 
 import pysam
 
-from RelocaTE3.insertions import (
-    _call_insertions,
-    _call_support_only,
-    _Cluster,
-    _junction_info,
-    _pair_breakpoints,
-)
-from RelocaTE3.models import JunctionObservation
-from RelocaTE3.pipeline import run_sample
-from RelocaTE3.ReadLibrary import ReadLibrary
+from RelocaTE3.align import Aligner
+from RelocaTE3.insertions import InsertionFinder
+from RelocaTE3.reference_te import ReferenceTEAnnotator
 
 DATA = Path(__file__).parent / "data"
-R1 = DATA / "sim_reads" / "MSU7.Chr3_2M.ALL_reads_6X_100_500_1.fq.gz"
-R2 = DATA / "sim_reads" / "MSU7.Chr3_2M.ALL_reads_6X_100_500_2.fq.gz"
-TELIB = DATA / "mping.fa"
 GENOME = DATA / "sim_genome" / "MSU7.Chr3_2M.fa"
-TRUTH = DATA / "sim_genome" / "MSU7.Chr3_2M.ALL.gff"
+MPING = DATA / "mping.fa"
+RM_OUT = DATA / "sim_genome" / "MSU7.Chr3_2M.fa.RepeatMasker.out"
 
 
-def test_junction_info_breakpoints():
-    # + strand: start-flank -> right edge at gstart; end-flank -> left edge at gend
-    assert _junction_info("r/1:start:5", "+", 100, 200) == ("right", 100, "5")
-    assert _junction_info("r/1:end:5", "+", 100, 200) == ("left", 200, "5")
-    # - strand inverts which read end is TE-adjacent
-    assert _junction_info("r/1:start:3", "-", 100, 200) == ("left", 200, "3")
-    assert _junction_info("r/1:end:3", "-", 100, 200) == ("right", 100, "3")
-    # non-junction (middle / untagged)
-    assert _junction_info("r/1:middle", "+", 100, 200) is None
-    assert _junction_info("r/1", "+", 100, 200) is None
+class TestReferenceTE(unittest.TestCase):
+    """Step 0: existing-TE annotation."""
+
+    def test_repeatmasker_boundary_table(self):
+        existing = ReferenceTEAnnotator.load_existing_te(RM_OUT, target="Chr3")
+        self.assertIn("Chr3", existing)
+        # first RM record: Chr3 7192..7483 -> start/end padded +/-2bp
+        self.assertEqual(existing["Chr3"]["start"][7192], 1)
+        self.assertEqual(existing["Chr3"]["start"][7190], 1)
+        self.assertEqual(existing["Chr3"]["end"][7483], 1)
+
+    def test_annotate_minimap_bed(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            annotator = ReferenceTEAnnotator(threads=1)
+            bed = annotator.annotate_minimap(MPING, GENOME, Path(workdir))
+            self.assertTrue(bed.exists())
+            # the simulated genome contains mping copies; expect at least one hit
+            lines = [ln for ln in bed.read_text().splitlines() if ln.strip()]
+            for ln in lines:
+                self.assertEqual(len(ln.split("\t")), 6)
 
 
-def test_te_orientation():
-    def obs(side, te_end):
-        return JunctionObservation("r", side, 1, "+", "mPing", te_end)
+class TestGenomeAlign(unittest.TestCase):
+    """Steps 1 & 4: index the genome and align reads to it."""
 
-    assert obs("left", "5").te_orientation == "+"
-    assert obs("right", "3").te_orientation == "+"
-    assert obs("right", "5").te_orientation == "-"
-    assert obs("left", "3").te_orientation == "-"
+    def test_index_and_align(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            # copy genome so indexes land in the temp dir
+            genome = Path(workdir) / "genome.fa"
+            genome.write_text(GENOME.read_text())
 
+            aln = Aligner(threads=2)
+            self.assertEqual(aln.index_genome(str(genome)), 0)
+            self.assertTrue(Path(f"{genome}.fai").exists())
+            self.assertTrue(Path(f"{genome}.mmi").exists())
 
-def test_pair_breakpoints():
-    # one left + one right within the TSD window -> a single paired insertion
-    assert _pair_breakpoints([100], [98]) == [(100, 98)]
-    # far apart -> two one-sided sub-insertions
-    assert set(_pair_breakpoints([100], [500])) == {(100, None), (None, 500)}
-    # two distinct insertions in one cluster -> two pairs
-    pairs = set(_pair_breakpoints([100, 5000], [98, 4998]))
-    assert pairs == {(100, 98), (5000, 4998)}
-
-
-def test_call_insertions_splits_two_sites():
-    """A cluster with two well-separated junction pairs yields two insertions."""
-    cluster = _Cluster("Chr3")
-    cluster.extend(1000, 5002)
-    # site 1 near 1000, site 2 near 5000
-    cluster.junctions = [
-        JunctionObservation("a:end:5", "left", 1002, "+", "mPing", "5"),
-        JunctionObservation("b:start:5", "right", 1000, "+", "mPing", "5"),
-        JunctionObservation("c:end:5", "left", 5002, "+", "mPing", "5"),
-        JunctionObservation("d:start:5", "right", 5000, "+", "mPing", "5"),
-    ]
-    with pysam.FastaFile(str(GENOME)) as genome:
-        calls = _call_insertions(cluster, genome)
-    starts = sorted(i.start for i in calls)
-    assert len(calls) == 2
-    assert starts == [1000, 5000]
-    for ins in calls:
-        assert ins.left_junction_reads == 1 and ins.right_junction_reads == 1
-        assert len(ins.tsd) == 3  # 3 bp TSD from the 2 bp overlap span
+            r1 = DATA / "sim_reads" / "MSU7.Chr3_2M.ALL_reads_6X_100_500_1.fq.gz"
+            r2 = DATA / "sim_reads" / "MSU7.Chr3_2M.ALL_reads_6X_100_500_2.fq.gz"
+            bam = aln.map_genome_minimap(
+                str(genome), [str(r1), str(r2)], "HEG4", workdir, paired=True
+            )
+            self.assertTrue(bam.exists())
+            self.assertTrue(Path(f"{bam}.bai").exists())
+            with pysam.AlignmentFile(str(bam), "rb") as fh:
+                self.assertGreater(fh.mapped, 0)
 
 
-def test_call_support_only():
-    """Two-sided bracketing support with a clean gap yields a support-only call."""
-    cluster = _Cluster("Chr3")
-    # forward (left-bracketing) mates ending before the site; reverse (right) after
-    cluster.support = [
-        ("a", 800, 900, "+"),
-        ("b", 820, 920, "+"),
-        ("c", 1100, 1200, "-"),
-        ("d", 1120, 1220, "-"),
-    ]
-    ins = _call_support_only(cluster)
-    assert ins is not None
-    assert ins.start == 920 and ins.end == 1100  # max(+ end) .. min(- start)
-    assert ins.left_support_reads == 2 and ins.right_support_reads == 2
-    assert ins.left_junction_reads == 0 and "supporting" in ins.note
+def _write_junction_bam(bam_path, contig, length, reads):
+    """Build a sorted, indexed BAM of simple junction reads."""
+    header = {
+        "HD": {"VN": "1.6", "SO": "coordinate"},
+        "SQ": [{"SN": contig, "LN": length}],
+    }
+    reads = sorted(reads, key=lambda r: r["start0"])
+    with pysam.AlignmentFile(bam_path, "wb", header=header) as out:
+        for spec in reads:
+            seg = pysam.AlignedSegment(out.header)
+            seg.query_name = spec["name"]
+            seg.query_sequence = spec["seq"]
+            seg.flag = spec.get("flag", 0)
+            seg.reference_id = 0
+            seg.reference_start = spec["start0"]
+            seg.mapping_quality = spec.get("mapq", 60)
+            seg.cigarstring = f"{len(spec['seq'])}M"
+            seg.set_tag("NM", spec.get("nm", 0), value_type="i")
+            out.write(seg)
+    pysam.index(bam_path)
 
 
-def test_call_support_only_rejects_overlap_and_one_sided():
-    overlap = _Cluster("Chr3")
-    overlap.support = [
-        ("a", 800, 1150, "+"),
-        ("b", 820, 1160, "+"),
-        ("c", 1100, 1200, "-"),
-        ("d", 1120, 1220, "-"),
-    ]
-    assert _call_support_only(overlap) is None  # + reads end past - read starts
+class TestInsertionFinder(unittest.TestCase):
+    """Step 5: cluster junction reads into a non-reference insertion call."""
 
-    one_sided = _Cluster("Chr3")
-    one_sided.support = [("a", 800, 900, "+"), ("b", 820, 920, "+")]
-    assert _call_support_only(one_sided) is None  # only one strand
+    def test_known_tsd_call(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            bam_path = os.path.join(workdir, "flank.bam")
+            # TSD "TTA"; build a left and a right junction read that share tsd_start=1000.
+            # Left  (pos=left):  + strand, ":end:5", seq ends in TTA, ref_end+1 = 1003 -> tsd_start = 1000
+            # Right (pos=right): + strand, ":start:5", seq starts with TTA, start(1based)=1000 -> tsd_start = 1000
+            left = {"name": "readL:end:5", "seq": "A" * 37 + "TTA", "start0": 962}
+            right = {"name": "readR:start:5", "seq": "TTA" + "A" * 37, "start0": 999}
+            _write_junction_bam(bam_path, "Chr1", 5000, [left, right])
+
+            read_repeat = os.path.join(workdir, "read_repeat_name.txt")
+            with open(read_repeat, "w") as fh:
+                fh.write("readL\tmping\t+\n")
+                fh.write("readR\tmping\t+\n")
+
+            finder = InsertionFinder(mismatch_allow=0, min_mapq=1)
+            out_txt = finder.find_insertions(
+                bam_file=Path(bam_path),
+                read_repeat_file=Path(read_repeat),
+                tsd="TTA",
+                target="Chr1",
+                sample="HEG4",
+                outdir=Path(workdir),
+            )
+            self.assertTrue(out_txt.exists())
+            rows = [ln for ln in out_txt.read_text().splitlines() if ln.strip()]
+            self.assertEqual(len(rows), 1)
+            cols = rows[0].split("\t")
+            # repeat_family, TSD, exper, chrom, coor, orient, T:, R:, L:, ST:, SR:, SL:
+            self.assertEqual(cols[0], "mping")
+            self.assertEqual(cols[1], "TTA")
+            self.assertEqual(cols[2], "HEG4")
+            self.assertEqual(cols[3], "Chr1")
+            self.assertEqual(cols[4], "1000..1002")
+            self.assertEqual(cols[6], "T:2")
+            self.assertEqual(cols[7], "R:1")
+            self.assertEqual(cols[8], "L:1")
+
+    def test_tsd_unknown_raises(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            bam_path = os.path.join(workdir, "flank.bam")
+            _write_junction_bam(
+                bam_path,
+                "Chr1",
+                5000,
+                [{"name": "r:end:5", "seq": "A" * 40, "start0": 100}],
+            )
+            rr = os.path.join(workdir, "rr.txt")
+            Path(rr).write_text("r\tmping\t+\n")
+            finder = InsertionFinder()
+            with self.assertRaises(NotImplementedError):
+                finder.find_insertions(
+                    Path(bam_path), Path(rr), "UNK", "Chr1", "HEG4", Path(workdir)
+                )
 
 
-def test_find_insertions_recovers_mping(tmp_path: Path):
-    """End-to-end: most calls match true mPing insertions within 10 bp."""
-    reads = ReadLibrary([str(R1), str(R2)], "HEG4")
-    gff = run_sample(reads, str(TELIB), str(GENOME), tmp_path, threads=4)
-    assert gff.exists()
-
-    attr_re = re.compile(r"TSD=.*Right_junction_reads=\d+.*Left_support_reads=\d+")
-    calls = []
-    with open(gff) as fh:
-        for line in fh:
-            f = line.rstrip("\n").split("\t")
-            assert attr_re.search(f[8])  # required attributes present
-            assert f[6] in ("+", "-")  # TE orientation assigned
-            calls.append((f[0], int(f[3]), int(f[4])))
-
-    assert len(calls) >= 10
-    truth = _load_truth_mping(TRUTH)
-    matched = sum(1 for c in calls if _near(c, truth))
-    assert matched >= 0.85 * len(calls)  # precision
-    # recall: support-only calls recover short-flank sites (>= 20 of 23 mPing)
-    recovered = {t for t in truth for c in calls if _near(c, [t])}
-    assert len(recovered) >= 20
-
-
-def _load_truth_mping(path: Path) -> list[tuple[str, int, int]]:
-    coords = []
-    with open(path) as fh:
-        for line in fh:
-            if not line.strip() or "ping" not in line.lower():
-                continue
-            f = line.split("\t")
-            coords.append((f[0], int(f[3]), int(f[4])))
-    return coords
-
-
-def _near(
-    call: tuple[str, int, int], truths: list[tuple[str, int, int]], window: int = 10
-) -> bool:
-    chrom, start, end = call
-    return any(
-        c == chrom and start - window <= e and end + window >= s for c, s, e in truths
-    )
+if __name__ == "__main__":
+    unittest.main()

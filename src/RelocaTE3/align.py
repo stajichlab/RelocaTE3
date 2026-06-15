@@ -82,15 +82,20 @@ class Aligner:
             tmpdirhandle = tempfile.TemporaryDirectory()
             tmpdir = tmpdirhandle.name
         elif not Path(tmpdir).exists():
-            os.mkdir(tmpdir)
+            os.makedirs(tmpdir)
+        # this may not be necessary/performance boost for Transposon library anyways so we might skip this
+        # also best practice may be creating index on a SSD scratch volume anyways or loading memory
+        # in general these are tiny DBs so it makes little difference I expect.
+        index = f"{transposon_library}.mmi"
+        self.index_minimap(transposon_library, str(index))
+
         temp_sam = os.path.join(tmpdir, "mm.sam")
         temp_bam = os.path.join(tmpdir, "mm.bam")
 
-        # Map reads to the (tiny) TE library with sensitive short-read seeding.
-        # blat (RelocaTE2's default) finds short/divergent TE matches that minimap2
-        # `-x sr` defaults miss; small seeds (-k 11 -w 5) and keeping secondary
-        # alignments recover those reads. We map the FASTA directly (not a prebuilt
-        # .mmi) so the custom k/w take effect.
+        # an option here is to run left and right separately as single --sr runs
+        # then process the LEFT BAM/SAM file result, keep all mapping reads, AND retrieve the reads from the RIGHT file
+        # then process the RIGHT BAM/SAM file and retrieve the LEFT reads that are the paired end of any match
+        # do this without duplicating
         read_set = {"left": reads.left()}
         if reads.is_paired:
             read_set["right"] = reads.right()
@@ -154,6 +159,96 @@ class Aligner:
         subprocess.run([self.samtools, "index", str(bamfile)], check=True)
         return True
 
+    def index_genome(self, genome: str, force: bool = False) -> int:
+        """Format/index the reference genome (RelocaTE2 step 1).
+
+        Creates a samtools ``.fai`` index and a minimap2 ``.mmi`` index so the
+        genome is ready for read alignment and per-site sequence lookups.
+        """
+        genome = Path(genome)
+        if not genome.exists():
+            raise FileNotFoundError(f"Genome file {genome} does not exist.")
+        fai = Path(f"{genome}.fai")
+        if force or not fai.exists():
+            pysam.faidx(str(genome))
+        self.index_minimap(str(genome), f"{genome}.mmi", force=force)
+        return 0
+
+    def map_genome_minimap(
+        self,
+        genome: str,
+        fastqs: list[str],
+        name: str,
+        outdir: str,
+        tmpdir: str = "",
+        cpu_threads: int = 0,
+        paired: bool = False,
+    ) -> Path:
+        """Align trimmed flanking reads to the genome (RelocaTE2 step 4).
+
+        Produces a coordinate-sorted, indexed BAM of the flanking reads aligned
+        to the reference genome, named ``{name}.repeat.minimap.sorted.bam`` to
+        parallel RelocaTE2's ``{ref}.repeat.bwa.sorted.bam``.
+
+        Args:
+            genome: reference genome FASTA.
+            fastqs: trimmed flanking-read FASTQ files. When ``paired`` is True the
+                first two entries are treated as an R1/R2 pair.
+            name: output prefix (typically the sample/individual name).
+            outdir: directory for the sorted BAM.
+            tmpdir: scratch directory (a temp dir is used if empty).
+            cpu_threads: minimap2 threads (falls back to the instance default).
+            paired: align the first two FASTQs as a read pair.
+
+        Returns:
+            Path to the sorted, indexed BAM file.
+        """
+        if cpu_threads <= 0:
+            cpu_threads = self.cpu_threads
+        if not fastqs:
+            raise ValueError("No FASTQ files provided for genome alignment")
+
+        outdir = Path(outdir)
+        outdir.mkdir(parents=True, exist_ok=True)
+        index = f"{genome}.mmi"
+        self.index_minimap(str(genome), index)
+
+        tmpdirhandle = None
+        if not tmpdir:
+            tmpdirhandle = tempfile.TemporaryDirectory()
+            tmpdir = tmpdirhandle.name
+        elif not Path(tmpdir).exists():
+            os.makedirs(tmpdir)
+
+        temp_sam = os.path.join(tmpdir, "genome.sam")
+        sorted_bam = outdir / f"{name}.repeat.minimap.sorted.bam"
+
+        # short-read preset; -a for SAM output. A paired run passes R1 + R2,
+        # otherwise every FASTQ is aligned as unpaired (minimap2 takes many).
+        read_args = list(fastqs[:2]) if paired else list(fastqs)
+        cmd = [
+            self.minimap,
+            "-t",
+            str(cpu_threads),
+            "-a",
+            "-x",
+            "sr",
+            "-o",
+            temp_sam,
+            str(index),
+        ] + read_args
+        p = subprocess.run(cmd, stderr=None, capture_output=True, check=True)
+        if self.verbose:
+            warnings.warn(p.stderr.decode("utf-8"))
+
+        pysam.sort("-o", str(sorted_bam), temp_sam)
+        self.index_bam(sorted_bam)
+
+        if tmpdirhandle is not None:
+            tmpdirhandle.cleanup()
+        return sorted_bam
+
+
     def map_reads_to_genome(
         self,
         genome: str,
@@ -162,15 +257,7 @@ class Aligner:
         tmpdir: str = "",
         cpu_threads: int = 0,
     ) -> Path:
-        """Map (single-end) reads in ``fastq_files`` to ``genome`` with minimap2.
-
-        The reads are mapped as single-end (each flanking/supporting read is
-        independent), unmapped reads are dropped, and the result is written to
-        ``outbam`` coordinate-sorted and indexed.
-
-        The genome FASTA is passed directly to minimap2 with the ``sr`` preset so
-        the appropriate short-read index is built; no external ``.mmi`` is needed.
-        """
+        """Map (single-end) reads in ``fastq_files`` to ``genome`` with minimap2."""
         if cpu_threads <= 0:
             cpu_threads = self.cpu_threads
 
@@ -183,18 +270,12 @@ class Aligner:
 
         temp_sam = os.path.join(tmpdir, "genome.sam")
         temp_bam = os.path.join(tmpdir, "genome.bam")
-
-        # minimap2 accepts at most two read files (and treats two as paired-end).
-        # We map every flanking/supporting read independently, so concatenate all
-        # inputs into a single uncompressed FASTQ and map it single-end.
         combined_fq = os.path.join(tmpdir, "reads.fq")
         with open(combined_fq, "wb") as out:
             for f in fastq_files:
                 with open(f, "rb") as src:
                     shutil.copyfileobj(src, out)
 
-        # Sensitive short-read seeding helps place short trimmed flanks; the
-        # downstream clustering and full-read false-junction filter guard precision.
         cmd = [
             self.minimap,
             "-t",
@@ -215,7 +296,6 @@ class Aligner:
         if self.verbose:
             warnings.warn(p.stderr.decode("utf-8"))
 
-        # coordinate-sort, then keep only mapped reads (-F 0x4)
         pysam.sort("-@", str(cpu_threads), "-o", temp_bam, temp_sam)
         os.makedirs(os.path.dirname(os.path.abspath(outbam)), exist_ok=True)
         subprocess.run(
@@ -236,13 +316,7 @@ class Aligner:
         tmpdir: str = "",
         cpu_threads: int = 0,
     ) -> Path:
-        """Map the original (untrimmed) read library to ``genome`` for genotyping.
-
-        Paired-end reads are mapped as proper pairs (minimap2 ``-x sr`` with two
-        read files); the result is coordinate-sorted and indexed. This whole-genome
-        alignment is what the genotyping step (Step 7) uses to count reference-allele
-        reads spanning each insertion site.
-        """
+        """Map the original (untrimmed) read library to ``genome`` for genotyping."""
         if cpu_threads <= 0:
             cpu_threads = self.cpu_threads
 

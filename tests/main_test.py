@@ -1,33 +1,45 @@
-"""Tests for the RelocaTE3 command-line interface."""
-
 from __future__ import annotations
 
 import logging
+from typing import Generator
 
 import pytest
 
-from RelocaTE3 import __version__
-from RelocaTE3.cli import main
+from RelocaTE3 import __main__, __version__
+from RelocaTE3.__main__ import main
+
+
+def mockreturn(**kwargs):
+    """Stand-in command handler that records its arguments and succeeds."""
+    mockreturn.kwargs = kwargs
+    return 0
 
 
 def test_main_version(capsys: pytest.CaptureFixture):
-    """--version prints the version and exits 0."""
-    with pytest.raises(SystemExit) as exc:
-        main(["--version"])
-    assert exc.value.code == 0
-    captured = capsys.readouterr().out.strip()
-    assert captured == __version__
+    assert main(["--version"]) == main(["-V"])
+    captured: str = capsys.readouterr().out
+    captured = captured.split("\n")
+    assert captured[0] == captured[1] == __version__
 
 
-def test_main_no_command_prints_help(capsys: pytest.CaptureFixture):
-    """Running with no subcommand prints help and returns 0."""
-    assert main([]) == 0
-    err = capsys.readouterr().err
-    assert "usage" in err.lower()
+def test_main_map(monkeypatch: Generator):
+    monkeypatch.setattr(__main__, "cmd_map", mockreturn)
+    assert main(["map", "-l", "r1.fq", "-T", "te.fa", "-n", "HEG4"]) == 0
+    assert mockreturn.kwargs["name"] == "HEG4"
+    assert mockreturn.kwargs["left"] == "r1.fq"
+    assert mockreturn.kwargs["te_library"] == "te.fa"
 
 
-def test_main_verbose_enables_debug(caplog: pytest.LogCaptureFixture):
-    """The global -v flag turns on debug logging."""
+def test_main_map_verbose(monkeypatch: Generator, caplog: pytest.LogCaptureFixture):
+    monkeypatch.setattr(__main__, "cmd_map", mockreturn)
     with caplog.at_level(logging.DEBUG):
-        main(["-v"])
+        main(["map", "-l", "r1.fq", "-T", "te.fa", "-n", "HEG4", "-v"])
+    assert any(record.levelname == "DEBUG" for record in caplog.records)
     assert "Debug mode enabled." in caplog.text
+
+
+def test_main_characterize(monkeypatch: Generator):
+    monkeypatch.setattr(__main__, "cmd_characterize", mockreturn)
+    assert main(["characterize", "-s", "sites.txt", "-b", "a.bam", "b.bam"]) == 0
+    assert mockreturn.kwargs["sites_file"] == "sites.txt"
+    assert mockreturn.kwargs["bam"] == ["a.bam", "b.bam"]
