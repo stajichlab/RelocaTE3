@@ -70,20 +70,28 @@ class RelocaTE:
         minimum_match_length: int = 10,
         minimum_trimmed_length: int = 10,
         mismatch_allowance: int = 0,
+        len_cut_match: int | None = None,
+        len_cut_trim: int | None = None,
     ) -> int:
         """Align reads to the TE library, then trim and write flanking reads.
 
         Returns:
             int: number of flanking (trimmed) reads written.
         """
+        if len_cut_match is not None:
+            minimum_match_length = len_cut_match
+        if len_cut_trim is not None:
+            minimum_trimmed_length = len_cut_trim
         if not TE_library:
             TE_library = self.transposon_library
         if "minimap" not in search_tool.lower():
             raise NotImplementedError(f"search_tool {search_tool!r} is not supported")
 
+        outdir = Path(outdir)
         alntool = Aligner(self.cpu_threads)
+        alntool.verbose = self.verbose > 0
         alntool.index_minimap(TE_library)
-        bamfiles = alntool.map_minimap_library(seqreads, outdir, TE_library)
+        bamfiles = alntool.map_minimap_library(seqreads, str(outdir), TE_library)
 
         directions = self._bam_directions(bamfiles)
         return self.write_trimmed_reads(

@@ -3,6 +3,9 @@
 *.mmi
 *.fai
 *.gzi
+
+# generated test output
+tests/results/
 .DS_Store
 # Byte-compiled / optimized / DLL files
 __pycache__/

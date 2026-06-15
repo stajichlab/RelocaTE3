@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 
 # import re
 import subprocess
@@ -81,7 +82,7 @@ class Aligner:
             tmpdirhandle = tempfile.TemporaryDirectory()
             tmpdir = tmpdirhandle.name
         elif not Path(tmpdir).exists():
-            os.mkdir(tmpdir)
+            os.makedirs(tmpdir)
         # this may not be necessary/performance boost for Transposon library anyways so we might skip this
         # also best practice may be creating index on a SSD scratch volume anyways or loading memory
         # in general these are tiny DBs so it makes little difference I expect.
@@ -108,9 +109,17 @@ class Aligner:
                     "-a",
                     "-x",
                     "sr",
+                    "-k",
+                    "11",
+                    "-w",
+                    "5",
+                    "-N",
+                    "20",
+                    "-p",
+                    "0.5",
                     "-o",
                     temp_sam,
-                    str(index),
+                    str(transposon_library),
                     read_file,
                 ],
                 stderr=None,
@@ -147,8 +156,7 @@ class Aligner:
 
     def index_bam(self, bamfile: Path) -> bool:
         """Index BAM files."""
-        subprocess.run([self.samtools, "index", bamfile])
-        # catch errors ...
+        subprocess.run([self.samtools, "index", str(bamfile)], check=True)
         return True
 
     def index_genome(self, genome: str, force: bool = False) -> int:
@@ -210,7 +218,7 @@ class Aligner:
             tmpdirhandle = tempfile.TemporaryDirectory()
             tmpdir = tmpdirhandle.name
         elif not Path(tmpdir).exists():
-            os.mkdir(tmpdir)
+            os.makedirs(tmpdir)
 
         temp_sam = os.path.join(tmpdir, "genome.sam")
         sorted_bam = outdir / f"{name}.repeat.minimap.sorted.bam"
@@ -239,3 +247,108 @@ class Aligner:
         if tmpdirhandle is not None:
             tmpdirhandle.cleanup()
         return sorted_bam
+
+
+    def map_reads_to_genome(
+        self,
+        genome: str,
+        fastq_files: list[str],
+        outbam: str,
+        tmpdir: str = "",
+        cpu_threads: int = 0,
+    ) -> Path:
+        """Map (single-end) reads in ``fastq_files`` to ``genome`` with minimap2."""
+        if cpu_threads <= 0:
+            cpu_threads = self.cpu_threads
+
+        tmpdirhandle = None
+        if not tmpdir:
+            tmpdirhandle = tempfile.TemporaryDirectory()
+            tmpdir = tmpdirhandle.name
+        elif not Path(tmpdir).exists():
+            os.makedirs(tmpdir)
+
+        temp_sam = os.path.join(tmpdir, "genome.sam")
+        temp_bam = os.path.join(tmpdir, "genome.bam")
+        combined_fq = os.path.join(tmpdir, "reads.fq")
+        with open(combined_fq, "wb") as out:
+            for f in fastq_files:
+                with open(f, "rb") as src:
+                    shutil.copyfileobj(src, out)
+
+        cmd = [
+            self.minimap,
+            "-t",
+            str(cpu_threads),
+            "-a",
+            "-x",
+            "sr",
+            "-k",
+            "13",
+            "-w",
+            "6",
+            "-o",
+            temp_sam,
+            str(genome),
+            combined_fq,
+        ]
+        p = subprocess.run(cmd, capture_output=True, check=True)
+        if self.verbose:
+            warnings.warn(p.stderr.decode("utf-8"))
+
+        pysam.sort("-@", str(cpu_threads), "-o", temp_bam, temp_sam)
+        os.makedirs(os.path.dirname(os.path.abspath(outbam)), exist_ok=True)
+        subprocess.run(
+            [self.samtools, "view", "-b", "-F", "0x4", "-o", str(outbam), temp_bam],
+            check=True,
+        )
+        self.index_bam(outbam)
+
+        if tmpdirhandle is not None:
+            tmpdirhandle.cleanup()
+        return Path(outbam)
+
+    def map_library_to_genome(
+        self,
+        genome: str,
+        reads: ReadLibrary.ReadLibrary,
+        outbam: str,
+        tmpdir: str = "",
+        cpu_threads: int = 0,
+    ) -> Path:
+        """Map the original (untrimmed) read library to ``genome`` for genotyping."""
+        if cpu_threads <= 0:
+            cpu_threads = self.cpu_threads
+
+        tmpdirhandle = None
+        if not tmpdir:
+            tmpdirhandle = tempfile.TemporaryDirectory()
+            tmpdir = tmpdirhandle.name
+        elif not Path(tmpdir).exists():
+            os.makedirs(tmpdir)
+
+        temp_sam = os.path.join(tmpdir, "lib.sam")
+        read_files = [reads.left()] + ([reads.right()] if reads.is_paired else [])
+        cmd = [
+            self.minimap,
+            "-t",
+            str(cpu_threads),
+            "-a",
+            "-x",
+            "sr",
+            "-o",
+            temp_sam,
+            str(genome),
+            *[str(f) for f in read_files],
+        ]
+        p = subprocess.run(cmd, capture_output=True, check=True)
+        if self.verbose:
+            warnings.warn(p.stderr.decode("utf-8"))
+
+        os.makedirs(os.path.dirname(os.path.abspath(outbam)), exist_ok=True)
+        pysam.sort("-@", str(cpu_threads), "-o", str(outbam), temp_sam)
+        self.index_bam(outbam)
+
+        if tmpdirhandle is not None:
+            tmpdirhandle.cleanup()
+        return Path(outbam)
