@@ -139,3 +139,6 @@ dmypy.json
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+# Local agent-specific instructions
+.agents.local.md
