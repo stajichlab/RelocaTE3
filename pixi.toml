@@ -13,6 +13,7 @@ pysam = ">=0.20"
 biopython = ">=1.81"
 pybedtools = "*"
 pip = ">=26.1.2,<27"
+pytest = ">=7"
 
 [pypi-dependencies]
 RelocaTE3 = { path = ".", editable = true }
@@ -22,3 +23,7 @@ pytest = ">=9.0.3,<10"
 [tasks]
 test = "pytest -ra -q"
 docs = "sphinx-build -b html docs/source docs/_build/html"
+# Full real-rice validation: run RelocaTE3 on every sample, normalize both
+# call sets, compare, and write validation/real_rice/report/. Pass extra
+# args through (e.g. `pixi run validate-rice --local`, `--skip-run`, `--force`).
+validate-rice = "bash validation/real_rice/run_validation.sh"

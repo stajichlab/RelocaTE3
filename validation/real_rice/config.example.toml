@@ -1,0 +1,66 @@
+# RelocaTE3 real-rice validation config
+#
+# Copy to config.toml and edit paths for your environment. All paths can be
+# absolute or relative to the project root (the directory you launch from).
+# Collaborators on the same HPCC should only need to edit paths.validation_root
+# if the validation_data directory lives elsewhere.
+#
+# String interpolation: any ${section.key} reference is expanded by the
+# helpers in this directory (see _config.py).
+
+[paths]
+# Root of the bundled validation dataset (NOT tracked in git).
+validation_root = "/bigdata/stajichlab/nmath020/github/github_tools/RelocaTE/RelocaTE3_jason/validation_data/real_rice"
+
+# Inputs derived from validation_root (overridable individually if needed).
+genome        = "${paths.validation_root}/ref_genome/MSU_r7.fa"
+te_library    = "${paths.validation_root}/TE_lib/mping.fa"
+repeatmasker  = "${paths.validation_root}/repeatmasker/MSU_r7.fa.out"
+fq_dir        = "${paths.validation_root}/fq_input"
+sample_csv    = "${paths.validation_root}/sample_file/samples.csv"
+
+# Legacy RelocaTE2 results to compare against. Each sample directory must
+# contain repeat/results/ALL.all_nonref_insert.gff (the merged-chromosome GFF).
+relocate2_results = "${paths.validation_root}/relocate2_results"
+
+# Where this validation run writes RelocaTE3 outputs, comparison tables, and figures.
+# Relative paths are resolved against the directory containing this config file.
+relocate3_outdir = "results"
+report_dir       = "report"
+log_dir          = "logs"
+
+[reads]
+# Filename pattern: ${sample}${r1_suffix} and ${sample}${r2_suffix} under fq_dir.
+r1_suffix = "_trim_R1.fastq.gz"
+r2_suffix = "_trim_R2.fastq.gz"
+
+[relocate3]
+# Parameters chosen to track the RelocaTE2 run in example_relocate2_pipeline/.
+# RelocaTE2 used: --mismatch 2 --size 250 --aligner blat. RelocaTE3 uses
+# minimap2 internally; the closest analogs are kept here.
+aligner       = "minimap2"        # minimap2 | bwa
+mismatch      = 2
+min_match     = 10                # RelocaTE3 --min-match
+min_trimmed   = 10                # RelocaTE3 --min-trimmed
+min_mapq      = 1                 # find-insertions --min-mapq
+te_name       = "mping"           # label baked into find-insertions output filenames
+target        = "ALL"             # find-insertions --target (chromosome or ALL)
+tsd           = "TTA"             # find-insertions --tsd (mPing canonical TSD)
+threads       = 16
+characterize  = false             # set true to also run Step 7 characterization
+
+[compare]
+# Two insertions are considered "shared" if they call the same TE family on the
+# same chromosome with start positions within position_window bp.
+position_window = 100
+te_family       = "mPing"          # restrict comparison to this family ("" = all)
+# Minimum junction reads (left+right) required to keep a call. RelocaTE2 GFFs
+# already include every cluster; raise this to be stricter.
+min_junction_reads = 1
+
+[slurm]
+# Defaults used by run_relocate3.sh when submitted as a job array.
+partition       = "epyc"
+cpus_per_task   = 16
+mem             = "64gb"
+time            = "08:00:00"
