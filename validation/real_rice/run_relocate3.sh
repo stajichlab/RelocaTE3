@@ -144,8 +144,8 @@ mkdir -p "$SAMPLE_OUTDIR"
 # Paths emitted by each pipeline step (must match the layout in
 # src/RelocaTE3/librelocate.py + align.py + insertions.py).
 READ_REPEAT="${SAMPLE_OUTDIR}/te_containing/${SAMPLE}.read_repeat_name.txt"
-FLANK5="${SAMPLE_OUTDIR}/flanking/${SAMPLE}.5.flankingReads.fq"
-FLANK3="${SAMPLE_OUTDIR}/flanking/${SAMPLE}.3.flankingReads.fq"
+FLANK5="${SAMPLE_OUTDIR}/flanking/${SAMPLE}.left.flankingReads.fq"
+FLANK3="${SAMPLE_OUTDIR}/flanking/${SAMPLE}.right.flankingReads.fq"
 GENOME_BAM="${SAMPLE_OUTDIR}/${SAMPLE}.repeat.minimap.sorted.bam"
 NONREF_TXT="${SAMPLE_OUTDIR}/results/${TARGET}.${TE_NAME}.all_nonref_insert.txt"
 
