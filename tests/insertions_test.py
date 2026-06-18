@@ -65,19 +65,33 @@ class TestGenomeAlign(unittest.TestCase):
 
 
 def _write_junction_bam(bam_path, contig, length, reads):
-    """Build a sorted, indexed BAM of simple junction reads."""
+    """Build a sorted, indexed BAM of simple junction reads on one contig."""
+    return _write_multi_contig_bam(bam_path, [(contig, length)], reads)
+
+
+def _write_multi_contig_bam(bam_path, contigs, reads):
+    """Build a sorted, indexed BAM across one or more contigs.
+
+    Args:
+        bam_path: output BAM path.
+        contigs: list of (name, length) tuples; index in this list is the
+            reference_id used by each read spec via the ``ref`` key (default 0).
+        reads: list of read specs. Each must include ``name``, ``seq``,
+            ``start0``; may include ``ref`` (contig index), ``flag``, ``mapq``,
+            ``nm``.
+    """
     header = {
         "HD": {"VN": "1.6", "SO": "coordinate"},
-        "SQ": [{"SN": contig, "LN": length}],
+        "SQ": [{"SN": name, "LN": length} for name, length in contigs],
     }
-    reads = sorted(reads, key=lambda r: r["start0"])
+    reads = sorted(reads, key=lambda r: (r.get("ref", 0), r["start0"]))
     with pysam.AlignmentFile(bam_path, "wb", header=header) as out:
         for spec in reads:
             seg = pysam.AlignedSegment(out.header)
             seg.query_name = spec["name"]
             seg.query_sequence = spec["seq"]
             seg.flag = spec.get("flag", 0)
-            seg.reference_id = 0
+            seg.reference_id = spec.get("ref", 0)
             seg.reference_start = spec["start0"]
             seg.mapping_quality = spec.get("mapq", 60)
             seg.cigarstring = f"{len(spec['seq'])}M"
@@ -126,6 +140,65 @@ class TestInsertionFinder(unittest.TestCase):
             self.assertEqual(cols[6], "T:2")
             self.assertEqual(cols[7], "R:1")
             self.assertEqual(cols[8], "L:1")
+
+    def test_target_all_preserves_per_cluster_chrom(self):
+        """With --target ALL, the chrom column must be the cluster's real chrom, not 'ALL'."""
+        with tempfile.TemporaryDirectory() as workdir:
+            bam_path = os.path.join(workdir, "flank.bam")
+            # Two independent insertion sites on two different chromosomes,
+            # each with a left + right junction sharing tsd_start.
+            reads = [
+                # Chr1 site at tsd_start=1000
+                {
+                    "name": "rL1:end:5",
+                    "seq": "A" * 37 + "TTA",
+                    "start0": 962,
+                    "ref": 0,
+                },
+                {
+                    "name": "rR1:start:5",
+                    "seq": "TTA" + "A" * 37,
+                    "start0": 999,
+                    "ref": 0,
+                },
+                # Chr2 site at tsd_start=2000
+                {
+                    "name": "rL2:end:5",
+                    "seq": "A" * 37 + "TTA",
+                    "start0": 1962,
+                    "ref": 1,
+                },
+                {
+                    "name": "rR2:start:5",
+                    "seq": "TTA" + "A" * 37,
+                    "start0": 1999,
+                    "ref": 1,
+                },
+            ]
+            _write_multi_contig_bam(
+                bam_path, [("Chr1", 5000), ("Chr2", 5000)], reads
+            )
+
+            read_repeat = os.path.join(workdir, "read_repeat_name.txt")
+            with open(read_repeat, "w") as fh:
+                for n in ("rL1", "rR1", "rL2", "rR2"):
+                    fh.write(f"{n}\tmping\t+\n")
+
+            finder = InsertionFinder(mismatch_allow=0, min_mapq=1)
+            out_txt = finder.find_insertions(
+                bam_file=Path(bam_path),
+                read_repeat_file=Path(read_repeat),
+                tsd="TTA",
+                target="ALL",
+                sample="HEG4",
+                outdir=Path(workdir),
+            )
+            rows = [ln for ln in out_txt.read_text().splitlines() if ln.strip()]
+            self.assertEqual(len(rows), 2)
+            chroms = sorted(r.split("\t")[3] for r in rows)
+            self.assertEqual(chroms, ["Chr1", "Chr2"])
+            for r in rows:
+                self.assertNotEqual(r.split("\t")[3], "ALL")
 
     def test_tsd_unknown_raises(self):
         with tempfile.TemporaryDirectory() as workdir:

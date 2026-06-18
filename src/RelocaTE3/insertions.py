@@ -161,6 +161,7 @@ class InsertionFinder:
             rnames = bam.references
             bin_ins = [0]
             count = 0
+            prev_chro: str | None = None
             for record in bam.fetch(reference=ref, until_eof=True):
                 if record.is_unmapped:
                     continue
@@ -172,6 +173,13 @@ class InsertionFinder:
                 seq = record.query_sequence or ""
                 chro = rnames[record.reference_id]
                 strand = "-" if record.is_reverse else "+"
+
+                # Force a new cluster when the chromosome changes so that
+                # cluster_chrom is never overwritten and clusters don't span
+                # contigs that share a coordinate range.
+                if prev_chro is not None and chro != prev_chro:
+                    count += 1
+                    bin_ins = [start, end]
 
                 bin_ins, count = self._assign_cluster(
                     bin_ins,
@@ -189,6 +197,7 @@ class InsertionFinder:
                     te_insertions_reads,
                 )
                 cluster_chrom[count] = chro
+                prev_chro = chro
         finally:
             bam.close()
 
@@ -360,13 +369,14 @@ class InsertionFinder:
         """Write the ``all_nonref_insert`` table consumed by characterize (step 7)."""
         with open(out_txt, "w") as out:
             for event in sorted(te_insertions, key=int):
+                chrom = cluster_chrom.get(event, target)
                 for tsd_start in sorted(te_insertions[event], key=int):
                     self._write_event_start(
                         out,
                         event,
                         tsd_start,
                         sample,
-                        target,
+                        chrom,
                         read_repeat,
                         te_insertions,
                         te_insertions_reads,
@@ -379,7 +389,7 @@ class InsertionFinder:
         event,
         tsd_start,
         sample,
-        target,
+        chrom,
         read_repeat,
         te_insertions,
         te_insertions_reads,
@@ -418,7 +428,7 @@ class InsertionFinder:
             tsd_field = "supporting_junction"
 
         out.write(
-            f"{repeat_family}\t{tsd_field}\t{sample}\t{target}\t{coor_start}..{coor}\t"
+            f"{repeat_family}\t{tsd_field}\t{sample}\t{chrom}\t{coor_start}..{coor}\t"
             f"{te_orient}\tT:{total_count}\tR:{right_count}\tL:{left_count}\t"
             f"ST:0\tSR:0\tSL:0\n"
         )
