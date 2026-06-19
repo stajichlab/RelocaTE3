@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-RelocaTE3 is a pure-Python reimplementation of [RelocaTE2](https://github.com/JinfengChen/RelocaTE2) that calls transposable-element (TE) insertion polymorphisms from short-read resequencing data at single-base resolution. External dependencies are minimized to `minimap2`, `samtools`, `bedtools`, and the Python libraries `pysam`/`biopython`/`pybedtools`. The roadmap in `PLAN.md` targets a validated Python reference, then Rust acceleration of per-read hotspots, then Nextflow scatter.
+RelocaTE3 is a pure-Python reimplementation of [RelocaTE2](https://github.com/JinfengChen/RelocaTE2) that calls transposable-element (TE) insertion polymorphisms from short-read resequencing data at single-base resolution. External dependencies are minimized to `minimap2`, `samtools`, `bedtools`, and the Python libraries `pysam`/`biopython`/`pybedtools`. The roadmap in `plans/PLAN.md` targets a validated Python reference, then Rust acceleration of per-read hotspots, then Nextflow scatter.
 
 Status: end-to-end pipeline runs; rice Chr3 2 Mb acceptance benchmark recovers ~178/200 simulated insertions (~89% recall, ~90% precision) and is gated by `tests/acceptance_test.py`.
 
@@ -19,6 +19,8 @@ pixi run test                               # pytest -ra -q (all tests)
 pixi run pytest tests/acceptance_test.py    # the benchmark acceptance gate
 pixi run pytest tests/trim_test.py::test_x  # single test
 pixi run docs                               # sphinx build -> docs/_build/html
+pixi run validate-rice --local B_10         # smoke test against legacy RelocaTE2
+pixi run validate-rice                      # full 10-sample SLURM array
 pre-commit run --all-files                  # ruff, black, codespell, pydocstyle, pyupgrade
 ```
 
@@ -58,6 +60,7 @@ If you add or rename a subcommand, update both files (or first consolidate them)
 - `tests/` mirrors the module layout (`trim_test.py`, `insertions_test.py`, …) plus `acceptance_test.py` (the recall/precision gate on the rice Chr3 2 Mb fixture) and `pipeline_test.py` (end-to-end on a small fixture).
 - Test data lives in `tests/data/`; transient outputs go under `tests/results/` (gitignored).
 - The acceptance test runs the real pipeline and shells out to `minimap2`/`samtools` — it will be skipped or fail loudly if those aren't on PATH. Run it under `pixi run` to get the pinned versions.
+- The `validation/real_rice/` harness runs RelocaTE3 against legacy RelocaTE2 calls on real rice samples; the `validate-rice` pixi task is the driver.
 
 ## Repository conventions
 
@@ -69,4 +72,4 @@ If you add or rename a subcommand, update both files (or first consolidate them)
 
 ## Roadmap context
 
-`PLAN.md` is the source of truth for what's intentionally unimplemented vs. a bug. Before adding a feature that feels missing (e.g. TSD-unknown mode, Rust hotspots, Nextflow), check there first.
+`plans/PLAN.md` is the source of truth for what's intentionally unimplemented vs. a bug. Before adding a feature that feels missing (e.g. TSD-unknown mode, Rust hotspots, Nextflow), check there first. `notes/` holds in-progress investigation notes (e.g. `potential_issues_*.md`).
