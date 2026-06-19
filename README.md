@@ -104,3 +104,13 @@ family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
 pixi run test          # run the test suite
 pixi run pytest tests/acceptance_test.py   # the benchmark acceptance gate
 ```
+
+### UCR HPCC User Development
+
+The following commands run RelocaTE3 on real rice data and compares results
+to legacy RelocaTE2 results. See `validation` directory for more information.
+
+```bash
+pixi run validate-rice --local B_10   # smoke test
+pixi run validate-rice                # full 10-sample SLURM array
+```

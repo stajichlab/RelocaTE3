@@ -1,0 +1,18 @@
+# Collaborator-local config (auto-generated from config.example.toml)
+config.toml
+
+# Per-run outputs (large; not for git)
+results/
+report/
+logs/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Plots / figures (Venn diagrams + any other images generated at runtime)
+*.png
+*.pdf
+*.svg
+*.jpg
+*.jpeg

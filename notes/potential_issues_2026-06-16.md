@@ -313,6 +313,8 @@ for chrom.
 
 ---
 
+=======
+
 ## Lower priority observations
 
 - `relocaTE3` always prints a `pixi` netfs-redirect WARN at startup
