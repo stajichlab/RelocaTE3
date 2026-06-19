@@ -13,7 +13,7 @@ from RelocaTE3.reference_te import ReferenceTEAnnotator
 
 DATA = Path(__file__).parent / "data"
 GENOME = DATA / "sim_genome" / "MSU7.Chr3_2M.fa"
-MPING = DATA / "mping.fa"
+MPING = DATA / "TE_lib" / "mping.fa"
 RM_OUT = DATA / "sim_genome" / "MSU7.Chr3_2M.fa.RepeatMasker.out"
 
 

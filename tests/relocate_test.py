@@ -31,7 +31,7 @@ class TestRelocaTE(unittest.TestCase):
             ],
             "HEG4",
         )
-        TElib = os.path.join(Path(__file__).parent, "data", "mping.fa")
+        TElib = os.path.join(Path(__file__).parent, "data", "TE_lib", "mping.fa")
 
         outdir = os.path.join(Path(__file__).parent, "results")
         if not os.path.exists(outdir):

@@ -33,6 +33,20 @@ def _write_bam(bam_path: str, contig: str, length: int, reads: list[dict]):
     pysam.index(bam_path)
 
 
+def _bam_to_cram(bam_path: str, cram_path: str, genome_fasta: str):
+    """Convert a test BAM to an indexed CRAM using the supplied reference."""
+    with pysam.AlignmentFile(bam_path, "rb") as source:
+        with pysam.AlignmentFile(
+            cram_path,
+            "wc",
+            template=source,
+            reference_filename=genome_fasta,
+        ) as out:
+            for read in source:
+                out.write(read)
+    pysam.index(cram_path)
+
+
 class TestCharacterizer(unittest.TestCase):
     """Exercise the core spanner/flanker classification."""
 
@@ -78,6 +92,45 @@ class TestCharacterizer(unittest.TestCase):
             self.assertEqual(row[3], "Chr1:998..1000")
             self.assertEqual(row[5], "2")  # avg_flankers = 4/2
             self.assertEqual(row[6], "3")  # three spanners
+            self.assertEqual(row[7], "heterozygous")
+
+    def test_cram_input_uses_reference_fasta(self):
+        """A CRAM input is detected and produces the same spanner call as BAM."""
+        with tempfile.TemporaryDirectory() as workdir:
+            genome_fasta = os.path.join(workdir, "genome.fa")
+            with open(genome_fasta, "w") as fh:
+                fh.write(">Chr1\n")
+                fh.write("A" * 2000 + "\n")
+            pysam.faidx(genome_fasta)
+
+            bam_path = os.path.join(workdir, "reads.bam")
+            cram_path = os.path.join(workdir, "reads.cram")
+            spanning = [
+                {
+                    "start": 985,
+                    "len": 40,
+                    "cigar": "40M",
+                    "nm": 0,
+                    "name": f"span{i}",
+                }
+                for i in range(3)
+            ]
+            _write_bam(bam_path, "Chr1", 2000, spanning)
+            _bam_to_cram(bam_path, cram_path, genome_fasta)
+
+            sites_file = os.path.join(workdir, "HEG4.mping.all_nonref.txt")
+            with open(sites_file, "w") as fh:
+                fh.write("mping\tTTA\tHEG4\tChr1\t998..1000\t+\tT:4\tR:2\tL:2\n")
+
+            txt_path, _ = Characterizer().characterize(
+                sites_file=Path(sites_file),
+                bam_files=[Path(cram_path)],
+                genome_fasta=Path(genome_fasta),
+                outdir=Path(workdir),
+            )
+
+            row = Path(txt_path).read_text().splitlines()[1].split("\t")
+            self.assertEqual(row[6], "3")
             self.assertEqual(row[7], "heterozygous")
 
     def test_homozygous_no_spanners(self):

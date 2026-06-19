@@ -35,7 +35,7 @@ class TestAligner(unittest.TestCase):
         mm = Aligner()
         self.assertEqual("minimap2", mm.minimap)
 
-        TElib = os.path.join(Path(__file__).parent, "data", "mping.fa")
+        TElib = os.path.join(Path(__file__).parent, "data", "TE_lib", "mping.fa")
         self.assertTrue(os.path.exists(TElib))
         # with tempfile.TemporaryDirectory() as outdir:
         for outdir in [os.path.join(Path(__file__).parent, "results")]:
@@ -69,7 +69,7 @@ class TestAligner(unittest.TestCase):
         )
         mm = Aligner()
 
-        TElib = os.path.join(Path(__file__).parent, "data", "mping.fa")
+        TElib = os.path.join(Path(__file__).parent, "data", "TE_lib", "mping.fa")
         # with tempfile.TemporaryDirectory() as outdir:
         for outdir in [os.path.join(Path(__file__).parent, "results")]:
             if not os.path.exists(outdir):

@@ -59,6 +59,13 @@ Each pipeline step is also a standalone subcommand so a workflow engine
      --reads-bam sample_out/genome_aln/HEG4.reads.genome.bam \
      --outdir sample_out --sample HEG4
 
+   # CRAM input requires the reference FASTA used to create the CRAM
+   relocaTE3 characterize \
+     --insertions sample_out/results/HEG4.all_nonref_insert.gff \
+     --reads-bam original_reads.cram \
+     --genome-fasta reference.fa \
+     --outdir sample_out --sample HEG4
+
 Common parameters
 -----------------
 

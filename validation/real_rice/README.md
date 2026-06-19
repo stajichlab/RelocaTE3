@@ -6,7 +6,9 @@ of the same samples.
 
 The large inputs (FASTQs, CRAMs, genome, RepeatMasker output, legacy GFFs)
 live outside this repo under `../../../validation_data/real_rice/` and are
-**not** tracked in git. Edit `config.toml` to point at them.
+**not** tracked in git. The mPing TE FASTA is tracked at
+`tests/data/TE_lib/mping.fa`. Edit `config.toml` to point at the external
+validation inputs if needed.
 
 ## Layout
 

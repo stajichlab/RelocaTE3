@@ -62,6 +62,8 @@ Run `relocaTE3 <command> --help` for options.
 ## Inputs
 
 - **Reads**: one (single-end) or two (paired-end) FASTQ files (`.fq`/`.fq.gz`).
+- **Characterizer alignments**: sorted and indexed BAM or CRAM. CRAM input also
+  requires the corresponding reference FASTA.
 - **TE library** (`--te`): FASTA of TE/repeat consensus sequences.
 - **Genome** (`--genome`): reference genome FASTA.
 - **RepeatMasker `.out`** (`--repeatmasker`, optional): reference TE annotation,

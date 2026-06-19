@@ -21,7 +21,7 @@ from RelocaTE3.ReadLibrary import ReadLibrary
 DATA = Path(__file__).parent / "data"
 R1 = DATA / "sim_reads" / "MSU7.Chr3_2M.ALL_reads_6X_100_500_1.fq.gz"
 R2 = DATA / "sim_reads" / "MSU7.Chr3_2M.ALL_reads_6X_100_500_2.fq.gz"
-RICETE = DATA / "RiceTE.fa"
+RICETE = DATA / "TE_lib" / "RiceTE.fa"
 GENOME = DATA / "sim_genome" / "MSU7.Chr3_2M.fa"
 TRUTH = DATA / "sim_genome" / "MSU7.Chr3_2M.ALL.gff"
 

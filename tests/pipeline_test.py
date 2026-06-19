@@ -14,7 +14,7 @@ from RelocaTE3.ReadLibrary import ReadLibrary
 DATA = Path(__file__).parent / "data"
 R1 = DATA / "sim_reads" / "MSU7.Chr3_2M.ALL_reads_6X_100_500_1.fq.gz"
 R2 = DATA / "sim_reads" / "MSU7.Chr3_2M.ALL_reads_6X_100_500_2.fq.gz"
-TELIB = DATA / "mping.fa"
+TELIB = DATA / "TE_lib" / "mping.fa"
 GENOME = DATA / "sim_genome" / "MSU7.Chr3_2M.fa"
 
 
