@@ -17,6 +17,7 @@ pip = ">=26.1.2,<27"
 [pypi-dependencies]
 RelocaTE3 = { path = ".", editable = true }
 sphinx = ">=7.0"
+pytest = ">=9.0.3,<10"
 
 [tasks]
 test = "pytest -ra -q"
