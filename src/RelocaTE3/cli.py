@@ -314,7 +314,7 @@ def _add_characterize_parser(subparsers: argparse._SubParsersAction) -> None:
     """Register the ``characterize`` subcommand (Step 7: genotyping)."""
     p = subparsers.add_parser(
         "characterize",
-        help="Genotype insertions (homo/heterozygous/somatic) from a reads-to-genome BAM",
+        help="Genotype insertions (homo/heterozygous/somatic) from a reads-to-genome BAM/CRAM",
         formatter_class=CustomHelpFormatter,
     )
     p.add_argument(
@@ -324,7 +324,12 @@ def _add_characterize_parser(subparsers: argparse._SubParsersAction) -> None:
         "-b",
         "--reads-bam",
         required=True,
-        help="Original reads aligned to the genome (sorted+indexed BAM)",
+        help="Original reads aligned to the genome (sorted+indexed BAM or CRAM)",
+    )
+    p.add_argument(
+        "-g",
+        "--genome-fasta",
+        help="Reference genome FASTA (required for CRAM input)",
     )
     p.add_argument("-o", "--outdir", required=True, help="Output directory")
     p.add_argument("--sample", default="sample", help="Sample/strain name")
@@ -334,7 +339,7 @@ def _add_characterize_parser(subparsers: argparse._SubParsersAction) -> None:
 def _run_characterize(args: argparse.Namespace) -> int:
     """Execute the ``characterize`` subcommand."""
     insertions = read_insertions_gff(args.insertions)
-    characterize_insertions(insertions, args.reads_bam)
+    characterize_insertions(insertions, args.reads_bam, args.genome_fasta)
     results_dir = Path(args.outdir) / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     write_characterized(

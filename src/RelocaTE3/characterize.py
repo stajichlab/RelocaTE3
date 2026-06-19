@@ -10,11 +10,13 @@ import re
 import subprocess
 import tempfile
 from collections import defaultdict
+from contextlib import ExitStack
 from pathlib import Path
 
 import pysam
 
 from RelocaTE3 import logger
+from RelocaTE3.models import Insertion
 
 # A read with no clipping or indels: a single fully-matched block.
 _ALL_MATCH_CIGAR = re.compile(r"^\d+M$")
@@ -28,8 +30,29 @@ def _format_number(value: float) -> str:
     return f"{value:g}"
 
 
+def _open_alignment(
+    alignment_file: str | Path, genome_fasta: str | Path | None = None
+) -> pysam.AlignmentFile:
+    """Open an indexed BAM or CRAM file for characterization.
+
+    CRAM decoding requires the reference FASTA used to create the alignment.
+    """
+    alignment_file = Path(alignment_file)
+    if alignment_file.suffix.lower() == ".cram":
+        if genome_fasta is None:
+            raise ValueError(
+                f"CRAM input requires a reference genome FASTA: {alignment_file}"
+            )
+        return pysam.AlignmentFile(
+            str(alignment_file),
+            "rc",
+            reference_filename=str(genome_fasta),
+        )
+    return pysam.AlignmentFile(str(alignment_file), "rb")
+
+
 class Characterizer:
-    """Characterize RelocaTE insertion sites using read support from BAM files."""
+    """Characterize RelocaTE insertion sites using read support from BAM/CRAM files."""
 
     def __init__(
         self,
@@ -64,9 +87,10 @@ class Characterizer:
         Args:
             sites_file: RelocaTE non-reference insertion table (e.g.
                 ``SAMPLE.mping.all_nonref.txt``).
-            bam_files: BAM file(s) of the original reads aligned to the reference
-                genome (before the TE was trimmed).
-            genome_fasta: reference genome FASTA (required for ``excision``).
+            bam_files: BAM or CRAM file(s) of the original reads aligned to the
+                reference genome (before the TE was trimmed).
+            genome_fasta: reference genome FASTA (required for CRAM inputs and
+                ``excision``).
             outdir: directory for the output files (defaults to the directory of
                 ``sites_file``).
             excision: also search for excision events that leave a footprint.
@@ -86,8 +110,11 @@ class Characterizer:
         txt_path = outdir / f"{stem}.characTErized.txt"
         gff_path = outdir / f"{stem}.characTErized.gff"
 
-        alignments = [pysam.AlignmentFile(str(b), "rb") for b in bam_files]
-        try:
+        with ExitStack() as stack:
+            alignments = [
+                stack.enter_context(_open_alignment(path, genome_fasta))
+                for path in bam_files
+            ]
             tsds: dict[str, dict[int, str]] = defaultdict(dict)
             # indel-containing spanning reads kept for excision analysis,
             # keyed by "chrom.pos"; the inner dict de-duplicates SAM lines.
@@ -109,9 +136,6 @@ class Characterizer:
                 )
 
             self._write_outputs(txt_path, gff_path, to_print)
-        finally:
-            for aln in alignments:
-                aln.close()
 
         logger.info("Wrote %s and %s", txt_path, gff_path)
         return txt_path, gff_path
@@ -278,9 +302,10 @@ class Characterizer:
         header = self._fasta_header(genome_fasta)
 
         excision_info = outdir / "excisions_with_footprint.vcfinfo"
-        with tempfile.TemporaryDirectory() as workdir, open(
-            excision_info, "a"
-        ) as info_out:
+        with (
+            tempfile.TemporaryDirectory() as workdir,
+            open(excision_info, "a") as info_out,
+        ):
             for site, sam_dict in indel_reads.items():
                 chromosome, loc = site.rsplit(".", 1)
                 loc = int(loc)
@@ -430,7 +455,7 @@ class Characterizer:
                             f"ID={chrom}.{pos}.spanners;avg_flankers={flankers};"
                             f"spanners={spanners};type={rec['status']};TE={rec['TE']};TSD={tsd}\n"
                         )
-from RelocaTE3.models import Insertion
+
 
 # a spanner must extend at least this far past the site on both sides
 SPAN_MARGIN = 5
@@ -484,14 +509,17 @@ def classify_status(avg_flankers: float, spanners: int) -> str:
 
 
 def characterize_insertions(
-    insertions: list[Insertion], genome_reads_bam: str
+    insertions: list[Insertion],
+    genome_reads_bam: str | Path,
+    genome_fasta: str | Path | None = None,
 ) -> list[Insertion]:
     """Annotate insertions with spanner counts and genotype status in place.
 
     Only insertions with junction reads on both sides are genotyped (matching
-    RelocaTE2); others keep an empty status. Returns the same list for chaining.
+    RelocaTE2); others keep an empty status. ``genome_fasta`` is required when
+    ``genome_reads_bam`` is a CRAM file. Returns the same list for chaining.
     """
-    with pysam.AlignmentFile(genome_reads_bam, "rb") as bam:
+    with _open_alignment(genome_reads_bam, genome_fasta) as bam:
         for ins in insertions:
             if ins.left_junction_reads >= 1 and ins.right_junction_reads >= 1:
                 ins.spanners = count_spanners(bam, ins.chrom, ins.end)

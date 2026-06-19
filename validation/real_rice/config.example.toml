@@ -9,12 +9,15 @@
 # helpers in this directory (see _config.py).
 
 [paths]
+# Root of this git repository, relative to this config file.
+repository_root = "../.."
+
 # Root of the bundled validation dataset (NOT tracked in git).
 validation_root = "/bigdata/stajichlab/nmath020/github/github_tools/RelocaTE/RelocaTE3_jason/validation_data/real_rice"
 
 # Inputs derived from validation_root (overridable individually if needed).
 genome        = "${paths.validation_root}/ref_genome/MSU_r7.fa"
-te_library    = "${paths.validation_root}/TE_lib/mping.fa"
+te_library    = "${paths.repository_root}/tests/data/TE_lib/mping.fa"
 repeatmasker  = "${paths.validation_root}/repeatmasker/MSU_r7.fa.out"
 fq_dir        = "${paths.validation_root}/fq_input"
 sample_csv    = "${paths.validation_root}/sample_file/samples.csv"

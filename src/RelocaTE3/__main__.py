@@ -222,16 +222,16 @@ def _menu_characterize(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         "--bam",
         nargs="+",
         required=True,
-        metavar="BAM",
+        metavar="BAM_OR_CRAM",
         dest="bam",
-        help="BAM file(s) of original reads aligned to the reference genome (before TE trimming)",
+        help="BAM or CRAM file(s) of original reads aligned to the reference genome (before TE trimming)",
     )
     parser.add_argument(
         "-g",
         "--genome-fasta",
         dest="genome_fasta",
         metavar="FASTA",
-        help="Reference genome FASTA (required with --excision)",
+        help="Reference genome FASTA (required for CRAM input or --excision)",
     )
     parser.add_argument(
         "-o",
