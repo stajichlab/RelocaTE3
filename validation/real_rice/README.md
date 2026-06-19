@@ -18,7 +18,7 @@ RelocaTE3/validation/real_rice/
 ├── run_relocate3.sh           # SLURM-aware per-sample driver for RelocaTE3
 ├── normalize_relocate2.py     # legacy GFFs   -> report/relocate2_calls.tsv
 ├── normalize_relocate3.py     # RelocaTE3 GFFs -> report/relocate3_calls.tsv
-├── compare_calls.py           # diff + stats + venn -> report/summary.{tsv,txt}, venn.png
+├── compare_calls.py           # diff + stats + venns -> report/summary.{tsv,txt}, report/venn_total.png, report/venn/venn_<sample>.png
 ├── results/                   # created at runtime: per-sample RelocaTE3 outputs
 ├── logs/                      # created at runtime: SLURM + python logs
 └── report/                    # created at runtime: normalized TSVs + summary + venn
@@ -74,8 +74,10 @@ Outputs land under `validation/real_rice/report/`:
 - `matched_calls.tsv` — every RelocaTE2 call paired with its nearest
   RelocaTE3 match (or blank if none within `compare.position_window`).
 - `relocate2_only.tsv`, `relocate3_only.tsv` — caller-specific calls.
-- `venn.png` — overall Venn diagram (requires `matplotlib_venn`; the
-  script silently skips this if the import fails).
+- `venn_total.png` — overall Venn diagram across every sample compared.
+- `venn/venn_<sample>.png` — one Venn per sample, labeled with the sample
+  name. Both venn outputs require `matplotlib_venn` (already declared as a
+  pixi dep); the script silently skips them if the import fails.
 
 ## For collaborators on this HPCC
 
@@ -161,5 +163,6 @@ Activate the project's pixi env (`pixi shell` from `RelocaTE3/`) so
 pip install matplotlib matplotlib-venn
 ```
 
-If those are absent, `compare_calls.py` still writes the TSV/TXT outputs and
-just skips `venn.png`.
+(They're already declared in `pixi.toml` — `pixi install` from `RelocaTE3/`
+covers it.) If those are absent, `compare_calls.py` still writes the
+TSV/TXT outputs and just skips the venn PNGs.

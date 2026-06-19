@@ -16,7 +16,8 @@ Outputs (under paths.report_dir):
     matched_calls.tsv    every R2 call with its matched R3 call (or blank if unmatched)
     relocate2_only.tsv   R2 calls with no matching R3 call within the window
     relocate3_only.tsv   R3 calls with no matching R2 call within the window
-    venn.png             overall Venn (only if matplotlib + matplotlib_venn import)
+    venn_total.png       overall Venn across every sample compared
+    venn/venn_<sample>.png  one Venn per sample (only if matplotlib_venn imports)
 """
 
 from __future__ import annotations
@@ -176,7 +177,8 @@ def _write_rows(path: Path, rows: list[dict]) -> None:
         w.writerows(rows)
 
 
-def _draw_venn(shared: int, r2_only: int, r3_only: int, out_png: Path) -> bool:
+def _load_venn():
+    """Return (plt, venn2) if matplotlib + matplotlib_venn import, else (None, None)."""
     try:
         import matplotlib
 
@@ -185,23 +187,25 @@ def _draw_venn(shared: int, r2_only: int, r3_only: int, out_png: Path) -> bool:
         from matplotlib_venn import venn2
     except ImportError:
         print(
-            "INFO: matplotlib_venn not installed; skipping venn.png "
-            "(install with: pip install matplotlib matplotlib-venn)",
+            "INFO: matplotlib_venn not installed; skipping venn diagrams "
+            "(install with: pixi add matplotlib-venn)",
             file=sys.stderr,
         )
-        return False
+        return None, None
+    return plt, venn2
 
+
+def _draw_one_venn(plt, venn2, shared, r2_only, r3_only, title, out_png) -> None:
     fig, ax = plt.subplots(figsize=(6, 5))
     venn2(
         subsets=(r2_only, r3_only, shared),
         set_labels=("RelocaTE2", "RelocaTE3"),
         ax=ax,
     )
-    ax.set_title("Non-reference insertions (all samples)")
+    ax.set_title(title)
     fig.tight_layout()
     fig.savefig(out_png, dpi=200)
     plt.close(fig)
-    return True
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -245,7 +249,16 @@ def main(argv: list[str] | None = None) -> int:
     all_r2_only: list[dict] = []
     all_r3_only: list[dict] = []
     summary_rows: list[dict] = []
+    per_sample_counts: list[tuple[str, int, int, int]] = []
     total_shared = total_r2_only = total_r3_only = 0
+
+    plt, venn2 = _load_venn()
+    venn_dir = report_dir / "venn"
+    if plt is not None:
+        if venn_dir.is_dir():
+            for stale in venn_dir.glob("venn_*.png"):
+                stale.unlink()
+        venn_dir.mkdir(parents=True, exist_ok=True)
 
     for s in samples:
         matched, r2_only, r3_only = _match_sample(
@@ -254,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
         all_matched.extend(matched)
         all_r2_only.extend(r2_only)
         all_r3_only.extend(r3_only)
+        per_sample_counts.append((s, len(matched), len(r2_only), len(r3_only)))
 
         r2_n = len(by_sample_r2.get(s, []))
         r3_n = len(by_sample_r3.get(s, []))
@@ -321,7 +335,26 @@ def main(argv: list[str] | None = None) -> int:
     summary_txt.write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
 
-    _draw_venn(total_shared, total_r2_only, total_r3_only, report_dir / "venn.png")
+    if plt is not None:
+        for s, shared, r2o, r3o in per_sample_counts:
+            _draw_one_venn(
+                plt,
+                venn2,
+                shared,
+                r2o,
+                r3o,
+                f"{s}: non-reference insertions",
+                venn_dir / f"venn_{s}.png",
+            )
+        _draw_one_venn(
+            plt,
+            venn2,
+            total_shared,
+            total_r2_only,
+            total_r3_only,
+            f"All samples (n={len(samples)}): non-reference insertions",
+            report_dir / "venn_total.png",
+        )
 
     print(f"\nReport directory: {report_dir}")
     return 0

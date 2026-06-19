@@ -9,3 +9,10 @@ logs/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Plots / figures (Venn diagrams + any other images generated at runtime)
+*.png
+*.pdf
+*.svg
+*.jpg
+*.jpeg

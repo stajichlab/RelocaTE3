@@ -16,6 +16,8 @@ pip = ">=26.1.2,<27"
 pytest = ">=7"
 seaborn = ">=0.13.2,<0.14"
 pandas = ">=3.0.3,<4"
+matplotlib = ">=3.11.0,<4"
+matplotlib-venn = ">=1.1"
 
 [pypi-dependencies]
 RelocaTE3 = { path = ".", editable = true }
