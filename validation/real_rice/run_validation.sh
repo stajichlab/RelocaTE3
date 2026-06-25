@@ -28,17 +28,21 @@ EXAMPLE_REL="validation/real_rice/config.example.toml"
 
 MODE="slurm"           # slurm | local
 SKIP_RUN=0
+SKIP_NONREF=0
+SKIP_CHAR=0
 FORCE=0
 CONFIG_ARG=""
 EXPLICIT_SAMPLES=()    # positional sample names; empty = use the config's sample CSV
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --local)     MODE="local"; shift ;;
-    --slurm)     MODE="slurm"; shift ;;
-    --skip-run)  SKIP_RUN=1;   shift ;;
-    --force)     FORCE=1;      shift ;;
-    --config)    CONFIG_ARG="$2"; shift 2 ;;
+    --local)        MODE="local"; shift ;;
+    --slurm)        MODE="slurm"; shift ;;
+    --skip-run)     SKIP_RUN=1;   shift ;;
+    --skip-nonref)  SKIP_NONREF=1; shift ;;
+    --skip-char)    SKIP_CHAR=1;   shift ;;
+    --force)        FORCE=1;      shift ;;
+    --config)       CONFIG_ARG="$2"; shift 2 ;;
     -h|--help)
       sed -n '2,30p' "$0"; exit 0 ;;
     --)          shift; while [[ $# -gt 0 ]]; do EXPLICIT_SAMPLES+=("$1"); shift; done ;;
@@ -81,6 +85,9 @@ print(cfg['slurm']['cpus_per_task'])
 print(cfg['slurm']['mem'])
 print(cfg['slurm']['time'])
 print(','.join(load_samples(cfg['paths']['sample_csv'])))
+print(int(bool(cfg['relocate3'].get('characterize', False))))
+print(cfg['relocate3'].get('target', 'ALL'))
+print(cfg['relocate3'].get('te_name', 'mping'))
 "
 )
 SAMPLE_CSV="${CFG[0]}"
@@ -90,6 +97,9 @@ PART="${CFG[3]}"
 CPUS="${CFG[4]}"
 MEM="${CFG[5]}"
 TIMELIM="${CFG[6]}"
+DO_CHAR="${CFG[8]}"
+TARGET="${CFG[9]}"
+TE_NAME="${CFG[10]}"
 # Which samples to operate on: explicit positional args win over the CSV.
 if [[ ${#EXPLICIT_SAMPLES[@]} -gt 0 ]]; then
   SAMPLES=("${EXPLICIT_SAMPLES[@]}")
@@ -111,8 +121,13 @@ if [[ "$SKIP_RUN" == "1" ]]; then
 elif [[ "$MODE" == "local" ]]; then
   echo "[validate-rice] running RelocaTE3 locally for ${#SAMPLES[@]} sample(s)"
   for s in "${SAMPLES[@]}"; do
-    if [[ -s "$OUTROOT/$s/results/${s}.all_nonref_insert.gff" ]]; then
-      echo "  [skip] $s (existing GFF found; pass --force to redo)"; continue
+    if [[ "$DO_CHAR" == "1" ]]; then
+      DONE="$OUTROOT/$s/results/${TARGET}.${TE_NAME}.all_nonref_insert.characTErized.txt"
+    else
+      DONE="$OUTROOT/$s/results/${s}.all_nonref_insert.gff"
+    fi
+    if [[ -s "$DONE" ]]; then
+      echo "  [skip] $s (existing $(basename "$DONE") found; pass --force to redo)"; continue
     fi
     echo "  [run]  $s"
     bash "$SCRIPT_DIR/run_relocate3.sh" "$CONFIG" "$s" \
@@ -123,8 +138,13 @@ elif [[ ${#EXPLICIT_SAMPLES[@]} -gt 0 ]]; then
   # so we don't depend on the sample's CSV row index for array indexing.
   echo "[validate-rice] submitting ${#SAMPLES[@]} SLURM job(s) on partition ${PART}"
   for s in "${SAMPLES[@]}"; do
-    if [[ -s "$OUTROOT/$s/results/${s}.all_nonref_insert.gff" ]]; then
-      echo "  [skip] $s (existing GFF found; pass --force to redo)"; continue
+    if [[ "$DO_CHAR" == "1" ]]; then
+      DONE="$OUTROOT/$s/results/${TARGET}.${TE_NAME}.all_nonref_insert.characTErized.txt"
+    else
+      DONE="$OUTROOT/$s/results/${s}.all_nonref_insert.gff"
+    fi
+    if [[ -s "$DONE" ]]; then
+      echo "  [skip] $s (existing $(basename "$DONE") found; pass --force to redo)"; continue
     fi
     echo "  [submit] $s"
     sbatch --wait \
@@ -150,13 +170,40 @@ if [[ ${#EXPLICIT_SAMPLES[@]} -gt 0 ]]; then
   for s in "${SAMPLES[@]}"; do SAMPLE_FLAGS+=("--samples" "$s"); done
 fi
 
-echo "[validate-rice] normalizing legacy RelocaTE2 calls"
-( cd "$SCRIPT_DIR" && python3 normalize_relocate2.py --config "$CONFIG" "${SAMPLE_FLAGS[@]}" )
-echo "[validate-rice] normalizing RelocaTE3 calls"
-( cd "$SCRIPT_DIR" && python3 normalize_relocate3.py --config "$CONFIG" "${SAMPLE_FLAGS[@]}" )
+# Stage A: raw non-reference calls.
+if [[ "$SKIP_NONREF" == "1" ]]; then
+  echo "[validate-rice] --skip-nonref: skipping Stage A (raw non-reference compare)"
+else
+  echo "[validate-rice] Stage A: normalizing legacy RelocaTE2 non-reference calls"
+  ( cd "$SCRIPT_DIR" && python3 normalize_relocate2_nonref.py --config "$CONFIG" "${SAMPLE_FLAGS[@]}" )
+  echo "[validate-rice] Stage A: normalizing RelocaTE3 non-reference calls"
+  ( cd "$SCRIPT_DIR" && python3 normalize_relocate3_nonref.py --config "$CONFIG" "${SAMPLE_FLAGS[@]}" )
+  echo "[validate-rice] Stage A: comparing non-reference call sets"
+  ( cd "$SCRIPT_DIR" && python3 compare_nonref.py --config "$CONFIG" )
+fi
 
-# Step 3: compare + report.
-echo "[validate-rice] comparing call sets"
-( cd "$SCRIPT_DIR" && python3 compare_calls.py --config "$CONFIG" )
+# Stage B: characterized (genotyped) calls.
+if [[ "$SKIP_CHAR" == "1" ]]; then
+  echo "[validate-rice] --skip-char: skipping Stage B (characterized compare)"
+elif [[ "$DO_CHAR" != "1" ]]; then
+  echo "[validate-rice] [relocate3].characterize is false; skipping Stage B"
+else
+  echo "[validate-rice] Stage B: normalizing legacy RelocaTE2 characterized calls"
+  ( cd "$SCRIPT_DIR" && python3 normalize_relocate2_char.py --config "$CONFIG" "${SAMPLE_FLAGS[@]}" )
+  echo "[validate-rice] Stage B: normalizing RelocaTE3 characterized calls"
+  ( cd "$SCRIPT_DIR" && python3 normalize_relocate3_char.py --config "$CONFIG" "${SAMPLE_FLAGS[@]}" )
+  echo "[validate-rice] Stage B: comparing characterized call sets"
+  ( cd "$SCRIPT_DIR" && python3 compare_char.py --config "$CONFIG" )
+fi
+
+# Print summaries at end (paths are absolute after _config.py resolution).
+NONREF_SUM="$(cd "$SCRIPT_DIR" && python3 -c "from _config import load_config; print(load_config('$CONFIG')['paths']['report_dir'])")/nonref/summary.txt"
+CHAR_SUM="$(cd "$SCRIPT_DIR" && python3 -c "from _config import load_config; print(load_config('$CONFIG')['paths']['report_dir'])")/characterized/summary.txt"
+if [[ -f "$NONREF_SUM" ]]; then
+  echo; echo "===== Stage A summary ($NONREF_SUM) ====="; cat "$NONREF_SUM"
+fi
+if [[ -f "$CHAR_SUM" ]]; then
+  echo; echo "===== Stage B summary ($CHAR_SUM) ====="; cat "$CHAR_SUM"
+fi
 
 echo "[validate-rice] done."

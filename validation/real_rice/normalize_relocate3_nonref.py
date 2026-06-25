@@ -7,7 +7,7 @@ src/RelocaTE3/insertions.py). Columns:
     family  tsd  sample  chrom  coor_start..coor_end  strand  T:N  R:N  L:N  ST:N  SR:N  SL:N
 
 This script flattens those files into the same schema used by
-``normalize_relocate2.py`` so ``compare_calls.py`` can diff them directly.
+``normalize_relocate2_nonref.py`` so ``compare_nonref.py`` can diff them directly.
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import NONREF_COLUMNS as COLUMNS  # noqa: E402
 from _config import load_config, load_samples  # noqa: E402
-from normalize_relocate2 import COLUMNS  # noqa: E402
 
 _COORD_RE = re.compile(r"^(\d+)\.\.(\d+)$")
 
@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--config", default="config.toml", help="Validation TOML config")
     ap.add_argument(
         "--out",
-        help="Output TSV (default: <report_dir>/relocate3_calls.tsv)",
+        help="Output TSV (default: <report_dir>/nonref/relocate3_calls.tsv)",
     )
     ap.add_argument(
         "--samples",
@@ -90,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config(args.config)
     samples = args.samples if args.samples else load_samples(cfg["paths"]["sample_csv"])
     r3_root = Path(cfg["paths"]["relocate3_outdir"])
-    report_dir = Path(cfg["paths"]["report_dir"])
+    report_dir = Path(cfg["paths"]["report_dir"]) / "nonref"
     report_dir.mkdir(parents=True, exist_ok=True)
     out_path = Path(args.out) if args.out else report_dir / "relocate3_calls.tsv"
 

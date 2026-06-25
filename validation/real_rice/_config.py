@@ -91,6 +91,31 @@ def load_config(path: str | Path) -> dict[str, Any]:
     return cfg
 
 
+def resolve_genome_aln(cfg: dict[str, Any], sample: str) -> Path:
+    """Resolve the per-sample reads-to-genome alignment path.
+
+    Substitutes ``${sample}`` into ``paths.genome_aln_pattern`` and joins it
+    under ``paths.genome_aln_dir``. Raises if either key is missing or if the
+    resulting file does not exist.
+    """
+    paths = cfg.get("paths", {})
+    aln_dir = paths.get("genome_aln_dir")
+    pattern = paths.get("genome_aln_pattern")
+    if not aln_dir or not pattern:
+        raise KeyError(
+            "config is missing paths.genome_aln_dir / paths.genome_aln_pattern "
+            "(needed when [relocate3].characterize = true and "
+            "characterize_source = 'external')"
+        )
+    rel = pattern.replace("${sample}", sample)
+    aln_path = Path(aln_dir) / rel
+    if not aln_path.is_file():
+        raise FileNotFoundError(
+            f"genome alignment not found for sample {sample!r}: {aln_path}"
+        )
+    return aln_path
+
+
 def load_samples(csv_path: str | Path) -> list[str]:
     """Read sample names from a one-column CSV with a 'Sample' header."""
     samples: list[str] = []
