@@ -77,3 +77,58 @@ def test_class_path_wildcard_tsd_captures_read_bases(tmp_path):
     assert rows[0][1] == "TAA", rows
     assert rows[0][3] == "Chr1", rows
     assert rows[0][4] == "100..102", rows
+
+
+def _write_single_sided_bam(tmp_path: Path) -> Path:
+    """Two right-junction reads framing a TAA TSD at Chr1:100..102; no left side."""
+    header = {
+        "HD": {"VN": "1.6", "SO": "coordinate"},
+        "SQ": [{"LN": 1000, "SN": "Chr1"}],
+    }
+    raw = tmp_path / "syn1s.raw.bam"
+    with pysam.AlignmentFile(str(raw), "wb", header=header) as bam:
+        for i in range(2):
+            r = pysam.AlignedSegment(bam.header)
+            r.query_name = f"r{i}:start:5"
+            r.flag = 0
+            r.reference_id = 0
+            r.reference_start = 99  # 0-based -> 1-based 100
+            r.mapping_quality = 60
+            r.cigartuples = [(0, 10)]
+            r.query_sequence = "TAAGGGCCAA"
+            r.query_qualities = pysam.qualitystring_to_array("I" * 10)
+            r.set_tag("NM", 0)
+            bam.write(r)
+    sorted_bam = tmp_path / "syn1s.bam"
+    pysam.sort("-o", str(sorted_bam), str(raw))
+    pysam.index(str(sorted_bam))
+    return sorted_bam
+
+
+def test_class_path_emits_captured_tsd_for_single_sided_junction(tmp_path):
+    """Single-sided junction in wildcard TSD mode emits top_tsd, not supporting_junction."""
+    bam = _write_single_sided_bam(tmp_path)
+    repeat = tmp_path / "read_repeat.txt"
+    repeat.write_text("r0\tmPing\t+\nr1\tmPing\t+\n")
+    outdir = tmp_path / "out"
+    finder = InsertionFinder(mismatch_allow=2, min_mapq=1)
+    out_txt = finder.find_insertions(
+        bam_file=bam,
+        read_repeat_file=repeat,
+        tsd="...",
+        target="Chr1",
+        sample="syn",
+        outdir=outdir,
+        te_name="mPing",
+    )
+    rows = [
+        line.split("\t")
+        for line in Path(out_txt).read_text().splitlines()
+        if line and not line.lower().startswith("strain")
+    ]
+    assert len(rows) == 1, rows
+    # _emit format: TE, TSD, sample, chrom, coord, strand, T:N, R:N, L:N, ST, SR, SL
+    assert rows[0][0] == "mPing"
+    assert rows[0][1] == "TAA", rows  # was "supporting_junction" before the fix
+    assert rows[0][7] == "R:2"
+    assert rows[0][8] == "L:0"
