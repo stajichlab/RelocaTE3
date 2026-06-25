@@ -703,6 +703,19 @@ def _estimate_tsd_length_from_depth(
     return 0
 
 
+def _capture_tsd_from_read(seq: str, side: str, length: int) -> str:
+    """Return the literal TSD characters from a junction read.
+
+    Mirrors RelocaTE2 ``TSD_check_cluster`` (relocaTE_insertionFinder.py:1249):
+    a *right*-side junction read carries the TSD at the start of the read, a
+    *left*-side read at the end. Returns ``""`` when the read is too short or
+    ``length <= 0``.
+    """
+    if length <= 0 or len(seq) < length:
+        return ""
+    return (seq[:length] if side == "right" else seq[-length:]).upper()
+
+
 def _count_support(ins: Insertion, cluster: _Cluster) -> None:
     """Count bracketing supporting reads (RelocaTE2 ``Supporting_count`` rule)."""
     left = right = 0
