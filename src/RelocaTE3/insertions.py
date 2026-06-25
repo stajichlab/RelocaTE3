@@ -445,6 +445,8 @@ class InsertionFinder:
         if not family:
             return ""
         return max(family.items(), key=lambda kv: kv[1])[0]
+
+
 from RelocaTE3.models import Insertion, JunctionObservation
 
 # read-name junction tag: <name>:(start|end):(5|3)
@@ -659,6 +661,39 @@ def _fetch_tsd(genome: pysam.FastaFile, chrom: str, start: int, end: int) -> str
         return seq.upper() if seq else "." * (end - start + 1)
     except (KeyError, ValueError):
         return "." * (end - start + 1)
+
+
+def _estimate_tsd_length_from_depth(
+    spans: list[tuple[int, int]],
+    breakpoint: int,
+    thresholds: tuple[float, ...] = (1.0, 0.8, 0.6),
+) -> int:
+    """Estimate TSD length from read-depth overlap near ``breakpoint``.
+
+    Port of RelocaTE2 ``tsd_finder`` (relocaTE_insertionFinder.py:843). Builds a
+    per-base depth pileup from ``spans`` (1-based inclusive ``(start, end)``
+    tuples), then for each fractional threshold (in order) counts contiguous
+    positions whose depth >= ``threshold * len(spans)``. Returns the first
+    non-zero length, or 0 if none qualify.
+
+    The ``breakpoint`` argument is reserved for future locality refinement; the
+    R2 reference implementation also passes a candidate position but does not
+    use it to bound the depth window.
+    """
+    del breakpoint  # currently unused; matches R2 signature shape
+    if not spans:
+        return 0
+    depth: dict[int, int] = {}
+    for s, e in spans:
+        for p in range(s, e + 1):
+            depth[p] = depth.get(p, 0) + 1
+    total = len(spans)
+    for frac in thresholds:
+        cutoff = frac * total
+        length = sum(1 for d in depth.values() if d >= cutoff)
+        if length:
+            return length
+    return 0
 
 
 def _count_support(ins: Insertion, cluster: _Cluster) -> None:
