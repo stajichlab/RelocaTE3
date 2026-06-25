@@ -159,8 +159,16 @@ class TestCharacterizer(unittest.TestCase):
             self.assertEqual(row[6], "0")  # no spanners
             self.assertEqual(row[7], "homozygous")
 
-    def test_skips_single_sided_support(self):
-        """Sites lacking both left and right flanker support are skipped."""
+    def test_keeps_single_sided_multi_read_junction(self):
+        """Single-sided multi-read junctions are valid (carry a real read-captured TSD).
+
+        Pre-2026-06-25 the class path emitted ``supporting_junction`` as the TSD
+        column for these sites, and characterize accepted the literal sentinel.
+        After ``insertions.py:_emit`` was changed to emit the captured TSD
+        directly for single-sided multi-read junctions (see
+        ``plans/2026-06-25-tsd-supporting-junction-port.md``), characterize must
+        accept them by junction-count too.
+        """
         with tempfile.TemporaryDirectory() as workdir:
             bam_path = os.path.join(workdir, "reads.bam")
             _write_bam(
@@ -172,8 +180,32 @@ class TestCharacterizer(unittest.TestCase):
 
             sites_file = os.path.join(workdir, "HEG4.mping.all_nonref.txt")
             with open(sites_file, "w") as fh:
-                # R:0 -> no right support, not a supporting_junction -> skipped
+                # single-sided (R:0) but multi-read (T:2 L:2) with a real TSD
                 fh.write("mping\tTTA\tHEG4\tChr1\t998..1000\t+\tT:2\tR:0\tL:2\n")
+
+            characterizer = Characterizer()
+            txt_path, _ = characterizer.characterize(
+                sites_file=Path(sites_file),
+                bam_files=[Path(bam_path)],
+                outdir=Path(workdir),
+            )
+            # header + one data row
+            self.assertEqual(len(Path(txt_path).read_text().splitlines()), 2)
+
+    def test_skips_singleton(self):
+        """A singleton (T:1) has no real junction support and must be skipped."""
+        with tempfile.TemporaryDirectory() as workdir:
+            bam_path = os.path.join(workdir, "reads.bam")
+            _write_bam(
+                bam_path,
+                "Chr1",
+                2000,
+                [{"start": 985, "len": 40, "cigar": "40M", "nm": 0}],
+            )
+
+            sites_file = os.path.join(workdir, "HEG4.mping.all_nonref.txt")
+            with open(sites_file, "w") as fh:
+                fh.write("mping\tsingleton\tHEG4\tChr1\t998..1000\t+\tT:1\tR:0\tL:1\n")
 
             characterizer = Characterizer()
             txt_path, _ = characterizer.characterize(
