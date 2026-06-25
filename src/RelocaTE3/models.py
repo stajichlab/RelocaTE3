@@ -98,6 +98,7 @@ class JunctionObservation:
     strand: str  # genomic mapped strand of the flank
     te_name: str
     te_end: str = ""  # '5' or '3': which end of the TE this read spans
+    seq: str = ""  # genomic-strand read sequence, for read-derived TSD capture
 
     @property
     def te_orientation(self) -> str:

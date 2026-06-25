@@ -498,8 +498,8 @@ class _Cluster:
         self.lo: int | None = None
         self.hi: int | None = None
         self.junctions: list[JunctionObservation] = []
-        # supporting reads: (name, gstart, gend, strand)
-        self.support: list[tuple[str, int, int, str]] = []
+        # supporting reads: (name, gstart, gend, strand, seq)
+        self.support: list[tuple[str, int, int, str, str]] = []
 
     def in_range(self, gstart: int, gend: int) -> bool:
         """True if a read at [gstart, gend] belongs to this cluster."""
@@ -527,6 +527,7 @@ def _stream_clusters(bam_path: str, read_repeat: dict[str, tuple[str, str]]):
             )  # pysam end is 0-based exclusive == 1-based inclusive
             strand = "-" if rec.is_reverse else "+"
             name = rec.query_name
+            seq = rec.query_sequence or ""
 
             if (
                 current is None
@@ -543,11 +544,17 @@ def _stream_clusters(bam_path: str, read_repeat: dict[str, tuple[str, str]]):
                 side, pos, te_end = info
                 current.junctions.append(
                     JunctionObservation(
-                        name, side, pos, strand, _te_family(read_repeat, name), te_end
+                        name,
+                        side,
+                        pos,
+                        strand,
+                        _te_family(read_repeat, name),
+                        te_end,
+                        seq,
                     )
                 )
             else:
-                current.support.append((name, gstart, gend, strand))
+                current.support.append((name, gstart, gend, strand, seq))
         if current is not None:
             yield current
 
@@ -699,7 +706,7 @@ def _estimate_tsd_length_from_depth(
 def _count_support(ins: Insertion, cluster: _Cluster) -> None:
     """Count bracketing supporting reads (RelocaTE2 ``Supporting_count`` rule)."""
     left = right = 0
-    for _name, gstart, gend, strand in cluster.support:
+    for _name, gstart, gend, strand, _seq in cluster.support:
         if strand == "+" and gend <= ins.start:
             left += 1
         elif strand == "-" and gstart >= ins.end:
@@ -719,9 +726,11 @@ def _call_support_only(
     ``min_support`` reads on each strand. Lower confidence than a junction call —
     short junction flanks often don't map uniquely, but the paired-end mates do.
     """
-    plus_ends = [gend for _n, _s, gend, strand in cluster.support if strand == "+"]
+    plus_ends = [
+        gend for _n, _s, gend, strand, _seq in cluster.support if strand == "+"
+    ]
     minus_starts = [
-        gstart for _n, gstart, _e, strand in cluster.support if strand == "-"
+        gstart for _n, gstart, _e, strand, _seq in cluster.support if strand == "-"
     ]
     if len(plus_ends) < min_support or len(minus_starts) < min_support:
         return None
