@@ -425,8 +425,19 @@ class InsertionFinder:
         coor_start = tsd_start
         coor = tsd_start + max(len(top_tsd) - 1, 0)
 
-        # status mirrors RelocaTE2: a true junction needs both left and right reads
-        if left_count > 0 and right_count > 0:
+        # Emit the read-captured TSD whenever one was inferred. Mirrors
+        # RelocaTE2's behavior post-TSD_from_read_depth: that pass synthesizes
+        # the missing-side junction reads from the depth pileup, lifting
+        # single-sided clusters into the both-sided emission. We achieve the
+        # same emission directly when the wildcard TSD mode (validation
+        # config tsd="...") has filled top_tsd with a real read-captured
+        # 3-mer. Literal-TSD callers keep the original behavior because
+        # top_tsd will be "UNK" when no read matched the motif.
+        real_capture = bool(top_tsd) and top_tsd not in {"UNK", "UKN"}
+        if real_capture and left_count > 0 and right_count > 0:
+            tsd_field = top_tsd
+        elif real_capture and total_count > 1:
+            # single-sided junction with multiple reads; trust the wildcard capture
             tsd_field = top_tsd
         elif total_count == 1:
             tsd_field = "singleton"
