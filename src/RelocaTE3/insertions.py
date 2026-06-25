@@ -455,8 +455,6 @@ _JUNCTION_RE = re.compile(r":(start|end):([53])$")
 RANGE_ALLOWANCE = 1000
 # max separation (bp) between a left and right breakpoint to call a shared TSD
 TSD_WINDOW = 100
-# largest plausible TSD length (bp); wider overlaps are treated as TSD-unknown
-MAX_TSD = 20
 # a full read extending this far past a breakpoint indicates no insertion
 FULLREAD_EXTEND = 10
 # minimum bracketing reads per strand for a support-only (no junction) call
@@ -604,13 +602,50 @@ def _pair_breakpoints(
     return [(None, rp) for rp in sorted(right_pos)]
 
 
+def _resolve_tsd(
+    left_reads: list[JunctionObservation],
+    right_reads: list[JunctionObservation],
+    chrom: str,
+    i_start: int,
+    i_end: int,
+    tsd_len: int,
+    genome: pysam.FastaFile,
+) -> str:
+    """Capture TSD literally from a junction read; fall back to the genome.
+
+    Mirrors RelocaTE2's read-derived TSD reporting (TSD_check_cluster). The
+    genome fetch is only used when no read has the bases (e.g. supporting-only
+    insertions).
+    """
+    if tsd_len <= 0:
+        return "UNK"
+    for obs in right_reads:
+        captured = _capture_tsd_from_read(obs.seq, "right", tsd_len)
+        if captured:
+            return captured
+    for obs in left_reads:
+        captured = _capture_tsd_from_read(obs.seq, "left", tsd_len)
+        if captured:
+            return captured
+    fetched = _fetch_tsd(genome, chrom, i_start, i_end)
+    return fetched or "UNK"
+
+
 def _make_insertion(
     chrom: str,
     left_reads: list[JunctionObservation],
     right_reads: list[JunctionObservation],
     genome: pysam.FastaFile,
+    cluster: "_Cluster",
 ) -> Insertion:
-    """Build an :class:`Insertion` from the left/right junction reads of one site."""
+    """Build an :class:`Insertion` from the left/right junction reads of one site.
+
+    TSD inference follows RelocaTE2's read-depth path: when both breakpoints
+    exist, the TSD width is the breakpoint overlap; otherwise it's estimated
+    from supporting-read depth pileups (``_estimate_tsd_length_from_depth``).
+    The TSD bases are captured from a junction read (R2 parity) and only fall
+    back to the reference genome when no read sequence is available.
+    """
     junctions = left_reads + right_reads
     te_names = [j.te_name for j in junctions if j.te_name != "NA"]
     te_name = max(set(te_names), key=te_names.count) if te_names else "NA"
@@ -618,18 +653,29 @@ def _make_insertion(
     orients = [j.te_orientation for j in junctions]
     strand = "+" if orients.count("+") >= orients.count("-") else "-"
 
+    spans = [(s, e) for _n, s, e, _strand, _seq in cluster.support]
+
     if left_reads and right_reads:
         i_end = left_reads[0].position  # right edge of TSD
         i_start = right_reads[0].position  # left edge of TSD
-        if 0 < (i_end - i_start + 1) <= MAX_TSD:
-            tsd = _fetch_tsd(genome, chrom, i_start, i_end)
+        overlap = i_end - i_start + 1
+        if overlap > 0:
+            tsd_len = overlap
         else:
+            tsd_len = _estimate_tsd_length_from_depth(spans, min(i_start, i_end))
             i_start = i_end = min(i_start, i_end)
-            tsd = "UNK"
     else:
         present = left_reads or right_reads
-        i_start = i_end = present[0].position
-        tsd = "UNK"
+        bp = present[0].position
+        tsd_len = _estimate_tsd_length_from_depth(spans, bp)
+        if tsd_len > 0 and right_reads:
+            i_start, i_end = bp, bp + tsd_len - 1
+        elif tsd_len > 0:
+            i_start, i_end = bp - tsd_len + 1, bp
+        else:
+            i_start = i_end = bp
+
+    tsd = _resolve_tsd(left_reads, right_reads, chrom, i_start, i_end, tsd_len, genome)
 
     return Insertion(
         chrom=chrom,
@@ -655,7 +701,7 @@ def _call_insertions(cluster: _Cluster, genome: pysam.FastaFile) -> list[Inserti
     for lp, rp in _pair_breakpoints(list(left), list(right)):
         left_reads = left.get(lp, []) if lp is not None else []
         right_reads = right.get(rp, []) if rp is not None else []
-        ins = _make_insertion(cluster.chrom, left_reads, right_reads, genome)
+        ins = _make_insertion(cluster.chrom, left_reads, right_reads, genome, cluster)
         _count_support(ins, cluster)
         insertions.append(ins)
     return insertions
