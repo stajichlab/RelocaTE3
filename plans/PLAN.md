@@ -277,14 +277,45 @@ src/RelocaTE3/
 - Validated on the golden set: 21 calls, 19 within 10 bp of a true mPing site
   (~90% precision, ~83% recall); 0 false junctions filtered (all real here);
   orientation splits +/- correctly.
-- **Depth-based TSD inference (DONE 2026-06-25, plan
-  `plans/2026-06-24-tsd-depth-inference.md`):** `_estimate_tsd_length_from_depth`
-  ports `tsd_finder` (per-base depth pileup with the 1.0/0.8/0.6 fractional
-  fallback). `_capture_tsd_from_read` ports `TSD_check_cluster`'s literal
-  first/last-N-bases extractor. `_make_insertion` now recovers TSDs in
-  single-sided and overlap-out-of-range cases via depth + read capture, and
-  the `MAX_TSD = 20` cap was removed. Output strings match R2's read-derived
-  convention rather than always reading the forward-strand reference.
+- **Depth-based TSD inference (DONE 2026-06-25, plans
+  `plans/2026-06-24-tsd-depth-inference.md` + `plans/2026-06-25-tsd-class-path-port.md`):**
+  Two complementary fixes that together close most of the TSD-string gap with
+  RelocaTE2 on the rice validation harness:
+  - **Function-based path (`find_insertions` in `insertions.py:888+`, used by
+    `pipeline.run_sample` / `cli.py`):** `_estimate_tsd_length_from_depth`
+    ports `tsd_finder` (per-base depth pileup with the 1.0/0.8/0.6 fractional
+    fallback). `_capture_tsd_from_read` ports `TSD_check_cluster`'s literal
+    first/last-N-bases extractor. `_make_insertion` now recovers TSDs in
+    single-sided and overlap-out-of-range cases via depth + read capture, and
+    the `MAX_TSD = 20` cap was removed. Output strings match R2's read-derived
+    convention rather than always reading the forward-strand reference.
+  - **Legacy class path (`InsertionFinder` in `insertions.py:27+`, used by
+    `__main__.py` and therefore by `relocaTE3 find-insertions` /
+    `validation/real_rice/run_relocate3.sh`):** the validation harness was
+    bypassing all of the function-based work because the registered entry
+    point wires `find-insertions` to the class, not the function. Surgical
+    fix: pass a wildcard TSD regex (`tsd = "..."` for mPing's 3 bp TSD)
+    instead of a literal motif, so `_tsd_check`'s `re.compile(rf"^({tsd})")`
+    captures whichever 3 bases the junction read carries (TTA or TAA), just
+    like R2's depth-mode does. One line in `validation/real_rice/config.example.toml`;
+    no class-path code change needed. Synthetic regression guard lives in
+    `tests/insertions_tsd_class_parity_test.py`.
+  - **Measured impact (rice 10-sample run):** strict TSD agreement jumped from
+    41.9% (2090/4990) to 80.4% (4088/5086). The `TAA → UNK` cell (1915 calls)
+    collapsed and migrated to `TAA/TAA` (1917). New non-canonical 3-mer cells
+    appeared correctly (`TGA/TGA` 37, `TCA/TCA` 36, `TAC/TAC` 5, `GTA/GTA` 3).
+    Recall vs R2 improved 86.6% → 88.3%; matched pair count grew 4990 → 5086.
+  - **Remaining gap (deferred to `plans/2026-06-25-tsd-supporting-junction-port.md`):**
+    ~960 R2 calls (524 `TTA` + 434 `TAA` + 8-ish smaller cells) still match
+    R3's `supporting_junction` sentinel. These are sites where R3 found **no**
+    junction reads in the genome BAM but R2 did. The class path never enters
+    `_tsd_check` for these clusters, so the wildcard fix has nothing to act on.
+    R2 recovers them via its read-depth path on supporting reads + junction
+    rescue. Closing this requires either (a) porting R2's `TSD_from_read_depth`
+    sub-cluster splitting into the class, or (b) routing the class to the
+    function-based path which already handles support-only insertions
+    (without TSD inference for them yet). See the dedicated plan for the
+    decision matrix and step-by-step tasks.
 - **Still deferred** (lower value): low-quality/MAPQ read filtering. The ~83%
   recall is the minimap2-vs-blat short-flank gap from Phase 2 (§7), not a
   clustering issue.
