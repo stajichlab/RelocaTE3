@@ -69,8 +69,14 @@ class InsertionFinder:
             Path to the written ``*.all_nonref_insert.txt`` file.
         """
         if re.search(r"UNK|UKN|unknown", tsd, re.IGNORECASE):
+            # The literal "UNK" sentinel triggers R2's full depth-mode pipeline,
+            # which is not yet ported. Regex-friendly TSD patterns (e.g. "..."
+            # for a 3 bp wildcard) ARE accepted and flow through _tsd_check
+            # naturally — the captured TSD bases come from the read sequence,
+            # mirroring R2's depth-mode output on a fixed-length TSD.
             raise NotImplementedError(
-                "TSD-unknown (read-depth) inference is not yet ported; provide a TSD motif."
+                "TSD-unknown (read-depth) inference is not yet ported; provide a "
+                'TSD motif or a fixed-length wildcard regex (e.g. "..." for 3 bp).'
             )
 
         read_repeat = self._load_read_repeat(read_repeat_file)
