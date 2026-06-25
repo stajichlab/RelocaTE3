@@ -52,6 +52,25 @@ def _norm_status(status: str, collapse_excision: bool) -> str:
     return status
 
 
+_DNA_CHARS = set("ACGTNacgtn")
+
+
+def _reverse_complement(seq: str) -> str:
+    """Return the reverse complement of a DNA string."""
+    return seq.translate(str.maketrans("ACGTNacgtn", "TGCANtgcan"))[::-1]
+
+
+def _tsd_canonical_match(a: str, b: str) -> bool:
+    """Treat reverse-complement TSDs as equivalent (R2 captures from either strand)."""
+    if a == b:
+        return True
+    if not a or not b:
+        return False
+    if set(a) - _DNA_CHARS or set(b) - _DNA_CHARS:
+        return False
+    return a.upper() == _reverse_complement(b.upper())
+
+
 def _write_pairs(
     path: Path,
     matched: list[tuple[dict, dict]],
@@ -164,8 +183,7 @@ def _write_confusion(path: Path, confusion: dict[tuple[str, str], int]) -> None:
 def _plot_tsd_agreement(plt, summary_rows: list[dict], out_png: Path) -> None:
     samples = [r["sample"] for r in summary_rows]
     rates = [
-        (r["tsd_match_n"] / r["shared"]) if r["shared"] else 0.0
-        for r in summary_rows
+        (r["tsd_match_n"] / r["shared"]) if r["shared"] else 0.0 for r in summary_rows
     ]
     fig, ax = plt.subplots(figsize=(max(6, 0.6 * len(samples) + 2), 4))
     ax.bar(samples, rates, color="#4C72B0")
@@ -206,9 +224,7 @@ def _plot_status_confusion(
         return
     r2_labels = sorted({k[0] for k in confusion})
     r3_labels = sorted({k[1] for k in confusion})
-    grid = [
-        [confusion.get((r2, r3), 0) for r3 in r3_labels] for r2 in r2_labels
-    ]
+    grid = [[confusion.get((r2, r3), 0) for r3 in r3_labels] for r2 in r2_labels]
     fig, ax = plt.subplots(
         figsize=(max(4, 0.7 * len(r3_labels) + 2), max(3, 0.5 * len(r2_labels) + 2))
     )
@@ -241,8 +257,14 @@ def _plot_status_confusion(
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", default="config.toml", help="Validation TOML config")
-    ap.add_argument("--r2-tsv", help="RelocaTE2 char TSV (default: <report>/characterized/relocate2_calls.tsv)")
-    ap.add_argument("--r3-tsv", help="RelocaTE3 char TSV (default: <report>/characterized/relocate3_calls.tsv)")
+    ap.add_argument(
+        "--r2-tsv",
+        help="RelocaTE2 char TSV (default: <report>/characterized/relocate2_calls.tsv)",
+    )
+    ap.add_argument(
+        "--r3-tsv",
+        help="RelocaTE3 char TSV (default: <report>/characterized/relocate3_calls.tsv)",
+    )
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -253,14 +275,22 @@ def main(argv: list[str] | None = None) -> int:
     r3_tsv = Path(args.r3_tsv) if args.r3_tsv else report_dir / "relocate3_calls.tsv"
 
     if not r2_tsv.is_file():
-        print(f"ERROR: missing {r2_tsv} (run normalize_relocate2_char.py first)", file=sys.stderr)
+        print(
+            f"ERROR: missing {r2_tsv} (run normalize_relocate2_char.py first)",
+            file=sys.stderr,
+        )
         return 1
     if not r3_tsv.is_file():
-        print(f"ERROR: missing {r3_tsv} (run normalize_relocate3_char.py first)", file=sys.stderr)
+        print(
+            f"ERROR: missing {r3_tsv} (run normalize_relocate3_char.py first)",
+            file=sys.stderr,
+        )
         return 1
 
     char_cfg = cfg.get("compare_char", {})
-    window = int(char_cfg.get("position_window", cfg["compare"].get("position_window", 100)))
+    window = int(
+        char_cfg.get("position_window", cfg["compare"].get("position_window", 100))
+    )
     te_family = char_cfg.get("te_family", cfg["compare"].get("te_family", ""))
     collapse_excision = bool(char_cfg.get("collapse_excision_suffix", False))
 
@@ -285,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     per_sample_counts: list[tuple[str, int, int, int]] = []
     total_shared = total_r2_only = total_r3_only = 0
     total_tsd_match = total_status_match = total_status_match_collapsed = 0
+    total_tsd_match_canonical = 0
 
     plt_v, venn2 = load_venn()
     venn_dir = report_dir / "venn"
@@ -312,11 +343,14 @@ def main(argv: list[str] | None = None) -> int:
         jaccard = shared / union if union else 0.0
 
         tsd_match_n = 0
+        tsd_match_canonical_n = 0
         status_match_n = 0
         status_match_n_collapsed = 0
         for rec2, rec3 in matched:
             if rec2["tsd"] == rec3["tsd"]:
                 tsd_match_n += 1
+            if _tsd_canonical_match(rec2["tsd"], rec3["tsd"]):
+                tsd_match_canonical_n += 1
             if rec2["status"] == rec3["status"]:
                 status_match_n += 1
             if _norm_status(rec2["status"], collapse_excision) == _norm_status(
@@ -330,6 +364,7 @@ def main(argv: list[str] | None = None) -> int:
         total_r2_only += len(r2_only)
         total_r3_only += len(r3_only)
         total_tsd_match += tsd_match_n
+        total_tsd_match_canonical += tsd_match_canonical_n
         total_status_match += status_match_n
         total_status_match_collapsed += status_match_n_collapsed
 
@@ -346,6 +381,10 @@ def main(argv: list[str] | None = None) -> int:
                 "jaccard": f"{jaccard:.4f}",
                 "tsd_match_n": tsd_match_n,
                 "tsd_match_rate": f"{(tsd_match_n / shared) if shared else 0.0:.4f}",
+                "tsd_match_canonical_n": tsd_match_canonical_n,
+                "tsd_match_canonical_rate": (
+                    f"{(tsd_match_canonical_n / shared) if shared else 0.0:.4f}"
+                ),
                 "status_match_n": status_match_n,
                 "status_match_rate": f"{(status_match_n / shared) if shared else 0.0:.4f}",
                 "status_match_n_collapsed": status_match_n_collapsed,
@@ -358,7 +397,9 @@ def main(argv: list[str] | None = None) -> int:
         w.writeheader()
         w.writerows(summary_rows)
 
-    _write_pairs(report_dir / "matched_calls.tsv", all_matched, all_r2_only, collapse_excision)
+    _write_pairs(
+        report_dir / "matched_calls.tsv", all_matched, all_r2_only, collapse_excision
+    )
     write_rows(report_dir / "relocate2_only.tsv", all_r2_only)
     write_rows(report_dir / "relocate3_only.tsv", all_r3_only)
     _write_confusion(report_dir / "tsd_confusion.tsv", tsd_confusion)
@@ -371,6 +412,9 @@ def main(argv: list[str] | None = None) -> int:
     precision = total_shared / r3_total if r3_total else 0.0
     jaccard = total_shared / union if union else 0.0
     tsd_rate = total_tsd_match / total_shared if total_shared else 0.0
+    tsd_rate_canonical = (
+        total_tsd_match_canonical / total_shared if total_shared else 0.0
+    )
     status_rate = total_status_match / total_shared if total_shared else 0.0
     status_rate_coll = (
         total_status_match_collapsed / total_shared if total_shared else 0.0
@@ -395,7 +439,8 @@ def main(argv: list[str] | None = None) -> int:
         f"Precision (shared / R3 tot): {precision:.4f}",
         f"Jaccard (shared / union)   : {jaccard:.4f}",
         "",
-        f"TSD agreement     : {total_tsd_match}/{total_shared} ({tsd_rate:.4f})",
+        f"TSD agreement (strict)   : {total_tsd_match}/{total_shared} ({tsd_rate:.4f})",
+        f"TSD agreement (canonical): {total_tsd_match_canonical}/{total_shared} ({tsd_rate_canonical:.4f})",
         f"Status agreement  : {total_status_match}/{total_shared} ({status_rate:.4f})",
         f"Status agreement (collapsed): {total_status_match_collapsed}/{total_shared} ({status_rate_coll:.4f})",
     ]
@@ -428,14 +473,19 @@ def main(argv: list[str] | None = None) -> int:
     if plt is not None and summary_rows:
         # Convert string rates back where helpful (already ints for counts).
         rows_for_plot = [
-            {**r, "shared": int(r["shared"]),
-             "tsd_match_n": int(r["tsd_match_n"]),
-             "status_match_n": int(r["status_match_n"])}
+            {
+                **r,
+                "shared": int(r["shared"]),
+                "tsd_match_n": int(r["tsd_match_n"]),
+                "status_match_n": int(r["status_match_n"]),
+            }
             for r in summary_rows
         ]
         _plot_tsd_agreement(plt, rows_for_plot, report_dir / "tsd_agreement.png")
         _plot_status_agreement(plt, rows_for_plot, report_dir / "status_agreement.png")
-        _plot_status_confusion(plt, status_confusion, report_dir / "status_confusion.png")
+        _plot_status_confusion(
+            plt, status_confusion, report_dir / "status_confusion.png"
+        )
 
     print(f"\nReport directory: {report_dir}")
     return 0

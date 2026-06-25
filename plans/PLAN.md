@@ -277,10 +277,17 @@ src/RelocaTE3/
 - Validated on the golden set: 21 calls, 19 within 10 bp of a true mPing site
   (~90% precision, ~83% recall); 0 false junctions filtered (all real here);
   orientation splits +/- correctly.
-- **Still deferred** (lower value): read-depth TSD length refinement
-  (`tsd_finder`/`TSD_len_calculate` — currently TSD = the genomic overlap span);
-  low-quality/MAPQ read filtering. The ~83% recall is the minimap2-vs-blat
-  short-flank gap from Phase 2 (§7), not a clustering issue.
+- **Depth-based TSD inference (DONE 2026-06-25, plan
+  `plans/2026-06-24-tsd-depth-inference.md`):** `_estimate_tsd_length_from_depth`
+  ports `tsd_finder` (per-base depth pileup with the 1.0/0.8/0.6 fractional
+  fallback). `_capture_tsd_from_read` ports `TSD_check_cluster`'s literal
+  first/last-N-bases extractor. `_make_insertion` now recovers TSDs in
+  single-sided and overlap-out-of-range cases via depth + read capture, and
+  the `MAX_TSD = 20` cap was removed. Output strings match R2's read-derived
+  convention rather than always reading the forward-strand reference.
+- **Still deferred** (lower value): low-quality/MAPQ read filtering. The ~83%
+  recall is the minimap2-vs-blat short-flank gap from Phase 2 (§7), not a
+  clustering issue.
 - **Acceptance (still open):** match RelocaTE2's window recovery on the golden set
   with comparable false positives; diff GFFs against a frozen RelocaTE2 run.
 
