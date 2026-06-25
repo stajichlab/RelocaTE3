@@ -419,8 +419,10 @@ class InsertionFinder:
         coor_start = tsd_start
         coor = tsd_start + max(len(top_tsd) - 1, 0)
 
-        # status mirrors RelocaTE2: a true junction needs both left and right reads
-        if left_count > 0 and right_count > 0:
+        # R2 reports the read-captured TSD whenever one was inferred, including
+        # for single-sided junctions; the "supporting_junction" / "singleton"
+        # sentinels only kick in when no usable TSD string was captured.
+        if top_tsd and top_tsd not in {"UNK", "UKN"}:
             tsd_field = top_tsd
         elif total_count == 1:
             tsd_field = "singleton"
