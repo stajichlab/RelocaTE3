@@ -69,8 +69,14 @@ class InsertionFinder:
             Path to the written ``*.all_nonref_insert.txt`` file.
         """
         if re.search(r"UNK|UKN|unknown", tsd, re.IGNORECASE):
+            # The literal "UNK" sentinel triggers R2's full depth-mode pipeline,
+            # which is not yet ported. Regex-friendly TSD patterns (e.g. "..."
+            # for a 3 bp wildcard) ARE accepted and flow through _tsd_check
+            # naturally — the captured TSD bases come from the read sequence,
+            # mirroring R2's depth-mode output on a fixed-length TSD.
             raise NotImplementedError(
-                "TSD-unknown (read-depth) inference is not yet ported; provide a TSD motif."
+                "TSD-unknown (read-depth) inference is not yet ported; provide a "
+                'TSD motif or a fixed-length wildcard regex (e.g. "..." for 3 bp).'
             )
 
         read_repeat = self._load_read_repeat(read_repeat_file)
@@ -419,8 +425,19 @@ class InsertionFinder:
         coor_start = tsd_start
         coor = tsd_start + max(len(top_tsd) - 1, 0)
 
-        # status mirrors RelocaTE2: a true junction needs both left and right reads
-        if left_count > 0 and right_count > 0:
+        # Emit the read-captured TSD whenever one was inferred. Mirrors
+        # RelocaTE2's behavior post-TSD_from_read_depth: that pass synthesizes
+        # the missing-side junction reads from the depth pileup, lifting
+        # single-sided clusters into the both-sided emission. We achieve the
+        # same emission directly when the wildcard TSD mode (validation
+        # config tsd="...") has filled top_tsd with a real read-captured
+        # 3-mer. Literal-TSD callers keep the original behavior because
+        # top_tsd will be "UNK" when no read matched the motif.
+        real_capture = bool(top_tsd) and top_tsd not in {"UNK", "UKN"}
+        if real_capture and left_count > 0 and right_count > 0:
+            tsd_field = top_tsd
+        elif real_capture and total_count > 1:
+            # single-sided junction with multiple reads; trust the wildcard capture
             tsd_field = top_tsd
         elif total_count == 1:
             tsd_field = "singleton"
@@ -445,6 +462,8 @@ class InsertionFinder:
         if not family:
             return ""
         return max(family.items(), key=lambda kv: kv[1])[0]
+
+
 from RelocaTE3.models import Insertion, JunctionObservation
 
 # read-name junction tag: <name>:(start|end):(5|3)
@@ -453,8 +472,6 @@ _JUNCTION_RE = re.compile(r":(start|end):([53])$")
 RANGE_ALLOWANCE = 1000
 # max separation (bp) between a left and right breakpoint to call a shared TSD
 TSD_WINDOW = 100
-# largest plausible TSD length (bp); wider overlaps are treated as TSD-unknown
-MAX_TSD = 20
 # a full read extending this far past a breakpoint indicates no insertion
 FULLREAD_EXTEND = 10
 # minimum bracketing reads per strand for a support-only (no junction) call
@@ -496,8 +513,8 @@ class _Cluster:
         self.lo: int | None = None
         self.hi: int | None = None
         self.junctions: list[JunctionObservation] = []
-        # supporting reads: (name, gstart, gend, strand)
-        self.support: list[tuple[str, int, int, str]] = []
+        # supporting reads: (name, gstart, gend, strand, seq)
+        self.support: list[tuple[str, int, int, str, str]] = []
 
     def in_range(self, gstart: int, gend: int) -> bool:
         """True if a read at [gstart, gend] belongs to this cluster."""
@@ -525,6 +542,7 @@ def _stream_clusters(bam_path: str, read_repeat: dict[str, tuple[str, str]]):
             )  # pysam end is 0-based exclusive == 1-based inclusive
             strand = "-" if rec.is_reverse else "+"
             name = rec.query_name
+            seq = rec.query_sequence or ""
 
             if (
                 current is None
@@ -541,11 +559,17 @@ def _stream_clusters(bam_path: str, read_repeat: dict[str, tuple[str, str]]):
                 side, pos, te_end = info
                 current.junctions.append(
                     JunctionObservation(
-                        name, side, pos, strand, _te_family(read_repeat, name), te_end
+                        name,
+                        side,
+                        pos,
+                        strand,
+                        _te_family(read_repeat, name),
+                        te_end,
+                        seq,
                     )
                 )
             else:
-                current.support.append((name, gstart, gend, strand))
+                current.support.append((name, gstart, gend, strand, seq))
         if current is not None:
             yield current
 
@@ -595,13 +619,50 @@ def _pair_breakpoints(
     return [(None, rp) for rp in sorted(right_pos)]
 
 
+def _resolve_tsd(
+    left_reads: list[JunctionObservation],
+    right_reads: list[JunctionObservation],
+    chrom: str,
+    i_start: int,
+    i_end: int,
+    tsd_len: int,
+    genome: pysam.FastaFile,
+) -> str:
+    """Capture TSD literally from a junction read; fall back to the genome.
+
+    Mirrors RelocaTE2's read-derived TSD reporting (TSD_check_cluster). The
+    genome fetch is only used when no read has the bases (e.g. supporting-only
+    insertions).
+    """
+    if tsd_len <= 0:
+        return "UNK"
+    for obs in right_reads:
+        captured = _capture_tsd_from_read(obs.seq, "right", tsd_len)
+        if captured:
+            return captured
+    for obs in left_reads:
+        captured = _capture_tsd_from_read(obs.seq, "left", tsd_len)
+        if captured:
+            return captured
+    fetched = _fetch_tsd(genome, chrom, i_start, i_end)
+    return fetched or "UNK"
+
+
 def _make_insertion(
     chrom: str,
     left_reads: list[JunctionObservation],
     right_reads: list[JunctionObservation],
     genome: pysam.FastaFile,
+    cluster: "_Cluster",
 ) -> Insertion:
-    """Build an :class:`Insertion` from the left/right junction reads of one site."""
+    """Build an :class:`Insertion` from the left/right junction reads of one site.
+
+    TSD inference follows RelocaTE2's read-depth path: when both breakpoints
+    exist, the TSD width is the breakpoint overlap; otherwise it's estimated
+    from supporting-read depth pileups (``_estimate_tsd_length_from_depth``).
+    The TSD bases are captured from a junction read (R2 parity) and only fall
+    back to the reference genome when no read sequence is available.
+    """
     junctions = left_reads + right_reads
     te_names = [j.te_name for j in junctions if j.te_name != "NA"]
     te_name = max(set(te_names), key=te_names.count) if te_names else "NA"
@@ -609,18 +670,29 @@ def _make_insertion(
     orients = [j.te_orientation for j in junctions]
     strand = "+" if orients.count("+") >= orients.count("-") else "-"
 
+    spans = [(s, e) for _n, s, e, _strand, _seq in cluster.support]
+
     if left_reads and right_reads:
         i_end = left_reads[0].position  # right edge of TSD
         i_start = right_reads[0].position  # left edge of TSD
-        if 0 < (i_end - i_start + 1) <= MAX_TSD:
-            tsd = _fetch_tsd(genome, chrom, i_start, i_end)
+        overlap = i_end - i_start + 1
+        if overlap > 0:
+            tsd_len = overlap
         else:
+            tsd_len = _estimate_tsd_length_from_depth(spans, min(i_start, i_end))
             i_start = i_end = min(i_start, i_end)
-            tsd = "UNK"
     else:
         present = left_reads or right_reads
-        i_start = i_end = present[0].position
-        tsd = "UNK"
+        bp = present[0].position
+        tsd_len = _estimate_tsd_length_from_depth(spans, bp)
+        if tsd_len > 0 and right_reads:
+            i_start, i_end = bp, bp + tsd_len - 1
+        elif tsd_len > 0:
+            i_start, i_end = bp - tsd_len + 1, bp
+        else:
+            i_start = i_end = bp
+
+    tsd = _resolve_tsd(left_reads, right_reads, chrom, i_start, i_end, tsd_len, genome)
 
     return Insertion(
         chrom=chrom,
@@ -646,7 +718,7 @@ def _call_insertions(cluster: _Cluster, genome: pysam.FastaFile) -> list[Inserti
     for lp, rp in _pair_breakpoints(list(left), list(right)):
         left_reads = left.get(lp, []) if lp is not None else []
         right_reads = right.get(rp, []) if rp is not None else []
-        ins = _make_insertion(cluster.chrom, left_reads, right_reads, genome)
+        ins = _make_insertion(cluster.chrom, left_reads, right_reads, genome, cluster)
         _count_support(ins, cluster)
         insertions.append(ins)
     return insertions
@@ -661,10 +733,56 @@ def _fetch_tsd(genome: pysam.FastaFile, chrom: str, start: int, end: int) -> str
         return "." * (end - start + 1)
 
 
+def _estimate_tsd_length_from_depth(
+    spans: list[tuple[int, int]],
+    breakpoint: int,
+    thresholds: tuple[float, ...] = (1.0, 0.8, 0.6),
+) -> int:
+    """Estimate TSD length from read-depth overlap near ``breakpoint``.
+
+    Port of RelocaTE2 ``tsd_finder`` (relocaTE_insertionFinder.py:843). Builds a
+    per-base depth pileup from ``spans`` (1-based inclusive ``(start, end)``
+    tuples), then for each fractional threshold (in order) counts contiguous
+    positions whose depth >= ``threshold * len(spans)``. Returns the first
+    non-zero length, or 0 if none qualify.
+
+    The ``breakpoint`` argument is reserved for future locality refinement; the
+    R2 reference implementation also passes a candidate position but does not
+    use it to bound the depth window.
+    """
+    del breakpoint  # currently unused; matches R2 signature shape
+    if not spans:
+        return 0
+    depth: dict[int, int] = {}
+    for s, e in spans:
+        for p in range(s, e + 1):
+            depth[p] = depth.get(p, 0) + 1
+    total = len(spans)
+    for frac in thresholds:
+        cutoff = frac * total
+        length = sum(1 for d in depth.values() if d >= cutoff)
+        if length:
+            return length
+    return 0
+
+
+def _capture_tsd_from_read(seq: str, side: str, length: int) -> str:
+    """Return the literal TSD characters from a junction read.
+
+    Mirrors RelocaTE2 ``TSD_check_cluster`` (relocaTE_insertionFinder.py:1249):
+    a *right*-side junction read carries the TSD at the start of the read, a
+    *left*-side read at the end. Returns ``""`` when the read is too short or
+    ``length <= 0``.
+    """
+    if length <= 0 or len(seq) < length:
+        return ""
+    return (seq[:length] if side == "right" else seq[-length:]).upper()
+
+
 def _count_support(ins: Insertion, cluster: _Cluster) -> None:
     """Count bracketing supporting reads (RelocaTE2 ``Supporting_count`` rule)."""
     left = right = 0
-    for _name, gstart, gend, strand in cluster.support:
+    for _name, gstart, gend, strand, _seq in cluster.support:
         if strand == "+" and gend <= ins.start:
             left += 1
         elif strand == "-" and gstart >= ins.end:
@@ -684,9 +802,11 @@ def _call_support_only(
     ``min_support`` reads on each strand. Lower confidence than a junction call —
     short junction flanks often don't map uniquely, but the paired-end mates do.
     """
-    plus_ends = [gend for _n, _s, gend, strand in cluster.support if strand == "+"]
+    plus_ends = [
+        gend for _n, _s, gend, strand, _seq in cluster.support if strand == "+"
+    ]
     minus_starts = [
-        gstart for _n, gstart, _e, strand in cluster.support if strand == "-"
+        gstart for _n, gstart, _e, strand, _seq in cluster.support if strand == "-"
     ]
     if len(plus_ends) < min_support or len(minus_starts) < min_support:
         return None

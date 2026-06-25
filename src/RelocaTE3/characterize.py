@@ -183,10 +183,18 @@ class Characterizer:
                 left_count = self._extract_count(left_string, "L")
                 right_count = self._extract_count(right_string, "R")
 
-                if not (
-                    (left_count >= 1 and right_count >= 1)
-                    or tsd == "supporting_junction"
-                ):
+                # Accept a call if it has junction support on either side
+                # (multi-read clusters only, to exclude singletons) OR carries
+                # the legacy ``supporting_junction`` sentinel. Pre-2026-06-25
+                # the sentinel was the only carrier of single-sided clusters;
+                # the class path now emits the captured TSD directly for
+                # single-sided multi-read junctions (see insertions.py:_emit
+                # and plans/2026-06-25-tsd-supporting-junction-port.md), so
+                # the gate must accept those by count as well.
+                junction_supported = (
+                    left_count >= 1 or right_count >= 1
+                ) and total_count > 1
+                if not (junction_supported or tsd == "supporting_junction"):
                     continue
 
                 site = f"{chromosome}.{pos}"

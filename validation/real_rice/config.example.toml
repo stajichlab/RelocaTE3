@@ -54,7 +54,11 @@ min_trimmed   = 10                # RelocaTE3 --min-trimmed
 min_mapq      = 1                 # find-insertions --min-mapq
 te_name       = "mping"           # label baked into find-insertions output filenames
 target        = "ALL"             # find-insertions --target (chromosome or ALL)
-tsd           = "TTA"             # find-insertions --tsd (mPing canonical TSD)
+tsd           = "..."             # find-insertions --tsd: 3-bp wildcard regex so
+                                  # the class path captures the literal TSD bases
+                                  # from each junction read (TTA or TAA), matching
+                                  # RelocaTE2's depth-mode behavior on mPing.
+                                  # Use a literal motif ("TTA") to require an exact match.
 threads       = 16
 characterize  = true              # run Step 7 characterization
 # How to source the BAM/CRAM consumed by characterize:
