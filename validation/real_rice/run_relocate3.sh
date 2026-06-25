@@ -85,6 +85,16 @@ print(cfg['relocate3']['target'])
 print(cfg['relocate3']['tsd'])
 print(cfg['relocate3']['threads'])
 print(int(bool(cfg['relocate3']['characterize'])))
+print(cfg['relocate3'].get('characterize_source', 'external'))
+"
+}
+
+# Per-sample alignment resolver — called only when characterize is on.
+resolve_aln_for() {
+  python3 -c "
+from _config import load_config, resolve_genome_aln
+cfg = load_config('$CONFIG')
+print(resolve_genome_aln(cfg, '$1'))
 "
 }
 
@@ -108,6 +118,7 @@ TARGET="${CFG[15]}"
 TSD="${CFG[16]}"
 CFG_THREADS="${CFG[17]}"
 DO_CHARACTERIZE="${CFG[18]}"
+CHAR_SOURCE="${CFG[19]}"
 
 mkdir -p "$OUTROOT" "$LOG_DIR"
 
@@ -240,12 +251,35 @@ if [[ ! -s "$NONREF_TXT" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Optional Step 7: characterize zygosity. Needs reads aligned to the genome —
-# the legacy validation already has CRAM/BAMs under validation_data/real_rice/aln_input/.
+# Optional Step 7: characterize zygosity.
+#
+# When [relocate3].characterize_source = "external" (the default), the reads-
+# to-genome alignment comes from paths.genome_aln_{dir,pattern} — e.g. the
+# bundled CRAMs under validation_data/real_rice/aln_input/.
 # ---------------------------------------------------------------------------
 if [[ "$DO_CHARACTERIZE" == "1" ]]; then
-  echo "[$(date)] characterize (step 7) — skipped: needs reads-to-genome BAM not produced here"
-  echo "       Pass --characterize false in the config or extend run_relocate3.sh to wire this up."
+  CHAR_TXT="${SAMPLE_OUTDIR}/results/${TARGET}.${TE_NAME}.all_nonref_insert.characTErized.txt"
+  if [[ -s "$CHAR_TXT" ]]; then
+    echo "[$(date)] characterize already done ($CHAR_TXT), skipping"
+  elif [[ ! -s "$NONREF_TXT" ]]; then
+    echo "[$(date)] characterize skipped: missing non-reference sites table $NONREF_TXT" >&2
+  elif [[ "$CHAR_SOURCE" == "external" ]]; then
+    GENOME_ALN="$(resolve_aln_for "$SAMPLE")"
+    echo "[$(date)] characterize (step 7) using external alignment: $GENOME_ALN"
+    relocaTE3 characterize \
+      -s "$NONREF_TXT" \
+      -b "$GENOME_ALN" \
+      -g "$GENOME" \
+      -o "${SAMPLE_OUTDIR}/results" \
+      --samtools samtools --bcftools bcftools
+  elif [[ "$CHAR_SOURCE" == "relocate3" ]]; then
+    echo "ERROR: characterize_source='relocate3' (RelocaTE3-self-aligned) is not yet implemented." >&2
+    echo "       Use characterize_source='external' with paths.genome_aln_{dir,pattern}." >&2
+    exit 1
+  else
+    echo "ERROR: unknown [relocate3].characterize_source: $CHAR_SOURCE" >&2
+    exit 1
+  fi
 fi
 
 end=$(date +%s)

@@ -2,7 +2,7 @@
 
 Walks ``paths.relocate2_results`` looking for
 ``<sample>/repeat/results/ALL.all_nonref_insert.gff`` files and produces a
-flat TSV used by ``compare_calls.py``.
+flat TSV used by ``compare_nonref.py``.
 
 Output columns:
     sample, chrom, start, end, strand, te_name, tsd, left_junction_reads,
@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import NONREF_COLUMNS as COLUMNS  # noqa: E402
 from _config import load_config, load_samples  # noqa: E402
 
 ATTR_RE = re.compile(r"([A-Za-z_]+)=([^;]*)")
@@ -54,28 +55,12 @@ def parse_gff(path: Path, sample: str):
             }
 
 
-COLUMNS = [
-    "sample",
-    "chrom",
-    "start",
-    "end",
-    "strand",
-    "te_name",
-    "tsd",
-    "left_junction_reads",
-    "right_junction_reads",
-    "left_support_reads",
-    "right_support_reads",
-    "source_file",
-]
-
-
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", default="config.toml", help="Validation TOML config")
     ap.add_argument(
         "--out",
-        help="Output TSV (default: <report_dir>/relocate2_calls.tsv)",
+        help="Output TSV (default: <report_dir>/nonref/relocate2_calls.tsv)",
     )
     ap.add_argument(
         "--samples",
@@ -88,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config(args.config)
     samples = args.samples if args.samples else load_samples(cfg["paths"]["sample_csv"])
     r2_root = Path(cfg["paths"]["relocate2_results"])
-    report_dir = Path(cfg["paths"]["report_dir"])
+    report_dir = Path(cfg["paths"]["report_dir"]) / "nonref"
     report_dir.mkdir(parents=True, exist_ok=True)
     out_path = Path(args.out) if args.out else report_dir / "relocate2_calls.tsv"
 

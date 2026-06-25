@@ -26,6 +26,12 @@ sample_csv    = "${paths.validation_root}/sample_file/samples.csv"
 # contain repeat/results/ALL.all_nonref_insert.gff (the merged-chromosome GFF).
 relocate2_results = "${paths.validation_root}/relocate2_results"
 
+# Per-sample reads-to-genome alignments used by Step 7 characterize.
+# ${sample} is substituted per sample. Default points at the bundled CRAMs
+# that the legacy RelocaTE2 characterize run used.
+genome_aln_dir     = "${paths.validation_root}/aln_input"
+genome_aln_pattern = "${sample}/${sample}.sorted.markdup.cram"
+
 # Where this validation run writes RelocaTE3 outputs, comparison tables, and figures.
 # Relative paths are resolved against the directory containing this config file.
 relocate3_outdir = "results"
@@ -50,7 +56,11 @@ te_name       = "mping"           # label baked into find-insertions output file
 target        = "ALL"             # find-insertions --target (chromosome or ALL)
 tsd           = "TTA"             # find-insertions --tsd (mPing canonical TSD)
 threads       = 16
-characterize  = false             # set true to also run Step 7 characterization
+characterize  = true              # run Step 7 characterization
+# How to source the BAM/CRAM consumed by characterize:
+#   "external"  -> use paths.genome_aln_dir / paths.genome_aln_pattern
+#   "relocate3" -> have RelocaTE3 align reads to the genome itself (NOT YET IMPLEMENTED)
+characterize_source = "external"
 
 [compare]
 # Two insertions are considered "shared" if they call the same TE family on the
@@ -60,6 +70,16 @@ te_family       = "mPing"          # restrict comparison to this family ("" = al
 # Minimum junction reads (left+right) required to keep a call. RelocaTE2 GFFs
 # already include every cluster; raise this to be stricter.
 min_junction_reads = 1
+
+[compare_char]
+# Characterized-call (Stage B) comparison. Position window is independent of
+# [compare] so the two stages can be tuned separately.
+position_window = 100
+te_family       = "mPing"
+# Normalize R2 status strings before scoring (e.g. drop "/excision_with_footprint"
+# suffix) when computing status_match_n_collapsed. Off by default — we want to
+# see those distinctions.
+collapse_excision_suffix = false
 
 [slurm]
 # Defaults used by run_relocate3.sh when submitted as a job array.

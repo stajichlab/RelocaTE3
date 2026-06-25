@@ -1,0 +1,17 @@
+RelocaTE3 vs RelocaTE2 comparison
+=================================
+Config            : /bigdata/stajichlab/nmath020/github/github_tools/RelocaTE/RelocaTE3_jason/RelocaTE3/validation/real_rice/config.toml
+TE family filter  : mPing
+Position window   : 100 bp
+Min junction reads: 1
+Samples compared  : 10
+
+RelocaTE2 calls (filtered) : 6635
+RelocaTE3 calls (filtered) : 6445
+Shared                     : 5783
+RelocaTE2-only             : 852
+RelocaTE3-only             : 662
+
+Recall  (shared / R2 total): 0.8716
+Precision (shared / R3 tot): 0.8973
+Jaccard (shared / union)   : 0.7925

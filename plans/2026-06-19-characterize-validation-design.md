@@ -4,6 +4,13 @@
 **Scope:** `RelocaTE3/validation/real_rice/` (with one small upstream change in
 `src/RelocaTE3/characterize.py` to support CRAM input).
 **Status:** Approved; ready for implementation per Section 9 order.
+**Update 2026-06-19:** CRAM support has landed upstream in
+`src/RelocaTE3/characterize.py` (`_open_alignment` detects `.cram` by suffix
+and passes `reference_filename`; `Characterizer.characterize` takes a
+`genome_fasta` arg) and in `src/RelocaTE3/__main__.py::_menu_characterize`
+(`-g/--genome-fasta` flag). Step 4 of the implementation order is therefore
+already done — the validation harness can call `relocaTE3 characterize` with
+CRAM input today.
 
 ## 1. Goals & scope
 
@@ -161,23 +168,23 @@ no-op placeholder. Replace it with a real invocation:
      -b "$GENOME_ALN" \
      -g "$GENOME" \
      -o "${SAMPLE_OUTDIR}/results" \
-     --reference "$GENOME" \
      --samtools samtools --bcftools bcftools
    ```
-   No `--excision` for now; can be exposed as a config flag later. `bcftools`
-   is only needed for excision, so leaving it off avoids a hidden dependency
-   if/when we drop it from defaults.
+   `-g/--genome-fasta` doubles as the CRAM reference (the upstream
+   `_open_alignment` helper detects `.cram` by suffix and passes it as
+   `reference_filename` to pysam). No `--excision` for now; can be exposed as
+   a config flag later. `bcftools` is only needed for excision, so leaving it
+   off avoids a hidden dependency if/when we drop it from defaults.
 5. The `characterize_source == "relocate3"` branch is a stub: it logs that
    this mode is not yet implemented and exits non-zero. The plan calls out
    the future hook into `pipeline.run_sample(genotype=True)` but doesn't
    build it.
 
-**CRAM input note.** `pysam.AlignmentFile` can read CRAM directly if the
-reference FASTA is available. `Characterizer.characterize` currently calls
-`pysam.AlignmentFile(b, "rb")` — that needs a small change to pass
-`reference_filename=<genome>` when the input ends in `.cram`. We extend
-`Characterizer` to accept a `reference_filename` arg (small, low-risk, useful
-to all CRAM users); see Section 7.
+**CRAM input note.** Already handled upstream. `_open_alignment` in
+`characterize.py` detects CRAM by suffix and opens with
+`reference_filename=<genome_fasta>`; `Characterizer.characterize` takes a
+`genome_fasta` arg and `_menu_characterize` exposes `-g/--genome-fasta`. No
+upstream change is needed from this harness work.
 
 ## 6. Normalize scripts for characterized output
 
@@ -283,17 +290,13 @@ r2_spanners, r3_spanners
 All plot generation guarded by an import check, same pattern as `_load_venn`
 — if matplotlib is missing, the TSVs are still written.
 
-### One small upstream change in `characterize.py`
+### Upstream `characterize.py` change — done
 
-To make the CRAM input path work without a manual BAM conversion: extend
-`Characterizer.characterize` (and the small `count_spanners` helper) to
-accept an optional `reference_filename` arg and pass it to
-`pysam.AlignmentFile(..., reference_filename=...)`. Detect CRAM by suffix and
-require the arg in that case. Add a CLI flag `--reference` to the
-`characterize` subcommand in `src/RelocaTE3/__main__.py::_menu_characterize`.
-Tiny test fixture: a 1-record CRAM in `tests/data/` and a unit test that
-asserts `Characterizer.characterize` succeeds against it. This is the only
-change outside `validation/real_rice/`.
+CRAM support has already landed: `_open_alignment` detects `.cram` by suffix
+and opens with `reference_filename`; `Characterizer.characterize` accepts a
+`genome_fasta` arg; `_menu_characterize` exposes `-g/--genome-fasta`. A unit
+test fixture covering CRAM input is still worth adding (see Section 9), but
+no further upstream code changes are required by this plan.
 
 `cli.py` is not touched by this plan — the two-front-ends consolidation is a
 separate task per `AGENTS.md`.
@@ -413,9 +416,10 @@ A linear order so each step leaves the harness in a runnable state.
    `normalize_relocate{2,3}.py` → `normalize_relocate{2,3}_nonref.py`.
    Update `run_validation.sh` and the README. Re-run smoke test; confirm
    `report/nonref/` matches the baseline (move output dir at this step).
-4. **`Characterizer` CRAM support.** Add `reference_filename` arg +
-   `--reference` CLI flag; new unit test with a tiny CRAM fixture. This is
-   the only change outside `validation/real_rice/`.
+4. **`Characterizer` CRAM support.** *Done upstream* — `_open_alignment`
+   handles CRAM via `reference_filename`, `Characterizer.characterize` takes
+   `genome_fasta`, and `_menu_characterize` exposes `-g/--genome-fasta`. Only
+   remaining sub-task is the tiny CRAM fixture + unit test from Section 9.
 5. **`_config.py::resolve_genome_aln` + config knobs.** Add
    `genome_aln_dir`, `genome_aln_pattern`, `characterize_source`, and the
    `[compare_char]` section to `config.example.toml`. Update `_config.py`
