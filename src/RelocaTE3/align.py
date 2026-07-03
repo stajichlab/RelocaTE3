@@ -225,6 +225,11 @@ class Aligner:
 
         # short-read preset; -a for SAM output. A paired run passes R1 + R2,
         # otherwise every FASTQ is aligned as unpaired (minimap2 takes many).
+        # -k 11 -w 5 tightens the seed size and minimizer window so shorter
+        # junction flanks (10-15 bp) find anchors, matching the TE-step's
+        # tuned params. Targets the residual hom/excision -> het and
+        # het -> somatic status-confusion mismatches driven by low
+        # junction-read recall. See plans/2026-06-26-genotype-status-parity.md.
         read_args = list(fastqs[:2]) if paired else list(fastqs)
         cmd = [
             self.minimap,
@@ -233,6 +238,10 @@ class Aligner:
             "-a",
             "-x",
             "sr",
+            "-k",
+            "11",
+            "-w",
+            "5",
             "-o",
             temp_sam,
             str(index),
