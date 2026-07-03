@@ -248,7 +248,6 @@ class Aligner:
             tmpdirhandle.cleanup()
         return sorted_bam
 
-
     def map_reads_to_genome(
         self,
         genome: str,
@@ -276,6 +275,12 @@ class Aligner:
                 with open(f, "rb") as src:
                     shutil.copyfileobj(src, out)
 
+        # Short-flank sensitivity: -k 11 -w 5 tightens the seed size and
+        # minimizer window so shorter junction flanks (10-15 bp) find anchors.
+        # Full --secondary=yes -N 20 -p 0.5 tuning was tried but produced too
+        # many low-MAPQ spurious junctions (precision 0.90 -> 0.72 on the
+        # acceptance benchmark). Sticking with the primary-alignment-only
+        # change here. See plans/2026-06-26-genotype-status-parity.md Task 2.
         cmd = [
             self.minimap,
             "-t",
@@ -284,9 +289,9 @@ class Aligner:
             "-x",
             "sr",
             "-k",
-            "13",
+            "11",
             "-w",
-            "6",
+            "5",
             "-o",
             temp_sam,
             str(genome),
