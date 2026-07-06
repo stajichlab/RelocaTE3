@@ -225,6 +225,11 @@ class Aligner:
 
         # short-read preset; -a for SAM output. A paired run passes R1 + R2,
         # otherwise every FASTQ is aligned as unpaired (minimap2 takes many).
+        # -k 11 -w 5 tightens the seed size and minimizer window so shorter
+        # junction flanks (10-15 bp) find anchors, matching the TE-step's
+        # tuned params. Targets the residual hom/excision -> het and
+        # het -> somatic status-confusion mismatches driven by low
+        # junction-read recall. See plans/2026-06-26-genotype-status-parity.md.
         read_args = list(fastqs[:2]) if paired else list(fastqs)
         cmd = [
             self.minimap,
@@ -233,6 +238,10 @@ class Aligner:
             "-a",
             "-x",
             "sr",
+            "-k",
+            "11",
+            "-w",
+            "5",
             "-o",
             temp_sam,
             str(index),
@@ -247,7 +256,6 @@ class Aligner:
         if tmpdirhandle is not None:
             tmpdirhandle.cleanup()
         return sorted_bam
-
 
     def map_reads_to_genome(
         self,
@@ -276,6 +284,12 @@ class Aligner:
                 with open(f, "rb") as src:
                     shutil.copyfileobj(src, out)
 
+        # Short-flank sensitivity: -k 11 -w 5 tightens the seed size and
+        # minimizer window so shorter junction flanks (10-15 bp) find anchors.
+        # Full --secondary=yes -N 20 -p 0.5 tuning was tried but produced too
+        # many low-MAPQ spurious junctions (precision 0.90 -> 0.72 on the
+        # acceptance benchmark). Sticking with the primary-alignment-only
+        # change here. See plans/2026-06-26-genotype-status-parity.md Task 2.
         cmd = [
             self.minimap,
             "-t",
@@ -284,9 +298,9 @@ class Aligner:
             "-x",
             "sr",
             "-k",
-            "13",
+            "11",
             "-w",
-            "6",
+            "5",
             "-o",
             temp_sam,
             str(genome),

@@ -99,6 +99,11 @@ def parse_te_alignments(bamfiles: list[Path]) -> dict[str, TEReadAlignment]:
             match -= mismatch
 
             strand = "-" if record.is_reverse else "+"
+            # Note: this module keeps everything in the STORED-BAM frame end-to-end
+            # (see the module docstring). The FASTQ-frame coord flip that lives in
+            # librelocate.py:_parse_te_bam is intentionally NOT mirrored here —
+            # trim_read below indexes ``seq`` (also stored-frame) with these coords
+            # and would break if the two were mixed. The harness uses librelocate.
             boundary = _boundary_score(qstart, qend, qlen, tstart, tend, tlen)
 
             aln = TEReadAlignment(
