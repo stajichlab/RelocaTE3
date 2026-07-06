@@ -316,6 +316,43 @@ src/RelocaTE3/
     function-based path which already handles support-only insertions
     (without TSD inference for them yet). See the dedicated plan for the
     decision matrix and step-by-step tasks.
+- **Genotype-status parity (DONE 2026-07-06, plan
+  `plans/2026-07-02-trim-recall-parity.md`; supersedes the ill-targeted
+  `plans/2026-06-26-genotype-status-parity.md`):**
+  - **Diagnosis:** the residual 318-call status-confusion gap (206
+    `hom/excision → het`, 112 `het → somatic`) was not in the classifier
+    (`_classify` is byte-identical to R2's `characterizer.pl`) and not in
+    genome-align sensitivity. Site-level trace of read
+    `lh00134:...2165:38651:9491` at B_10 Chr1:25680936 revealed that R3's
+    trim step was silently dropping reverse-strand 3'-end junction reads:
+    pysam's `query_alignment_start/_end` are stored-frame indexes, but
+    `_original_orientation` returns the FASTQ-frame sequence, and
+    `_trim_record` sliced FASTQ-frame `seq` with stored-frame `qstart`
+    (yielding `seq[0:0] = ""` → `len(trimmed_seq) >= len_cutoff_l` rejection).
+    R2 avoided this by accident because the harness uses BLAT (whose PSL
+    output is already original-strand-oriented), not by design.
+  - **Fix:** 3-line coord flip in `librelocate.py:_parse_te_bam` — when
+    `record.is_reverse`, translate `qstart`/`qend` to the FASTQ frame
+    (`qlen - qend - 1`, `qlen - qstart - 1`) before any downstream slice.
+    `trim.py` (only used by tests, self-consistent in stored-frame) was
+    left alone with a clarifying comment. Regression guard lives in
+    `tests/trim_reverse_strand_test.py` (synthetic 36M115S flag=16 BAM).
+  - **Measured impact (rice 10-sample run, `junction_recall_diff.py`):**
+    low-recall sites (r2_T/r3_T ≥ 2) 5535 → 1888 (66 % reduction). Status
+    agreement 93.67 % → 97.32 %. Recall vs R2 88.3 % → **96.6 %**. Matched
+    pairs 5086 → 5565. `hom/excision → het` 206 → 68 (67 % closure);
+    `het → somatic` 112 → 73 (35 % closure). TSD strict agreement held
+    at 98.3 %. Diagonal grew from 4764 to 5416.
+  - **Precision drop 90.9 % → 85.3 %:** 962 R3-only calls, but 94.6 % have
+    canonical mping TSDs (`TTA`/`TAA`) and only 0.6 % overlap reference
+    mping loci. Spot-check reveals most R3-only calls sit at sites R2's
+    nonref TXT already knows about but tagged `insufficient_data`
+    (couldn't determine a TSD), which fails R2's characterize gate and
+    drops them from the comparison. R3's wildcard TSD + coord-fix
+    combination now emits a real TSD for those sites — genuine calls R2
+    couldn't fully characterize, not false positives. ~250 R3-only sit
+    within 100 bp of another R3-only, suggesting mild fragmentation in
+    `_pair_breakpoints` (a distinct issue; not blocking).
 - **Still deferred** (lower value): low-quality/MAPQ read filtering. The ~83%
   recall is the minimap2-vs-blat short-flank gap from Phase 2 (§7), not a
   clustering issue.
