@@ -156,9 +156,11 @@ class RelocaTE:
 
         flank_written = 0
         # read_repeat / TE-portion files aggregate across directions (append)
-        with open(read_repeat_path, "w") as rr_out, open(
-            five_path, "w"
-        ) as te5_out, open(three_path, "w") as te3_out:
+        with (
+            open(read_repeat_path, "w") as rr_out,
+            open(five_path, "w") as te5_out,
+            open(three_path, "w") as te3_out,
+        ):
             for direction, bam in direction_bams:
                 coord = self._parse_te_bam(
                     Path(bam), mismatch_allowance=mismatch_allowance
@@ -401,6 +403,16 @@ class RelocaTE:
                 strand = (
                     "+" if record.flag == 0 else ("-" if record.is_reverse else "+")
                 )
+
+                # pysam reports qstart/qend as indexes into the STORED BAM
+                # sequence. For reverse-strand alignments the stored seq is the
+                # reverse complement of the FASTQ read, so we flip to FASTQ-frame
+                # coords here — every downstream slice (_trim_record etc.) uses
+                # the FASTQ-frame sequence returned by _original_orientation.
+                # Closes the trim-drop bug traced in
+                # plans/2026-07-02-trim-recall-parity.md.
+                if record.is_reverse and qlen > 0:
+                    qstart, qend = qlen - qend - 1, qlen - qstart - 1
 
                 boundary = (
                     (1 if qstart <= 2 else 0)
