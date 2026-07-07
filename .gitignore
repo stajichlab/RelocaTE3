@@ -142,3 +142,12 @@ dmypy.json
 
 # Local agent-specific instructions
 .agents.local.md
+
+# Mycelium living-repo layer (local only, do not push)
+.living/
+todo/
+CLAUDE.md
+.claude/
+
+# Personal dev stuff
+notes/2026-07-06-external-reference-data.md

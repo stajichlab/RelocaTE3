@@ -1,14 +1,15 @@
 # RelocaTE3 Development Plan
 
-Status: draft assessment + roadmap (2026-06-10)
+Status: historical narrative + completed-phase log. **Forward-looking work has moved to two focused roadmap docs — read those first if you are planning what to build next:**
+
+- **`plans/PERFORMANCE.md`** — R2 parity work, simulated-data benchmarking, fragmentation fix, precision investigation, CLI-file consolidation.
+- **`plans/FEATURES.md`** — Rust acceleration, Nextflow orchestration, long-read (ONT + PacBio) support, pangenome-aware calling.
 
 RelocaTE3 is a ground-up modernization of RelocaTE2 (in `../RelocaTE2`), a tool
 that maps transposable element (TE) insertion polymorphisms from short-read
-resequencing data at single-base resolution. This document assesses both
-codebases, defines what to port and what to redesign, and lays out a phased plan
-to (1) reach a validated **Python reference implementation**, then (2) push the
-heavy per-read processing into **Rust**, and (3) scatter parallel work with
-**Nextflow** while keeping a single-node / laptop path.
+resequencing data at single-base resolution. This document is the historical
+record of what has shipped through Phase 4 and where each piece landed; see the
+roadmap docs above for what to do next.
 
 ---
 
