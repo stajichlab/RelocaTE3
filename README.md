@@ -31,74 +31,109 @@ pip install -e .
 
 ## Usage
 
-Run the whole pipeline for one paired-end sample:
+RelocaTE3 runs as a sequence of staged subcommands (so a workflow engine can
+scatter them). Note that `run` performs **TE-read identification and flank
+generation only** (map + trim, steps 2-3) — it is *not* the complete pipeline.
+A full single-sample analysis chains the stages:
 
 ```bash
+# 1. one-time: index the reference genome
+relocaTE3 index-genome -g reference.fa
+
+# 2-3. identify TE-containing reads and emit flanking reads (map + trim)
 relocaTE3 run \
-  --r1 reads_1.fq.gz --r2 reads_2.fq.gz \
-  --te RiceTE.fa \
-  --genome reference.fa \
-  --outdir HEG4_out --sample HEG4 \
-  --threads 8 --mismatch 2 \
-  --repeatmasker reference.fa.RepeatMasker.out \
-  --genotype
+  --left reads_1.fq.gz --right reads_2.fq.gz \
+  --te-library RiceTE.fa \
+  --name HEG4 --outdir HEG4_out \
+  --threads 8 --mismatch 2
+
+# 4. re-align the trimmed flanking reads to the genome
+relocaTE3 align-genome \
+  -g reference.fa \
+  -f HEG4_out/flanking/HEG4.left.flankingReads.fq HEG4_out/flanking/HEG4.right.flankingReads.fq \
+  -n HEG4 -o HEG4_out --threads 8
+
+# 5. cluster junction/supporting reads into non-reference insertions
+relocaTE3 find-insertions \
+  -b HEG4_out/HEG4.repeat.minimap.sorted.bam \
+  --read-repeat HEG4_out/te_containing/HEG4.read_repeat_name.txt \
+  --tsd TTA --target ALL --name HEG4 --outdir HEG4_out --te-name mping \
+  --reference-ins reference.fa.RepeatMasker.out \
+  --mismatch 2 --min-mapq 1
+
+# 7. genotype the insertions from a reads-to-genome BAM/CRAM
+relocaTE3 characterize \
+  -s HEG4_out/results/ALL.mping.all_nonref_insert.txt \
+  -b reads_to_genome.bam -g reference.fa \
+  -o HEG4_out/results
 ```
 
-### Individual steps
-
-Each step is also a subcommand, so a workflow engine can scatter them:
+### Subcommands
 
 | Command | Step | Purpose |
 |---------|------|---------|
-| `trim` | 3 | Map reads to the TE library, trim the TE portion, emit flanking reads |
-| `align-genome` | 4 | Re-align flanking reads + supporting mates to the genome |
+| `index-genome` | 1 | Index the reference genome (`samtools faidx` + minimap2) |
+| `map` | 2 | Align reads to the TE library (produces per-side BAMs) |
+| `trim` | 3 | Trim the TE portion from TE-library BAMs, emit flanking reads |
+| `run` | 2-3 | **Map + trim** in one step (TE-read identification + flank generation) — not the full pipeline |
+| `annotate-ref` | 0 | Annotate existing reference TE copies (minimap2 → `existingTE.bed`) |
+| `align-genome` | 4 | Re-align flanking reads to the genome |
 | `find-insertions` | 5 | Cluster junction/supporting reads → non-reference insertions |
-| `find-reference` | 0/6 | Parse RepeatMasker `.out`, call reference/shared insertions |
-| `characterize` | 7 | Genotype insertions (homozygous/heterozygous/somatic) |
-| `run` | all | Full single-sample pipeline (the steps above) |
+| `characterize` | 7 | Genotype insertions (homozygous/heterozygous/somatic; `-x` for excision) |
 
-Run `relocaTE3 <command> --help` for options.
+Run `relocaTE3 <command> --help` for the full flag list.
 
 ## Inputs
 
-- **Reads**: one (single-end) or two (paired-end) FASTQ files (`.fq`/`.fq.gz`).
-- **Characterizer alignments**: sorted and indexed BAM or CRAM. CRAM input also
-  requires the corresponding reference FASTA.
-- **TE library** (`--te`): FASTA of TE/repeat consensus sequences.
-- **Genome** (`--genome`): reference genome FASTA.
-- **RepeatMasker `.out`** (`--repeatmasker`, optional): reference TE annotation,
-  enabling reference/shared insertion calls and false-positive filtering.
+- **Reads** (`-l/--left/--r1`, `-r/--right/--r2`): one (single-end) or two
+  (paired-end) FASTQ files (`.fq`/`.fq.gz`).
+- **TE library** (`-T/--te-library`): FASTA of TE/repeat consensus sequences.
+- **Genome** (`-g/--genome-fasta`): reference genome FASTA.
+- **Existing-TE annotation** (`find-insertions --reference-ins`, optional): a
+  RepeatMasker `.out` or BED of reference TE copies, used to skip/flag reference
+  insertions.
+- **Characterize alignments** (`characterize -b`): sorted, indexed BAM or CRAM of
+  the original reads aligned to the genome. CRAM input also requires `-g` (the
+  genome FASTA).
 
 ## Outputs
 
-Under `--outdir`:
+Under `--outdir` (example for `--name HEG4`, and `find-insertions --te-name mping
+--target ALL`):
 
 ```
-flanking/        trimmed flanking reads (FASTQ)
-te_portions/     TE-matching read portions (FASTA)
-te_containing/   read → TE assignment table
-genome_aln/      flanking/support/full reads aligned to the genome (BAM)
-existingTE.bed   reference TE annotation (when --repeatmasker given)
+HEG4.left.bam / HEG4.right.bam            reads aligned to the TE library (map)
+HEG4.repeat.minimap.sorted.bam           flanking reads aligned to the genome (align-genome)
+flanking/
+  HEG4.left.flankingReads.fq             trimmed flanking reads (5'/3')
+  HEG4.right.flankingReads.fq
+te_containing/
+  HEG4.read_repeat_name.txt              read → TE-family assignment table
+  HEG4.left.ContainingReads.fq / HEG4.right.ContainingReads.fq
+te_portions/
+  HEG4.five_prime.fa / HEG4.three_prime.fa   TE-matching read portions
 results/
-  <sample>.all_nonref_insert.gff / .txt          non-reference insertions
-  <sample>.all_ref_insert.gff / .txt             reference/shared insertions
-  <sample>.all_nonref_insert.characTErized.gff   genotyped insertions (--genotype)
+  ALL.mping.all_nonref_insert.txt                        non-reference insertions (find-insertions)
+  ALL.mping.all_nonref_insert.characTErized.gff / .txt   genotyped insertions (characterize)
 ```
 
-The non-reference GFF carries the RelocaTE2 attribute set: `TSD`, `Name` (TE
+The characterized GFF carries the RelocaTE2 attribute set: `TSD`, `Name` (TE
 family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
 
 ## Migrating from RelocaTE2
 
 | RelocaTE2 | RelocaTE3 |
 |-----------|-----------|
-| `--fq_dir` (directory) | `--r1` / `--r2` (explicit files) |
-| `--te_fasta` | `--te` |
-| `--genome_fasta` | `--genome` |
-| `--reference_ins` | `--repeatmasker` |
+| `--fq_dir` (directory) | `--left` / `--right` (explicit files) |
+| `--te_fasta` | `-T/--te-library` |
+| `--genome_fasta` | `-g/--genome-fasta` |
+| `--reference_ins` | `find-insertions --reference-ins` |
 | `--mismatch` | `--mismatch` (default 0; use 2 to match the RelocaTE2 benchmark) |
 | `--aligner blat/bwa/bowtie2` | minimap2 only |
-| `characterizer.pl` (Perl) | `characterize` / `--genotype` |
+| `characterizer.pl` (Perl) | `characterize` |
+
+RelocaTE3 has no single full-pipeline command; run the staged subcommands above
+(`index-genome` → `run` → `align-genome` → `find-insertions` → `characterize`).
 
 ## Development
 
@@ -113,6 +148,6 @@ The following commands run RelocaTE3 on real rice data and compares results
 to legacy RelocaTE2 results. See `validation` directory for more information.
 
 ```bash
-pixi run validate-rice --local B_10   # smoke test
-pixi run validate-rice                # full 10-sample SLURM array
+pixi run validate-rice --local --force B_10   # smoke test (one sample, forced re-run)
+pixi run validate-rice                        # full 10-sample SLURM array
 ```

@@ -479,7 +479,12 @@ def cmd_run(
     verbose,
     **kwargs,
 ) -> int:
-    """Run full pipeline: align reads to TE library then trim TE sequences."""
+    """Identify TE-containing reads and generate flanking reads (map + trim).
+
+    Maps reads to the TE library then trims the TE-matching portion. This is
+    steps 2-3 (TE-read identification and flank generation), not the complete
+    insertion-calling pipeline.
+    """
     from RelocaTE3.librelocate import RelocaTE
     from RelocaTE3.ReadLibrary import ReadLibrary
 
@@ -652,8 +657,11 @@ def main(args: list[str] | None = None) -> int:
         subparsers.add_parser(
             "run",
             formatter_class=CustomHelpFormatter,
-            help="Run full pipeline: map + trim",
-            description="Run the complete RelocaTE3 pipeline: align reads to the TE library then trim TE sequences.",
+            help="Identify TE-containing reads and generate flanking reads (map + trim)",
+            description="Map reads to the TE library then trim the TE-matching "
+            "portion, emitting flanking reads and the read_repeat_name table. "
+            "This is TE-read identification and flank generation (steps 2-3), "
+            "NOT the complete insertion-calling pipeline.",
         )
     )
     _menu_annotate_ref(

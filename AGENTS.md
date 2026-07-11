@@ -34,7 +34,7 @@ Step → module → CLI subcommand:
 
 | Step | Module | Subcommand | Role |
 |------|--------|------------|------|
-| 0/6 | `reference_te.py` | `find-reference` / `annotate-ref` | Parse RepeatMasker `.out` (or align TE library to genome) → `existingTE.bed` and reference/shared insertion calls |
+| 0/6 | `reference_te.py` | `annotate-ref` (installed); `find-reference` (planned) | Align TE library to genome → `existingTE.bed`; reference/shared insertion calls are library-only until `find-reference` is exposed |
 | 1 | `align.py` (`Aligner.index_genome`) | `index-genome` | `samtools faidx` + minimap2 index |
 | 3 | `librelocate.py` (`RelocaTE`), `trim.py` | `trim` | Map reads to TE library, score TE alignments by boundary+match, classify 5′/3′/middle, emit flanking FASTQs and the `read_repeat_name` table |
 | 4 | `genome_align.py`, `align.py` | `align-genome` | Re-align flanking reads + supporting mates to the genome (sorted, indexed BAM) |
@@ -46,14 +46,22 @@ Supporting modules:
 - `ReadLibrary.py` — abstracts SE/PE FASTQ inputs and read-group metadata.
 - `models.py` — shared dataclasses (insertions, junction reads, etc.).
 
-### Two CLI files — read this before editing
+### The CLI lives in one file
 
-The package ships **two** argparse front-ends, and they have diverged:
+`src/RelocaTE3/__main__.py` is the single canonical CLI and the registered entry
+point (`relocaTE3 = "RelocaTE3.__main__:main"` in `pyproject.toml`). Subcommands:
+`map`, `trim`, `run` (map + trim only — TE-read identification + flank
+generation, not the full pipeline), `annotate-ref`, `index-genome`,
+`align-genome`, `find-insertions`, `characterize`.
 
-- `src/RelocaTE3/__main__.py` — this is the registered entry point (`relocaTE3 = "RelocaTE3.__main__:main"` in `pyproject.toml`). Subcommands: `map`, `trim`, `run`, `annotate-ref`, `index-genome`, `align-genome`, `find-insertions`, `characterize`.
-- `src/RelocaTE3/cli.py` — the subcommand names and flags documented in `README.md` (`trim`, `align-genome`, `find-insertions`, `find-reference`, `characterize`, `run`, with flags like `--r1`/`--r2`/`--te`/`--genome`/`--repeatmasker`).
+`src/RelocaTE3/cli.py` is now a thin **compatibility shim** that re-exports
+`main` from `__main__` (so `from RelocaTE3.cli import main` still works). Do not
+add subcommands there.
 
-If you add or rename a subcommand, update both files (or first consolidate them) and the README table. The acceptance test imports library functions directly, so it does not catch CLI drift.
+If you add or rename a subcommand, edit `__main__.py` and update the README
+subcommand table + `docs/source/usage.rst`. The acceptance test imports library
+functions directly, so it does not catch CLI drift — the subprocess smoke tests
+in `tests/main_test.py` cover the entry points.
 
 ## Testing
 

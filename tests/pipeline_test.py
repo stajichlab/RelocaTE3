@@ -1,4 +1,4 @@
-"""Tests for single-sample pipeline orchestration and the trim CLI."""
+"""Tests for single-sample pipeline orchestration and the run CLI."""
 
 from __future__ import annotations
 
@@ -38,24 +38,38 @@ def test_run_sample_produces_outputs(tmp_path: Path):
     assert os.path.getsize(gff) > 0
 
 
-def test_trim_cli(tmp_path: Path):
-    """The `trim` subcommand runs end-to-end and exits 0."""
+def test_run_cli_generates_flanking_reads(tmp_path: Path):
+    """The installed `run` subcommand (map + trim) emits flanking FASTQs.
+
+    This is the semantic equivalent of the old cli.py FASTQ `trim` command;
+    both drive RelocaTE.identify_TE_reads. Exercised through RelocaTE3.cli.main
+    to also cover the shim path.
+    """
     rc = main(
         [
-            "trim",
-            "--r1",
+            "run",
+            "-l",
             str(R1),
-            "--r2",
+            "-r",
             str(R2),
-            "-t",
+            "-T",
             str(TELIB),
+            "-n",
+            "HEG4",
             "-o",
             str(tmp_path),
-            "--sample",
-            "HEG4",
-            "-c",
+            "--threads",
             "2",
         ]
     )
     assert rc == 0
     assert (tmp_path / "flanking" / "HEG4.right.flankingReads.fq").exists()
+
+
+def test_cli_shim_reaches_canonical_parser():
+    """RelocaTE3.cli.main must reach the canonical __main__ parser.
+
+    `index-genome` exists only in the canonical parser, so this passes only
+    once cli.py delegates to __main__. We assert reachability, not identity.
+    """
+    assert main(["index-genome", "--help"]) == 0

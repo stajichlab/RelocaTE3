@@ -16,37 +16,37 @@ Flag mapping
      - RelocaTE3 flag
      - Notes
    * - ``--fq_dir <dir>``
-     - ``--r1 <file> --r2 <file>``
+     - ``--left <file> --right <file>``
      - Explicit file paths instead of a directory glob
    * - ``--te_fasta``
-     - ``--te``
+     - ``-T`` / ``--te-library``
      - Same format (FASTA of TE consensus sequences)
    * - ``--genome_fasta``
-     - ``--genome``
+     - ``-g`` / ``--genome-fasta``
      -
    * - ``--reference_ins``
-     - ``--repeatmasker``
-     - RepeatMasker ``.out`` file; enables Steps 0/6 + FP filter
+     - ``find-insertions --reference-ins``
+     - RepeatMasker ``.out`` or BED; drops non-reference calls overlapping a same-family reference TE
    * - ``--mismatch``
      - ``--mismatch``
      - Default changed from 2 → 0; use ``--mismatch 2`` to match benchmark
    * - ``--len_cut_match``
-     - ``--len-cut-match``
-     - Hyphens instead of underscores
+     - ``--min-match``
+     - ``run`` / ``trim`` (default 10)
    * - ``--len_cut_trim``
-     - ``--len-cut-trim``
-     -
+     - ``--min-trimmed``
+     - ``run`` / ``trim`` (default 10)
    * - ``--cpu``
-     - ``--threads`` / ``-c``
+     - ``--threads``
      -
    * - ``--aligner blat/bwa/bowtie2``
      - *(not available)*
      - minimap2 only; ``-k 11 -w 5`` seeding recovers most blat-only hits
    * - ``--sample_name``
-     - ``--sample``
+     - ``-n`` / ``--name``
      -
    * - ``characterizer.pl`` (Perl)
-     - ``relocaTE3 characterize`` or ``relocaTE3 run --genotype``
+     - ``relocaTE3 characterize``
      - Pure Python via pysam; same homozygous/heterozygous/somatic logic
    * - ``--config``
      - *(removed)*
