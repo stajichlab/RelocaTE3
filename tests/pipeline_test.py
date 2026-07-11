@@ -1,4 +1,4 @@
-"""Tests for single-sample pipeline orchestration and the trim CLI."""
+"""Tests for single-sample pipeline orchestration and the run CLI."""
 
 from __future__ import annotations
 
