@@ -167,6 +167,23 @@ recompute from scratch.
      genotype/status fields, and the set of expected output files. Any difference
      is a regression to fix or explicitly justify in the plan/PR.
 
+### Result (2026-07-10)
+
+**PASS — post-change output identical to baseline.** Ran on compute node i32
+(SLURM alloc, 8 CPUs); harness used `--threads 8`.
+
+- `pixi run test`: 48 passed (baseline was 45; +3 = shim-reachability, migrated
+  run-CLI test, and one subprocess smoke test — the console-script smoke test
+  runs, not skipped, under pixi). ruff/black clean.
+- B_10 `--local --force` before vs. after — **byte-identical** after sorting:
+  all 14 normalized report `.tsv` files, both `summary.txt` reports, and all
+  three `results/ALL.mping.all_nonref_insert{,.characTErized}.{txt,gff}` files;
+  same output file set.
+- Metrics unchanged — non-ref: R2 650 / R3 690 / shared 628, Recall 0.9662,
+  Precision 0.9101, Jaccard 0.8820. Characterized: R2 573 / R3 635 / shared 564,
+  Recall 0.9843, Precision 0.8882, Jaccard 0.8758, TSD 555/564 (0.9840), status
+  554/564 (0.9823).
+
 ## Follow-ups (filed, out of scope here)
 
 Deferred capability:
