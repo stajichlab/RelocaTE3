@@ -48,20 +48,21 @@ Supporting modules:
 
 ### The CLI lives in one file
 
-`src/RelocaTE3/__main__.py` is the single canonical CLI and the registered entry
-point (`relocaTE3 = "RelocaTE3.__main__:main"` in `pyproject.toml`). Subcommands:
-`map`, `trim`, `run` (map + trim only — TE-read identification + flank
-generation, not the full pipeline), `annotate-ref`, `index-genome`,
-`align-genome`, `find-insertions`, `characterize`.
+`src/RelocaTE3/cli.py` is the single canonical CLI (argparse parser + `_menu_*`
+builders + `cmd_*` handlers + `main()`) and the registered entry point
+(`relocaTE3 = "RelocaTE3.cli:main"` in `pyproject.toml`). Subcommands: `map`,
+`trim`, `run` (map + trim only — TE-read identification + flank generation, not
+the full pipeline), `annotate-ref`, `index-genome`, `align-genome`,
+`find-insertions`, `characterize`.
 
-`src/RelocaTE3/cli.py` is now a thin **compatibility shim** that re-exports
-`main` from `__main__` (so `from RelocaTE3.cli import main` still works). Do not
-add subcommands there.
+`src/RelocaTE3/__main__.py` is a thin launcher for `python -m RelocaTE3` that
+delegates to `cli.main` (`raise SystemExit(main())`, so `python -m` propagates
+the CLI's exit code). Don't put logic there.
 
-If you add or rename a subcommand, edit `__main__.py` and update the README
+If you add or rename a subcommand, edit `cli.py` and update the README
 subcommand table + `docs/source/usage.rst`. The acceptance test imports library
 functions directly, so it does not catch CLI drift — the subprocess smoke tests
-in `tests/main_test.py` cover the entry points.
+in `tests/main_test.py` cover both entry points.
 
 ## Testing
 

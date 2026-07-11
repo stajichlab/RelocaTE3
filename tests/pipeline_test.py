@@ -66,10 +66,6 @@ def test_run_cli_generates_flanking_reads(tmp_path: Path):
     assert (tmp_path / "flanking" / "HEG4.right.flankingReads.fq").exists()
 
 
-def test_cli_shim_reaches_canonical_parser():
-    """RelocaTE3.cli.main must reach the canonical __main__ parser.
-
-    `index-genome` exists only in the canonical parser, so this passes only
-    once cli.py delegates to __main__. We assert reachability, not identity.
-    """
+def test_cli_main_handles_installed_subcommand():
+    """RelocaTE3.cli.main is the canonical parser and handles installed subcommands (index-genome exists only on it)."""
     assert main(["index-genome", "--help"]) == 0
