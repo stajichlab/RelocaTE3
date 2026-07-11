@@ -1,5 +1,11 @@
 # CLI Consolidation Design — `__main__.py` + `cli.py`
 
+> **SHIPPED then SUPERSEDED (2026-07-11).** This design made `__main__.py` canonical
+> and `cli.py` a shim (PR #19). The CLI was then relocated: **`cli.py` is now the
+> canonical module, `__main__.py` is a thin launcher, entry point
+> `RelocaTE3.cli:main`** (see `plans/2026-07-10-cli-canonical-relocation-plan.md` and
+> `AGENTS.md`). Read this doc as history.
+
 Date: 2026-07-10
 Author: Nathan Mathieu (with Claude Code)
 Status: design — awaiting review (not yet committed or implemented)

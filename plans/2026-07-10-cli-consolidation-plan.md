@@ -1,5 +1,10 @@
 # CLI Consolidation Implementation Plan
 
+> **SUPERSEDED (2026-07-11):** This plan made `__main__.py` canonical and `cli.py` a
+> shim. The CLI has since been relocated — **`cli.py` is now canonical, `__main__.py`
+> is a thin launcher, entry point `RelocaTE3.cli:main`** (see
+> `plans/2026-07-10-cli-canonical-relocation-plan.md` and `AGENTS.md`). History only.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Collapse the two divergent argparse front-ends into one — `__main__.py` stays the canonical, validated CLI and `cli.py` becomes a compatibility shim — without changing any installed `__main__.py` command behavior.

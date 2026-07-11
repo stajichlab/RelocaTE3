@@ -4,6 +4,10 @@
 **Scope:** `RelocaTE3/validation/real_rice/` (with one small upstream change in
 `src/RelocaTE3/characterize.py` to support CRAM input).
 **Status:** Approved; ready for implementation per Section 9 order.
+
+> **Note (2026-07-11):** references below to `__main__.py` as "the registered entry
+> point" / two CLI front-ends are historical. The CLI now lives in `cli.py` (entry
+> point `RelocaTE3.cli:main`); `__main__.py` is a thin launcher. See `AGENTS.md`.
 **Update 2026-06-19:** CRAM support has landed upstream in
 `src/RelocaTE3/characterize.py` (`_open_alignment` detects `.cram` by suffix
 and passes `reference_filename`; `Characterizer.characterize` takes a
