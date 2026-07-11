@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+import shutil
+import subprocess
+import sys
 from typing import Generator
 
 import pytest
@@ -43,3 +46,27 @@ def test_main_characterize(monkeypatch: Generator):
     assert main(["characterize", "-s", "sites.txt", "-b", "a.bam", "b.bam"]) == 0
     assert mockreturn.kwargs["sites_file"] == "sites.txt"
     assert mockreturn.kwargs["bam"] == ["a.bam", "b.bam"]
+
+
+def test_module_entry_point_version():
+    """`python -m RelocaTE3 --version` runs and prints a version."""
+    proc = subprocess.run(
+        [sys.executable, "-m", "RelocaTE3", "--version"],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0
+    assert proc.stdout.strip()
+
+
+@pytest.mark.skipif(
+    shutil.which("relocaTE3") is None,
+    reason="console script not installed on PATH",
+)
+def test_console_script_version():
+    """The installed `relocaTE3 --version` console script runs."""
+    proc = subprocess.run(
+        ["relocaTE3", "--version"], capture_output=True, text=True
+    )
+    assert proc.returncode == 0
+    assert proc.stdout.strip()
