@@ -19,7 +19,7 @@ classifiers = [
 dynamic = ["dependencies", "version"]
 
 [project.scripts]
-relocaTE3 = "RelocaTE3.__main__:main"
+relocaTE3 = "RelocaTE3.cli:main"
 
 [project.urls]
 "Homepage" = "https://github.com/stajichlab/RelocaTE3"

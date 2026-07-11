@@ -8,8 +8,8 @@ from typing import Generator
 
 import pytest
 
-from RelocaTE3 import __main__, __version__
-from RelocaTE3.__main__ import main
+from RelocaTE3 import __version__, cli
+from RelocaTE3.cli import main
 
 
 def mockreturn(**kwargs):
@@ -26,7 +26,7 @@ def test_main_version(capsys: pytest.CaptureFixture):
 
 
 def test_main_map(monkeypatch: Generator):
-    monkeypatch.setattr(__main__, "cmd_map", mockreturn)
+    monkeypatch.setattr(cli, "cmd_map", mockreturn)
     assert main(["map", "-l", "r1.fq", "-T", "te.fa", "-n", "HEG4"]) == 0
     assert mockreturn.kwargs["name"] == "HEG4"
     assert mockreturn.kwargs["left"] == "r1.fq"
@@ -34,7 +34,7 @@ def test_main_map(monkeypatch: Generator):
 
 
 def test_main_map_verbose(monkeypatch: Generator, caplog: pytest.LogCaptureFixture):
-    monkeypatch.setattr(__main__, "cmd_map", mockreturn)
+    monkeypatch.setattr(cli, "cmd_map", mockreturn)
     with caplog.at_level(logging.DEBUG):
         main(["map", "-l", "r1.fq", "-T", "te.fa", "-n", "HEG4", "-v"])
     assert any(record.levelname == "DEBUG" for record in caplog.records)
@@ -42,7 +42,7 @@ def test_main_map_verbose(monkeypatch: Generator, caplog: pytest.LogCaptureFixtu
 
 
 def test_main_characterize(monkeypatch: Generator):
-    monkeypatch.setattr(__main__, "cmd_characterize", mockreturn)
+    monkeypatch.setattr(cli, "cmd_characterize", mockreturn)
     assert main(["characterize", "-s", "sites.txt", "-b", "a.bam", "b.bam"]) == 0
     assert mockreturn.kwargs["sites_file"] == "sites.txt"
     assert mockreturn.kwargs["bam"] == ["a.bam", "b.bam"]
