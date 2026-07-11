@@ -65,8 +65,6 @@ def test_module_entry_point_version():
 )
 def test_console_script_version():
     """The installed `relocaTE3 --version` console script runs."""
-    proc = subprocess.run(
-        ["relocaTE3", "--version"], capture_output=True, text=True
-    )
+    proc = subprocess.run(["relocaTE3", "--version"], capture_output=True, text=True)
     assert proc.returncode == 0
     assert proc.stdout.strip()
