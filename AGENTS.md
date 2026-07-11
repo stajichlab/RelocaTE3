@@ -34,7 +34,7 @@ Step → module → CLI subcommand:
 
 | Step | Module | Subcommand | Role |
 |------|--------|------------|------|
-| 0/6 | `reference_te.py` | `find-reference` / `annotate-ref` | Parse RepeatMasker `.out` (or align TE library to genome) → `existingTE.bed` and reference/shared insertion calls |
+| 0/6 | `reference_te.py` | `annotate-ref` (installed); `find-reference` (planned) | Align TE library to genome → `existingTE.bed`; reference/shared insertion calls are library-only until `find-reference` is exposed |
 | 1 | `align.py` (`Aligner.index_genome`) | `index-genome` | `samtools faidx` + minimap2 index |
 | 3 | `librelocate.py` (`RelocaTE`), `trim.py` | `trim` | Map reads to TE library, score TE alignments by boundary+match, classify 5′/3′/middle, emit flanking FASTQs and the `read_repeat_name` table |
 | 4 | `genome_align.py`, `align.py` | `align-genome` | Re-align flanking reads + supporting mates to the genome (sorted, indexed BAM) |

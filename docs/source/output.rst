@@ -7,26 +7,26 @@ Directory layout
 .. code-block:: text
 
    <outdir>/
+     <sample>.left.bam / <sample>.right.bam    reads aligned to the TE library (map)
+     <sample>.repeat.minimap.sorted.bam        flanking reads aligned to genome (align-genome)
      te_containing/
-       <sample>.read_repeat_name.txt     read → TE family assignment
+       <sample>.read_repeat_name.txt           read → TE family assignment
+       <sample>.left.ContainingReads.fq
+       <sample>.right.ContainingReads.fq
      flanking/
-       <sample>.left.flankingReads.fq    trimmed flanking reads (R1)
-       <sample>.right.flankingReads.fq   trimmed flanking reads (R2)
+       <sample>.left.flankingReads.fq          trimmed flanking reads (5′)
+       <sample>.right.flankingReads.fq         trimmed flanking reads (3′)
      te_portions/
-       <sample>.five_prime.fa            5′ TE-matching portions
-       <sample>.three_prime.fa           3′ TE-matching portions
-     genome_aln/
-       <sample>.flanking.genome.bam      flanking reads aligned to genome
-       <sample>.fullreads.genome.bam     full (untrimmed) reads (FP filter)
-       <sample>.reads.genome.bam         original reads (genotyping, --genotype)
-     existingTE.bed                      reference TE annotation (--repeatmasker)
+       <sample>.five_prime.fa                  5′ TE-matching portions
+       <sample>.three_prime.fa                 3′ TE-matching portions
      results/
-       <sample>.all_nonref_insert.gff    non-reference insertions (GFF3)
-       <sample>.all_nonref_insert.txt    non-reference insertions (tab-delimited)
-       <sample>.all_ref_insert.gff       reference/shared insertions (--repeatmasker)
-       <sample>.all_ref_insert.txt
-       <sample>.all_nonref_insert.characTErized.gff   genotyped (--genotype)
-       <sample>.all_nonref_insert.characTErized.txt
+       <target>.<te_name>.all_nonref_insert.txt                 non-reference insertions (find-insertions)
+       <target>.<te_name>.all_nonref_insert.characTErized.gff   genotyped insertions (characterize)
+       <target>.<te_name>.all_nonref_insert.characTErized.txt
+
+``<target>`` and ``<te_name>`` come from ``find-insertions --target`` / ``--te-name``.
+The ``annotate-ref`` subcommand separately writes ``existingTE.bed`` (reference TE
+copies) when run.
 
 GFF3 attribute fields
 ---------------------
@@ -42,7 +42,9 @@ column entries, preserving the RelocaTE2 convention:
     insertion point).  ``NA`` when no TSD is detectable.
 
 ``Note``
-    Insertion category: ``Non-reference``, ``Reference-Only``, or ``Shared``.
+    Insertion category. The installed staged pipeline emits ``Non-reference``;
+    ``Reference-Only`` / ``Shared`` come from reference/shared calling (planned
+    ``find-reference`` subcommand).
 
 ``Left_junction_reads``
     Number of junction reads supporting the left (5′) end of the insertion.
@@ -58,10 +60,10 @@ column entries, preserving the RelocaTE2 convention:
     Paired-end support reads on the right flank.
 
 Genotyping outputs
-    When ``--genotype`` is enabled, genotyping results are written to
-    ``<sample>.all_nonref_insert.characTErized.gff`` and
-    ``<sample>.all_nonref_insert.characTErized.txt`` (the non-reference insertion
-    GFF is unchanged).
+    The ``characterize`` subcommand writes genotyping results to
+    ``<target>.<te_name>.all_nonref_insert.characTErized.gff`` and
+    ``<target>.<te_name>.all_nonref_insert.characTErized.txt`` (the input
+    non-reference table is unchanged).
 
 Tab-delimited TXT format
 ------------------------
