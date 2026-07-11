@@ -38,22 +38,27 @@ def test_run_sample_produces_outputs(tmp_path: Path):
     assert os.path.getsize(gff) > 0
 
 
-def test_trim_cli(tmp_path: Path):
-    """The `trim` subcommand runs end-to-end and exits 0."""
+def test_run_cli_generates_flanking_reads(tmp_path: Path):
+    """The installed `run` subcommand (map + trim) emits flanking FASTQs.
+
+    This is the semantic equivalent of the old cli.py FASTQ `trim` command;
+    both drive RelocaTE.identify_TE_reads. Exercised through RelocaTE3.cli.main
+    to also cover the shim path.
+    """
     rc = main(
         [
-            "trim",
-            "--r1",
+            "run",
+            "-l",
             str(R1),
-            "--r2",
+            "-r",
             str(R2),
-            "-t",
+            "-T",
             str(TELIB),
+            "-n",
+            "HEG4",
             "-o",
             str(tmp_path),
-            "--sample",
-            "HEG4",
-            "-c",
+            "--threads",
             "2",
         ]
     )
