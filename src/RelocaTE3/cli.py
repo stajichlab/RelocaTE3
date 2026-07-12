@@ -416,69 +416,45 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
 # ---------------------------------------------------------------------------
 
 
-def cmd_map(
-    left, right, te_library, name, outdir, threads, aligner, verbose, **kwargs
-) -> int:
+def cmd_map(args: argparse.Namespace) -> int:
     """Align reads to TE library and write BAM files."""
     from RelocaTE3.align import Aligner
     from RelocaTE3.ReadLibrary import ReadLibrary
 
-    fileset = [left] + ([right] if right else [])
-    reads = ReadLibrary(fileset, name)
-    out = Path(outdir)
+    fileset = [args.left] + ([args.right] if args.right else [])
+    reads = ReadLibrary(fileset, args.name)
+    out = Path(args.outdir)
     out.mkdir(parents=True, exist_ok=True)
 
-    aln = Aligner(threads=threads, default_aligner=aligner)
-    bamfiles = aln.map_minimap_library(reads, out, te_library)
-    logger.info("%d BAM file(s) written to %s", len(bamfiles), outdir)
+    aln = Aligner(threads=args.threads, default_aligner=args.aligner)
+    bamfiles = aln.map_minimap_library(reads, out, args.te_library)
+    logger.info("%d BAM file(s) written to %s", len(bamfiles), args.outdir)
     return 0
 
 
-def cmd_trim(
-    bam,
-    name,
-    minimum_match_length,
-    minimum_trimmed_length,
-    mismatch_allowance,
-    outdir,
-    verbose,
-    **kwargs,
-) -> int:
+def cmd_trim(args: argparse.Namespace) -> int:
     """Trim TE sequence from TE-library BAM reads and emit junction-named flanking FASTQs."""
     from RelocaTE3.librelocate import RelocaTE
 
-    bam_paths = [Path(b) for b in bam]
-    out = Path(outdir)
+    bam_paths = [Path(b) for b in args.bam]
+    out = Path(args.outdir)
     out.mkdir(parents=True, exist_ok=True)
 
-    relocate = RelocaTE(verbose=int(verbose))
+    relocate = RelocaTE(verbose=int(args.verbose))
     directions = relocate._bam_directions(bam_paths)
     flank_written = relocate.write_trimmed_reads(
-        name,
+        args.name,
         list(zip(directions, bam_paths)),
         out,
-        minimum_match_length=minimum_match_length,
-        minimum_trimmed_length=minimum_trimmed_length,
-        mismatch_allowance=mismatch_allowance,
+        minimum_match_length=args.minimum_match_length,
+        minimum_trimmed_length=args.minimum_trimmed_length,
+        mismatch_allowance=args.mismatch_allowance,
     )
     logger.info("Wrote %d flanking read(s) to %s", flank_written, out / "flanking")
     return 0
 
 
-def cmd_run(
-    left,
-    right,
-    te_library,
-    name,
-    outdir,
-    threads,
-    aligner,
-    minimum_match_length,
-    minimum_trimmed_length,
-    mismatch_allowance,
-    verbose,
-    **kwargs,
-) -> int:
+def cmd_run(args: argparse.Namespace) -> int:
     """Identify TE-containing reads and generate flanking reads (map + trim).
 
     Maps reads to the TE library then trims the TE-matching portion. This is
@@ -488,130 +464,104 @@ def cmd_run(
     from RelocaTE3.librelocate import RelocaTE
     from RelocaTE3.ReadLibrary import ReadLibrary
 
-    fileset = [left] + ([right] if right else [])
-    reads = ReadLibrary(fileset, name)
-    out = Path(outdir)
+    fileset = [args.left] + ([args.right] if args.right else [])
+    reads = ReadLibrary(fileset, args.name)
+    out = Path(args.outdir)
     out.mkdir(parents=True, exist_ok=True)
 
-    relocate = RelocaTE(TElib=te_library, threads=threads, verbose=int(verbose))
-    n = relocate.identify_TE_reads(reads, out, search_tool=aligner)
+    relocate = RelocaTE(
+        TElib=args.te_library, threads=args.threads, verbose=int(args.verbose)
+    )
+    # BUG preserved intentionally (see plans/2026-07-11-cli-dispatch-cleanup-design.md,
+    # "Out of scope"): args.minimum_match_length / minimum_trimmed_length /
+    # mismatch_allowance are parsed but NOT forwarded to identify_TE_reads. Fixing
+    # changes trim output; do it in its own validated branch, not this refactor.
+    n = relocate.identify_TE_reads(reads, out, search_tool=args.aligner)
     logger.info("%d read(s) written", n)
     return 0
 
 
-def cmd_characterize(
-    sites_file,
-    bam,
-    genome_fasta,
-    outdir,
-    excision,
-    samtools,
-    bcftools,
-    verbose,
-    **kwargs,
-) -> int:
+def cmd_characterize(args: argparse.Namespace) -> int:
     """Characterize insertion sites as homozygous, heterozygous, somatic or excised."""
     from RelocaTE3.characterize import Characterizer
 
     characterizer = Characterizer(
-        samtools=samtools, bcftools=bcftools, verbose=int(verbose)
+        samtools=args.samtools, bcftools=args.bcftools, verbose=int(args.verbose)
     )
-    bam_paths = [Path(b) for b in bam]
+    bam_paths = [Path(b) for b in args.bam]
     txt_path, gff_path = characterizer.characterize(
-        sites_file=Path(sites_file),
+        sites_file=Path(args.sites_file),
         bam_files=bam_paths,
-        genome_fasta=Path(genome_fasta) if genome_fasta else None,
-        outdir=Path(outdir) if outdir else None,
-        excision=excision,
+        genome_fasta=Path(args.genome_fasta) if args.genome_fasta else None,
+        outdir=Path(args.outdir) if args.outdir else None,
+        excision=args.excision,
     )
     logger.info("Characterization written to %s and %s", txt_path, gff_path)
     return 0
 
 
-def cmd_annotate_ref(
-    te_library,
-    genome_fasta,
-    outdir,
-    threads,
-    min_identity,
-    min_coverage,
-    verbose,
-    **kwargs,
-) -> int:
+def cmd_annotate_ref(args: argparse.Namespace) -> int:
     """Annotate existing/reference TE copies in the genome with minimap2 (step 0)."""
     from RelocaTE3.reference_te import ReferenceTEAnnotator
 
-    annotator = ReferenceTEAnnotator(threads=threads, verbose=int(verbose))
+    annotator = ReferenceTEAnnotator(threads=args.threads, verbose=int(args.verbose))
     bed = annotator.annotate_minimap(
-        te_library=Path(te_library),
-        genome_fasta=Path(genome_fasta),
-        outdir=Path(outdir),
-        min_identity=min_identity,
-        min_coverage=min_coverage,
+        te_library=Path(args.te_library),
+        genome_fasta=Path(args.genome_fasta),
+        outdir=Path(args.outdir),
+        min_identity=args.min_identity,
+        min_coverage=args.min_coverage,
     )
     logger.info("Existing-TE annotation written to %s", bed)
     return 0
 
 
-def cmd_index_genome(genome_fasta, force, verbose, **kwargs) -> int:
+def cmd_index_genome(args: argparse.Namespace) -> int:
     """Index/format the reference genome (samtools faidx + minimap2 index) (step 1)."""
     from RelocaTE3.align import Aligner
 
     aln = Aligner()
-    aln.verbose = bool(verbose)
-    aln.index_genome(genome_fasta, force=force)
-    logger.info("Indexed genome %s", genome_fasta)
+    aln.verbose = bool(args.verbose)
+    aln.index_genome(args.genome_fasta, force=args.force)
+    logger.info("Indexed genome %s", args.genome_fasta)
     return 0
 
 
-def cmd_align_genome(
-    genome_fasta, fastq, name, outdir, paired, threads, verbose, **kwargs
-) -> int:
+def cmd_align_genome(args: argparse.Namespace) -> int:
     """Align trimmed flanking reads to the reference genome (step 4)."""
     from RelocaTE3.align import Aligner
 
-    aln = Aligner(threads=threads)
-    aln.verbose = bool(verbose)
+    aln = Aligner(threads=args.threads)
+    aln.verbose = bool(args.verbose)
     bam = aln.map_genome_minimap(
-        genome=genome_fasta,
-        fastqs=fastq,
-        name=name,
-        outdir=outdir,
-        paired=paired,
+        genome=args.genome_fasta,
+        fastqs=args.fastq,
+        name=args.name,
+        outdir=args.outdir,
+        paired=args.paired,
     )
     logger.info("Genome-aligned BAM written to %s", bam)
     return 0
 
 
-def cmd_find_insertions(
-    bam,
-    read_repeat,
-    tsd,
-    target,
-    name,
-    outdir,
-    te_name,
-    reference_ins,
-    mismatch_allow,
-    min_mapq,
-    verbose,
-    **kwargs,
-) -> int:
+def cmd_find_insertions(args: argparse.Namespace) -> int:
     """Find non-reference insertions from genome-aligned flanking reads (step 5)."""
     from RelocaTE3.insertions import InsertionFinder
 
     finder = InsertionFinder(
-        mismatch_allow=mismatch_allow, min_mapq=min_mapq, verbose=int(verbose)
+        mismatch_allow=args.mismatch_allow,
+        min_mapq=args.min_mapq,
+        verbose=int(args.verbose),
     )
     out_txt = finder.find_insertions(
-        bam_file=Path(bam),
-        read_repeat_file=Path(read_repeat),
-        tsd=tsd,
-        target=target,
-        sample=name,
-        outdir=Path(outdir),
-        te_name=te_name,
-        reference_ins=Path(reference_ins) if reference_ins else None,
+        bam_file=Path(args.bam),
+        read_repeat_file=Path(args.read_repeat),
+        tsd=args.tsd,
+        target=args.target,
+        sample=args.name,
+        outdir=Path(args.outdir),
+        te_name=args.te_name,
+        reference_ins=Path(args.reference_ins) if args.reference_ins else None,
     )
     logger.info("Non-reference insertions written to %s", out_txt)
     return 0
@@ -622,8 +572,8 @@ def cmd_find_insertions(
 # ---------------------------------------------------------------------------
 
 
-def main(args: list[str] | None = None) -> int:
-    """Tool for identifying Transposable transposition from WGS data by comparison to a reference genome."""
+def build_parser() -> argparse.ArgumentParser:
+    """Build the top-level argument parser with all subcommands registered."""
     prog = __entry_points__.get(__name__, "relocaTE3")
 
     parser = argparse.ArgumentParser(
@@ -709,6 +659,13 @@ def main(args: list[str] | None = None) -> int:
         )
     )
 
+    return parser
+
+
+def main(args: list[str] | None = None) -> int:
+    """Tool for identifying Transposable transposition from WGS data by comparison to a reference genome."""
+    parser = build_parser()
+
     try:
         cli_args = args or sys.argv[1:]
         if not cli_args:
@@ -723,7 +680,7 @@ def main(args: list[str] | None = None) -> int:
                 handler.setLevel("DEBUG")
             logger.debug("Debug mode enabled.")
 
-        parsed.func(**vars(parsed))
+        return parsed.func(parsed)
 
     except KeyboardInterrupt:
         logger.warning("Terminated by user.")
