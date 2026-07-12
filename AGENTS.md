@@ -59,6 +59,16 @@ the full pipeline), `annotate-ref`, `index-genome`, `align-genome`,
 delegates to `cli.main` (`raise SystemExit(main())`, so `python -m` propagates
 the CLI's exit code). Don't put logic there.
 
+**Access points (use these, in order):** the installed console script
+`relocaTE3` (regenerated from the `RelocaTE3.cli:main` entry point on
+install/reinstall); `python -m RelocaTE3`; or, in tests/library code,
+`from RelocaTE3.cli import main`. All three reach the *same* `cli.main`.
+
+**Anti-regression:** there is exactly **one** CLI module (`cli.py`). Never
+reintroduce a second parser/front-end or move `main` out of `cli.py`. A past
+`__main__.py`-vs-`cli.py` split silently diverged and caused wrong-file edits and
+two null-result validation runs.
+
 If you add or rename a subcommand, edit `cli.py` and update the README
 subcommand table + `docs/source/usage.rst`. The acceptance test imports library
 functions directly, so it does not catch CLI drift — the subprocess smoke tests

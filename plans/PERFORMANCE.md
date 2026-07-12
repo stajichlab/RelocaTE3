@@ -105,6 +105,15 @@ The 551 low-flanker (avg_flankers < 2) R3-only calls need a second look. Some ar
 
 ## Priority 4: two-CLI-file consolidation
 
+> **COMPLETED (2026-07-11).** Shipped in two steps: consolidation (PR #19) merged the
+> two front-ends, then the canonical CLI was relocated into `src/RelocaTE3/cli.py` with
+> a thin `__main__.py` launcher (Option A below is what shipped). **Current state: one
+> CLI module, `cli.py`; entry point `relocaTE3 = "RelocaTE3.cli:main"`; `python -m
+> RelocaTE3` delegates to `cli.main`.** See `AGENTS.md` → "The CLI lives in one file".
+> A follow-up remains: the dispatch cleanup (`build_parser()`, pass `Namespace` instead
+> of `**vars(parsed)`, drop per-handler `**kwargs`) — see
+> `todo/cmd-run-drops-trim-thresholds.md`. The historical analysis below is kept for record.
+
 `src/RelocaTE3/__main__.py` and `src/RelocaTE3/cli.py` have parallel implementations of the same subcommands. The registered entry point is `__main__:main`, so the harness runs through `__main__.py`; `cli.py` is documented but not wired. This has produced **two null-result SLURM runs** during recent parity work — each time I edited the wrong path (`map_reads_to_genome` instead of `map_genome_minimap`; function-based `find_insertions` instead of `InsertionFinder` class). CONTEXT.md warns about it but the warning is easy to miss.
 
 ### The right consolidation

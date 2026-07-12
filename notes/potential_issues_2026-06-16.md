@@ -12,6 +12,15 @@ items here are RelocaTE3 issues to consider fixing in a future session.
 
 ## 1. `src/RelocaTE3/cli.py` and parts of `src/RelocaTE3/pipeline.py` are dead code
 
+> **RESOLVED / OUTDATED (2026-07-11) — do not act on the description below.** The
+> two CLI front-ends were consolidated (PR #19) and the canonical CLI was then
+> relocated into `cli.py`. **Current reality is the opposite of what this item
+> says:** `src/RelocaTE3/cli.py` is now the *single canonical CLI*, the console
+> entry point is `relocaTE3 = "RelocaTE3.cli:main"`, and `src/RelocaTE3/__main__.py`
+> is a thin `python -m` launcher. The subcommands/flags an agent should trust are
+> the ones in `cli.py` (see `AGENTS.md` → "The CLI lives in one file"). Text kept
+> for historical record only.
+
 **Symptom.** `cli.py` registers subcommands (`run`, `find-insertions`,
 `find-reference`, `characterize`) with a *different* CLI shape than what
 the installed `relocaTE3` binary actually exposes. For example, `cli.py`'s
