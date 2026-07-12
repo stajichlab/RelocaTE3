@@ -94,3 +94,21 @@ gate:
 
 - `src/RelocaTE3/cli.py` (build_parser extraction, Namespace dispatch, drop `**kwargs`)
 - `tests/main_test.py` (mock accepts a `Namespace`; add `build_parser` test)
+
+## Result (2026-07-11)
+
+**PASS — post-refactor B_10 output byte-identical to baseline.** Ran on compute
+node (SLURM alloc, `--threads 8`).
+
+- `pixi run test`: 49 passed (48 + the new `test_build_parser_registers_subcommand`);
+  ruff clean, zero F821.
+- B_10 `--local --force` before vs. after: all 14 normalized report `.tsv` files,
+  both `summary.txt` reports, and all three
+  `results/ALL.mping.all_nonref_insert{,.characTErized}.{txt,gff}` files identical
+  after sorting; same output file set. Metrics unchanged (non-ref Recall 0.9662 /
+  Precision 0.9101 / Jaccard 0.8820; characterized Recall 0.9843 / Precision 0.8882
+  / Jaccard 0.8758; TSD 555/564; Status 554/564).
+
+Shipped as: `refactor(cli): extract build_parser() from main()` + `refactor(cli):
+dispatch Namespace to cmd_* handlers; drop **kwargs sinks`. `cmd_run` threshold
+bug and `--aligner bwa` remain deferred (separate branches).
