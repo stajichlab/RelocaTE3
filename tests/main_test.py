@@ -68,3 +68,11 @@ def test_console_script_version():
     proc = subprocess.run(["relocaTE3", "--version"], capture_output=True, text=True)
     assert proc.returncode == 0
     assert proc.stdout.strip()
+
+
+def test_build_parser_registers_subcommand():
+    """build_parser() returns a parser whose subcommands dispatch to cmd_*."""
+    from RelocaTE3.cli import build_parser, cmd_index_genome
+
+    parsed = build_parser().parse_args(["index-genome", "-g", "ref.fa"])
+    assert parsed.func is cmd_index_genome

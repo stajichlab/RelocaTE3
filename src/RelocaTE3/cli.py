@@ -622,8 +622,8 @@ def cmd_find_insertions(
 # ---------------------------------------------------------------------------
 
 
-def main(args: list[str] | None = None) -> int:
-    """Tool for identifying Transposable transposition from WGS data by comparison to a reference genome."""
+def build_parser() -> argparse.ArgumentParser:
+    """Build the top-level argument parser with all subcommands registered."""
     prog = __entry_points__.get(__name__, "relocaTE3")
 
     parser = argparse.ArgumentParser(
@@ -708,6 +708,13 @@ def main(args: list[str] | None = None) -> int:
             "genome-aligned BAM files, classifying each site by zygosity and excision status.",
         )
     )
+
+    return parser
+
+
+def main(args: list[str] | None = None) -> int:
+    """Tool for identifying Transposable transposition from WGS data by comparison to a reference genome."""
+    parser = build_parser()
 
     try:
         cli_args = args or sys.argv[1:]
