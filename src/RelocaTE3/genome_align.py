@@ -19,7 +19,7 @@ from pathlib import Path
 import pysam
 
 from RelocaTE3 import logger
-from RelocaTE3.align import Aligner
+from RelocaTE3.aligners import get_aligner
 from RelocaTE3.ReadLibrary import ReadLibrary
 
 # matches the junction-tag suffixes appended during trimming
@@ -139,8 +139,8 @@ def align_to_genome(
     reads: ReadLibrary,
     genome: str,
     outdir: str | Path,
-    aligner: Aligner | None = None,
     threads: int = 1,
+    genome_aligner: str = "minimap2",
 ) -> tuple[Path, Path | None]:
     """Map trimmed flanking reads + supporting mates to ``genome``.
 
@@ -152,7 +152,7 @@ def align_to_genome(
     """
     outdir = Path(outdir)
     sample = reads.name
-    aligner = aligner or Aligner(threads)
+    backend = get_aligner(genome_aligner, threads)
 
     flanking_dir = outdir / "flanking"
     flanking_files = sorted(
@@ -179,8 +179,8 @@ def align_to_genome(
         logger.info("%s: %d supporting mate reads recovered", sample, n_support)
 
         outbam = genome_dir / f"{sample}.genome.bam"
-        aligner.map_reads_to_genome(
-            genome, fastq_inputs, str(outbam), tmpdir=tmp, cpu_threads=threads
+        backend.map_genome(
+            genome, fastq_inputs, str(outbam), paired=False, threads=threads, tmpdir=tmp
         )
 
         # full (untrimmed) junction reads for false-junction filtering
@@ -188,12 +188,13 @@ def align_to_genome(
         n_full = collect_junction_fullreads(read_repeat, reads, full_fq)
         if n_full > 0:
             fullreads_bam = genome_dir / f"{sample}.fullreads.genome.bam"
-            aligner.map_reads_to_genome(
+            backend.map_genome(
                 genome,
                 [str(full_fq)],
                 str(fullreads_bam),
+                paired=False,
+                threads=threads,
                 tmpdir=tmp,
-                cpu_threads=threads,
             )
         logger.info(
             "%s: %d full junction reads aligned for false-junction filtering",

@@ -9,6 +9,7 @@ import textwrap
 from pathlib import Path
 
 from RelocaTE3 import __author__, __entry_points__, __version__, logger
+from RelocaTE3.aligners import GENOME_ALIGNERS, TE_ALIGNERS
 
 
 class CustomHelpFormatter(argparse.HelpFormatter):
@@ -92,10 +93,12 @@ def _menu_map(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--threads", type=int, default=1, help="CPU threads for alignment"
     )
     parser.add_argument(
+        "--te-aligner",
         "--aligner",
+        dest="te_aligner",
         default="minimap2",
-        choices=["minimap2", "bwa"],
-        help="Alignment tool",
+        choices=list(TE_ALIGNERS),
+        help="Aligner for TE-library search (--aligner is a deprecated alias)",
     )
     _add_common_args(parser)
     parser.set_defaults(func=cmd_map)
@@ -176,10 +179,12 @@ def _menu_run(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--threads", type=int, default=1, help="CPU threads for alignment"
     )
     parser.add_argument(
+        "--te-aligner",
         "--aligner",
+        dest="te_aligner",
         default="minimap2",
-        choices=["minimap2", "bwa"],
-        help="Alignment tool",
+        choices=list(TE_ALIGNERS),
+        help="Aligner for TE-library search (--aligner is a deprecated alias)",
     )
     parser.add_argument(
         "--min-match",
@@ -344,7 +349,14 @@ def _menu_align_genome(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         help="Align the first two FASTQs as a read pair",
     )
     parser.add_argument(
-        "--threads", type=int, default=1, help="CPU threads for minimap2"
+        "--genome-aligner",
+        dest="genome_aligner",
+        default="minimap2",
+        choices=list(GENOME_ALIGNERS),
+        help="Aligner for genome re-alignment (blat is not supported here)",
+    )
+    parser.add_argument(
+        "--threads", type=int, default=1, help="CPU threads for alignment"
     )
     _add_common_args(parser)
     parser.set_defaults(func=cmd_align_genome)
@@ -418,7 +430,6 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
 
 def cmd_map(args: argparse.Namespace) -> int:
     """Align reads to TE library and write BAM files."""
-    from RelocaTE3.align import Aligner
     from RelocaTE3.ReadLibrary import ReadLibrary
 
     fileset = [args.left] + ([args.right] if args.right else [])
@@ -426,8 +437,11 @@ def cmd_map(args: argparse.Namespace) -> int:
     out = Path(args.outdir)
     out.mkdir(parents=True, exist_ok=True)
 
-    aln = Aligner(threads=args.threads, default_aligner=args.aligner)
-    bamfiles = aln.map_minimap_library(reads, out, args.te_library)
+    from RelocaTE3.aligners import get_aligner
+
+    backend = get_aligner(args.te_aligner, args.threads)
+    backend.index(args.te_library)
+    bamfiles = backend.map_te_library(reads, args.te_library, out)
     logger.info("%d BAM file(s) written to %s", len(bamfiles), args.outdir)
     return 0
 
@@ -472,11 +486,14 @@ def cmd_run(args: argparse.Namespace) -> int:
     relocate = RelocaTE(
         TElib=args.te_library, threads=args.threads, verbose=int(args.verbose)
     )
-    # BUG preserved intentionally (see plans/2026-07-11-cli-dispatch-cleanup-design.md,
-    # "Out of scope"): args.minimum_match_length / minimum_trimmed_length /
-    # mismatch_allowance are parsed but NOT forwarded to identify_TE_reads. Fixing
-    # changes trim output; do it in its own validated branch, not this refactor.
-    n = relocate.identify_TE_reads(reads, out, search_tool=args.aligner)
+    n = relocate.identify_TE_reads(
+        reads,
+        out,
+        te_aligner=args.te_aligner,
+        len_cut_match=args.minimum_match_length,
+        len_cut_trim=args.minimum_trimmed_length,
+        mismatch_allowance=args.mismatch_allowance,
+    )
     logger.info("%d read(s) written", n)
     return 0
 
@@ -529,17 +546,35 @@ def cmd_index_genome(args: argparse.Namespace) -> int:
 
 def cmd_align_genome(args: argparse.Namespace) -> int:
     """Align trimmed flanking reads to the reference genome (step 4)."""
-    from RelocaTE3.align import Aligner
+    if args.genome_aligner == "minimap2":
+        # Preserve the original minimap2 path byte-for-byte (tuned flags, paired
+        # handling, and the {name}.repeat.minimap.sorted.bam output name).
+        from RelocaTE3.align import Aligner
 
-    aln = Aligner(threads=args.threads)
-    aln.verbose = bool(args.verbose)
-    bam = aln.map_genome_minimap(
-        genome=args.genome_fasta,
-        fastqs=args.fastq,
-        name=args.name,
-        outdir=args.outdir,
-        paired=args.paired,
-    )
+        aln = Aligner(threads=args.threads)
+        aln.verbose = bool(args.verbose)
+        bam = aln.map_genome_minimap(
+            genome=args.genome_fasta,
+            fastqs=args.fastq,
+            name=args.name,
+            outdir=args.outdir,
+            paired=args.paired,
+        )
+    else:
+        from RelocaTE3.aligners import get_aligner
+
+        out_bam = (
+            Path(args.outdir) / f"{args.name}.repeat.{args.genome_aligner}.sorted.bam"
+        )
+        backend = get_aligner(args.genome_aligner, args.threads)
+        backend.index(args.genome_fasta)
+        bam = backend.map_genome(
+            args.genome_fasta,
+            args.fastq,
+            out_bam,
+            paired=args.paired,
+            threads=args.threads,
+        )
     logger.info("Genome-aligned BAM written to %s", bam)
     return 0
 
