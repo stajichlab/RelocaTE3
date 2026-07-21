@@ -68,26 +68,38 @@ Total: 3 × 2 × 2 = 12 samples. Small enough for a single SLURM array; large en
 
 ---
 
-## Priority 2: fragmentation fix in `_pair_breakpoints`
+## Priority 2: insertion fragmentation fix
 
-Once the simulated panel exists, this fix is a 30-minute problem: run current R3 on the panel, apply the fix, re-run, measure. Do NOT do it before Priority 1 — you cannot tell whether it helps precision otherwise.
+> **COMPLETED (2026-07-20).** Shipped on branch `fix-insertion-fragmentation`. Plan:
+> `plans/2026-07-20-insertion-fragmentation-fix.md`. Verified panel-wide on the
+> simulated benchmark: **R3 false positives 693 → 2 across the 9 samples; precision
+> 0.70–0.90 → ~1.0 (parity with R2); recall improved or unchanged in all 15
+> class×coverage cells (no regressions).** The historical diagnosis below was
+> wrong about the function — kept for the record with the correction inline.
 
-### Diagnosis (already in hand)
-- ~250 of the 962 R3-only calls sit within 100 bp of another R3-only call.
-- Site-level trace: B_10 Chr1:39543302 (L:13 R:0) and Chr1:39543341 (L:0 R:9) — 39 bp apart, complementary junction sides. R2 has neither.
-- Almost certainly one biological insertion where junctions land at slightly offset breakpoints; `_pair_breakpoints` (`src/RelocaTE3/insertions.py:563+`) should merge them (TSD_WINDOW = 100) but doesn't.
+### Corrected diagnosis (what actually shipped)
+The earlier diagnosis named `_pair_breakpoints`. **That is the wrong function** — it
+belongs to the module-level `pipeline.py` path, which the benchmark and the
+`find-insertions` CLI do not run. The live path is the `InsertionFinder` class, and
+`_write_output` emits **one row per `tsd_start` in a cluster**. With the fixed 3 bp
+wildcard TSD (`tsd="..."`), the right junction records `tsd_start = start` while the
+left junction records `tsd_start = end - len(tsd)`; when the true TSD is 4–5 bp these
+diverge by `true_len - 3` = 1–2 bp, splitting one insertion into two single-sided
+rows. Measured: 691/693 (99.7 %) of benchmark FPs were exactly 1–2 bp from a matched
+call.
 
-### Investigation to run
-Before writing the fix, add a debug print to `_pair_breakpoints` and trace this specific site. Options for the root cause:
+### Fix
+`InsertionFinder._merge_offset_starts` (`src/RelocaTE3/insertions.py`): within each
+cluster, before `_write_output`, collapse `tsd_start` sub-buckets whose TSD spans
+overlap (`gap < captured TSD length`), pooling counts/reads. Split single-sided
+fragments recombine into one both-junction call. Distinct insertions have
+non-overlapping TSDs and are never merged. R2-parity-preserving: RelocaTE2 avoids the
+split by using the correct TSD length, so the merge only reconstructs what the
+wildcard mode fragmented.
 
-1. The cluster boundaries close before reads from both breakpoints are grouped — `RANGE_ALLOWANCE = 1000` should prevent this, but a chromosome-boundary edge case might trigger it.
-2. `_pair_breakpoints`'s greedy nearest-neighbour pairing pushes the left-only breakpoint and right-only breakpoint into separate `(pos, None)` / `(None, pos)` tuples because no direct L/R pair is close enough.
-3. The two positions were already in different clusters and never see each other.
-
-### Considerations
-- Merging must be R2-parity-preserving. Do not merge calls that R2 also emits separately — the truth set from Priority 1 tells you which is which.
-- If a merge candidate has different TSD strings on each side (`TAA` at one breakpoint, `TTA` at the other), the merged call has to pick one — probably by junction count, but the choice needs to be deliberate and documented.
-- Watch for a status shift after merging: a merged (L=13 + R=9) call will have T = 22, which pushes it out of the `avg_flankers <= 2` band and into `heterozygous` — desirable, but verify against truth.
+### Not addressed here (see Priority 5)
+The 2 residual FPs are the far-apart complementary-junction case (e.g. L:13 / R:9 tens
+of bp apart) that needs RelocaTE2's `TSD_from_read_depth` sub-cluster pairing.
 
 ---
 
