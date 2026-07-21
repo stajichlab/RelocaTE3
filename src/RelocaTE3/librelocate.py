@@ -66,7 +66,8 @@ class RelocaTE:
         seqreads: ReadLibrary,
         outdir: Path,
         TE_library: str = "",
-        search_tool: str = "minimap2",
+        te_aligner: str = "minimap2",
+        search_tool: str | None = None,
         minimum_match_length: int = 10,
         minimum_trimmed_length: int = 10,
         mismatch_allowance: int = 0,
@@ -84,14 +85,15 @@ class RelocaTE:
             minimum_trimmed_length = len_cut_trim
         if not TE_library:
             TE_library = self.transposon_library
-        if "minimap" not in search_tool.lower():
-            raise NotImplementedError(f"search_tool {search_tool!r} is not supported")
+        # ``search_tool`` is a deprecated alias for ``te_aligner``.
+        tool = search_tool if search_tool is not None else te_aligner
 
         outdir = Path(outdir)
-        alntool = Aligner(self.cpu_threads)
-        alntool.verbose = self.verbose > 0
-        alntool.index_minimap(TE_library)
-        bamfiles = alntool.map_minimap_library(seqreads, str(outdir), TE_library)
+        from RelocaTE3.aligners import get_aligner
+
+        backend = get_aligner(tool, self.cpu_threads)
+        backend.index(TE_library)
+        bamfiles = backend.map_te_library(seqreads, TE_library, str(outdir))
 
         directions = self._bam_directions(bamfiles)
         return self.write_trimmed_reads(
