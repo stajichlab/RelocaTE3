@@ -3,9 +3,10 @@
 RelocaTE3 identifies transposable element (TE) insertion polymorphisms from
 short-read resequencing data, at single-base resolution, by comparison to a
 reference genome. It is a modern, pure-Python reimplementation of
-[RelocaTE2](https://github.com/JinfengChen/RelocaTE2) that depends only on
-`minimap2` and `samtools` (plus `pysam`/`biopython`) — no blat, bwa, bowtie2,
-seqtk, or Perl.
+[RelocaTE2](https://github.com/JinfengChen/RelocaTE2) built on `minimap2`
+(default) and `samtools` (plus `pysam`/`biopython`) — no seqtk or Perl. The
+aligner for each stage is selectable: `minimap2`, `bwa`, `bwa-mem2`, `bowtie2`,
+or `blat` (see "Choosing an aligner").
 
 > Status: reference implementation. The full pipeline (read trimming → genome
 > re-alignment → non-reference insertion calling → reference/shared insertions →
@@ -129,11 +130,29 @@ family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
 | `--genome_fasta` | `-g/--genome-fasta` |
 | `--reference_ins` | `find-insertions --reference-ins` |
 | `--mismatch` | `--mismatch` (default 0; use 2 to match the RelocaTE2 benchmark) |
-| `--aligner blat/bwa/bowtie2` | minimap2 only |
+| `--aligner blat/bwa/bowtie2` | `run --te-aligner` and `align-genome --genome-aligner` (see below) |
 | `characterizer.pl` (Perl) | `characterize` |
 
 RelocaTE3 has no single full-pipeline command; run the staged subcommands above
 (`index-genome` → `run` → `align-genome` → `find-insertions` → `characterize`).
+
+## Choosing an aligner
+
+The aligner is selectable per stage:
+
+- **TE-library search** (`map` / `run`): `--te-aligner {minimap2,bwa,bwamem2,bowtie2,blat}`
+  (default `minimap2`). `--aligner` is a deprecated alias.
+- **Genome re-alignment** (`align-genome`): `--genome-aligner {minimap2,bwa,bwamem2,bowtie2}`
+  (default `minimap2`). `blat` is TE-search only and is rejected here.
+
+```bash
+relocaTE3 run --left r1.fq --right r2.fq -T RiceTE.fa -n HEG4 -o HEG4_out --te-aligner bwa
+relocaTE3 align-genome -g reference.fa -f HEG4_out/flanking/*.flankingReads.fq -n HEG4 -o HEG4_out --genome-aligner bwa
+```
+
+`bwa`, `bwa-mem2`, and `bowtie2` are pinned by pixi. `blat` is optional — provide it
+on `PATH` (its bioconda build conflicts with the pinned plotting stack). Non-minimap2
+genome BAMs are named `{name}.repeat.{aligner}.sorted.bam`.
 
 ## Development
 
