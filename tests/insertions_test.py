@@ -175,9 +175,7 @@ class TestInsertionFinder(unittest.TestCase):
                     "ref": 1,
                 },
             ]
-            _write_multi_contig_bam(
-                bam_path, [("Chr1", 5000), ("Chr2", 5000)], reads
-            )
+            _write_multi_contig_bam(bam_path, [("Chr1", 5000), ("Chr2", 5000)], reads)
 
             read_repeat = os.path.join(workdir, "read_repeat_name.txt")
             with open(read_repeat, "w") as fh:
