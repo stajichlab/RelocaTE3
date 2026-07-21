@@ -7,6 +7,12 @@ platforms = ["linux-64", "osx-64", "osx-arm64"]
 [dependencies]
 python = ">=3.10"
 minimap2 = ">=2.24"
+bwa = ">=0.7.17"
+bwa-mem2 = ">=2.2"
+bowtie2 = ">=2.5"
+# NOTE: blat is intentionally NOT pinned here -- the bioconda `blat` build pins an
+# old zlib that conflicts with matplotlib and is unavailable on osx-arm64. The
+# blat backend is optional: provide `blat` on PATH to use it (tests skip when absent).
 samtools = ">=1.17"
 bedtools = ">=2.30"
 pysam = ">=0.20"

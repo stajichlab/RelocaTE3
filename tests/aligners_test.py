@@ -1,0 +1,155 @@
+"""Contract tests for the pluggable aligner backends (Step 3/4 alignment)."""
+
+import random
+import shutil
+import tempfile
+import unittest
+from pathlib import Path
+
+import pysam
+
+from RelocaTE3.aligners import get_aligner, psl_to_sam
+from RelocaTE3.ReadLibrary import ReadLibrary
+
+_BINARIES = {
+    "minimap2": ["minimap2"],
+    "bwa": ["bwa"],
+    "bwamem2": ["bwa-mem2"],
+    "bowtie2": ["bowtie2", "bowtie2-build"],
+    "blat": ["blat"],
+}
+
+
+def _available(name):
+    return shutil.which("samtools") is not None and all(
+        shutil.which(b) is not None for b in _BINARIES[name]
+    )
+
+
+def _refseq(n=2000, seed=7):
+    r = random.Random(seed)
+    return "".join(r.choice("ACGT") for _ in range(n))
+
+
+REF = _refseq()
+
+
+def _write_fa(path, seqs):
+    with open(path, "w") as fh:
+        for name, seq in seqs.items():
+            fh.write(f">{name}\n{seq}\n")
+
+
+def _write_fq(path, reads):
+    with open(path, "w") as fh:
+        for name, seq in reads:
+            fh.write(f"@{name}\n{seq}\n+\n{'I' * len(seq)}\n")
+
+
+def _assert_contract(test, bam):
+    test.assertTrue(Path(bam).exists())
+    test.assertTrue(Path(f"{bam}.bai").exists())
+    with pysam.AlignmentFile(str(bam), "rb") as fh:
+        test.assertEqual(fh.header["HD"].get("SO"), "coordinate")
+        mapped = 0
+        for rec in fh.fetch(until_eof=True):
+            test.assertFalse(rec.is_unmapped)  # mapped-only
+            test.assertTrue(rec.query_name)  # names preserved
+            test.assertTrue(rec.has_tag("NM"))  # NM present
+            mapped += 1
+        test.assertGreater(mapped, 0)
+
+
+class TestBackendContract(unittest.TestCase):
+    """Every installed backend must satisfy the downstream BAM contract."""
+
+    def _run_backend(self, name):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            ref = d / "ref.fa"
+            _write_fa(ref, {"chr1": REF})
+            fq = d / "reads.fq"
+            _write_fq(fq, [(f"r{i}", REF[i * 100 : i * 100 + 80]) for i in range(1, 6)])
+
+            aln = get_aligner(name, threads=1)
+            aln.index(ref)
+            bam = aln.map_genome(ref, [fq], d / "g.bam", paired=False, threads=1)
+            _assert_contract(self, bam)
+
+            # TE-library stage (single-end ReadLibrary -> one "left" BAM)
+            telib = d / "te.fa"
+            _write_fa(telib, {"teA": REF[500:1000]})
+            tefq = d / "te_reads.fq"
+            _write_fq(
+                tefq,
+                [(f"t{i}", REF[500 + i * 20 : 500 + i * 20 + 80]) for i in range(1, 6)],
+            )
+            rl = ReadLibrary([str(tefq)], "S1")
+            bams = aln.map_te_library(rl, telib, d, threads=1)
+            self.assertEqual([b.name for b in bams], ["S1.left.bam"])
+            _assert_contract(self, bams[0])
+
+    @unittest.skipUnless(_available("minimap2"), "minimap2 not available")
+    def test_minimap2(self):
+        self._run_backend("minimap2")
+
+    @unittest.skipUnless(_available("bwa"), "bwa not available")
+    def test_bwa(self):
+        self._run_backend("bwa")
+
+    @unittest.skipUnless(_available("bwamem2"), "bwa-mem2 not available")
+    def test_bwamem2(self):
+        self._run_backend("bwamem2")
+
+    @unittest.skipUnless(_available("bowtie2"), "bowtie2 not available")
+    def test_bowtie2(self):
+        self._run_backend("bowtie2")
+
+    @unittest.skipUnless(_available("blat"), "blat not available")
+    def test_blat(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            telib = d / "te.fa"
+            _write_fa(telib, {"teA": REF[500:1000]})
+            tefq = d / "te.fq"
+            _write_fq(
+                tefq,
+                [(f"t{i}", REF[500 + i * 20 : 500 + i * 20 + 80]) for i in range(1, 6)],
+            )
+            rl = ReadLibrary([str(tefq)], "S1")
+            aln = get_aligner("blat")
+            bams = aln.map_te_library(rl, telib, d)
+            _assert_contract(self, bams[0])
+            with self.assertRaises(NotImplementedError):
+                aln.map_genome(telib, [tefq], d / "x.bam")
+
+
+class TestPslToSam(unittest.TestCase):
+    """The PSL->SAM converter (BLAT backend) tested without the blat binary."""
+
+    def test_single_block_exact(self):
+        psl = "80\t0\t0\t0\t0\t0\t0\t0\t+\tt1\t80\t0\t80\tteA\t500\t100\t180\t1\t80,\t0,\t100,"
+        sam = psl_to_sam([psl])
+        self.assertEqual(len(sam), 1)
+        f = sam[0].split("\t")
+        self.assertEqual(f[0], "t1")
+        self.assertEqual(f[1], "0")  # + strand
+        self.assertEqual(f[2], "teA")
+        self.assertEqual(f[3], "101")  # 1-based POS
+        self.assertEqual(f[5], "80M")
+        self.assertIn("NM:i:0", sam[0])
+
+    def test_softclip_and_mismatch(self):
+        psl = "68\t2\t0\t0\t0\t0\t0\t0\t+\tt2\t80\t5\t75\tteA\t500\t200\t270\t1\t70,\t5,\t200,"
+        sam = psl_to_sam([psl])
+        f = sam[0].split("\t")
+        self.assertEqual(f[5], "5S70M5S")
+        self.assertEqual(f[3], "201")
+        self.assertIn("NM:i:2", sam[0])
+
+    def test_skips_header_lines(self):
+        self.assertEqual(psl_to_sam(["psLayout version 3", "", "match\tmis"]), [])
+
+
+if __name__ == "__main__":
+    unittest.main()
