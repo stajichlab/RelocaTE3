@@ -107,6 +107,10 @@ class InsertionFinder:
             cluster_chrom,
         )
 
+        # Collapse tsd_start sub-buckets split by the fixed-length wildcard TSD so
+        # one insertion is not emitted as two adjacent single-sided calls.
+        self._merge_offset_starts(te_insertions, te_insertions_reads)
+
         result_dir = Path(outdir) / "results"
         result_dir.mkdir(parents=True, exist_ok=True)
         out_txt = result_dir / f"{target}.{te_name}.all_nonref_insert.txt"
@@ -358,6 +362,76 @@ class InsertionFinder:
             te_insertions_reads[event][tsd_start][tsd_seq]["left_read"].append(name)
         else:
             te_insertions_reads[event][tsd_start][tsd_seq]["right_read"].append(name)
+
+    # ------------------------------------------------------------------
+    # sub-cluster reconciliation
+    # ------------------------------------------------------------------
+    def _merge_offset_starts(self, te_insertions, te_insertions_reads):
+        """Merge tsd_start sub-buckets split by the fixed-length wildcard TSD.
+
+        The right junction records ``tsd_start = start`` (the TSD left edge) while
+        the left junction records ``tsd_start = end - len(tsd)``. When the true TSD
+        is longer than the wildcard pattern the two sides diverge by
+        ``true_len - wildcard_len`` (1-2 bp), fragmenting one insertion into two
+        single-sided rows. Within each cluster, collapse tsd_start entries whose
+        TSD coordinate spans overlap (gap < captured TSD length) into a single
+        canonical start, pooling counts and reads. Distinct insertions have
+        non-overlapping TSDs (at least a TSD length apart) and are never merged.
+
+        Mutates ``te_insertions`` and ``te_insertions_reads`` in place.
+        """
+        for event in list(te_insertions.keys()):
+            starts = te_insertions[event]
+            if len(starts) < 2:
+                continue
+            # Captured TSD length for this cluster (wildcard captures are uniform);
+            # a length < 2 leaves nothing that could overlap, so skip.
+            tsd_len = 0
+            for pos_map in starts.values():
+                for seq in pos_map:
+                    tsd_len = max(tsd_len, len(seq))
+            if tsd_len < 2:
+                continue
+
+            totals = {st: sum(b["count"] for b in starts[st].values()) for st in starts}
+
+            # Chain consecutive starts whose spans overlap (gap < tsd_len).
+            ordered = sorted(starts.keys(), key=int)
+            groups: list[list[int]] = []
+            current = [ordered[0]]
+            for st in ordered[1:]:
+                if int(st) - int(current[-1]) < tsd_len:
+                    current.append(st)
+                else:
+                    groups.append(current)
+                    current = [st]
+            groups.append(current)
+
+            for group in groups:
+                if len(group) < 2:
+                    continue
+                # Canonical start = highest total count; tie -> smallest coordinate.
+                canonical = group[0]
+                best = (totals[canonical], -int(canonical))
+                for st in group[1:]:
+                    cand = (totals[st], -int(st))
+                    if cand > best:
+                        best = cand
+                        canonical = st
+                for st in group:
+                    if st == canonical:
+                        continue
+                    for seq, bucket in te_insertions[event][st].items():
+                        dst = te_insertions[event][canonical][seq]
+                        for key, val in bucket.items():
+                            dst[key] += val
+                        src_reads = te_insertions_reads[event][st][seq]
+                        dst_reads = te_insertions_reads[event][canonical][seq]
+                        for key, val in src_reads.items():
+                            dst_reads[key].extend(val)
+                    del te_insertions[event][st]
+                    if st in te_insertions_reads.get(event, {}):
+                        del te_insertions_reads[event][st]
 
     # ------------------------------------------------------------------
     # output
