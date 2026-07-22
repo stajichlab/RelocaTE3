@@ -124,6 +124,61 @@ class TestBackendContract(unittest.TestCase):
                 aln.map_genome(telib, [tefq], d / "x.bam")
 
 
+class TestBowtie2JunctionSoftclip(unittest.TestCase):
+    """Regression: bowtie2 TE-library mapping must soft-clip junction reads.
+
+    A TE-junction read is part TE, part genomic flank -- exactly the reads that
+    carry the non-reference insertion signal. In bowtie2's default end-to-end
+    mode such a read must align over its full length, so the foreign flank half
+    makes it align 0 times and no soft-clipped flank is recovered (find-insertions
+    then returns nothing). ``Bowtie2Backend.map_te_library`` passes ``--local`` so
+    bowtie2 soft-clips the flank and keeps the read, matching the bwa-mem and
+    minimap2 backends. This test fails if ``--local`` is dropped: the junction
+    reads stop aligning and no soft-clipped alignment is produced.
+
+    (The ``TestBackendContract`` bowtie2 case uses reads wholly inside the TE,
+    which align end-to-end, so it does not exercise this path.)
+    """
+
+    @unittest.skipUnless(_available("bowtie2"), "bowtie2 not available")
+    def test_te_mapping_softclips_junction_reads(self):
+        te = REF[500:1000]  # 500 bp TE
+        flank = _refseq(n=500, seed=99)  # independent foreign flank
+        # Junction reads: 40 bp TE + 40 bp foreign flank, in both orientations.
+        reads = []
+        for i in range(1, 6):
+            te_chunk = te[100 + i * 20 : 100 + i * 20 + 40]
+            fl_chunk = flank[i * 20 : i * 20 + 40]
+            reads.append((f"j{i}_5", te_chunk + fl_chunk))  # TE then flank
+            reads.append((f"j{i}_3", fl_chunk + te_chunk))  # flank then TE
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            telib = d / "te.fa"
+            _write_fa(telib, {"teA": te})
+            tefq = d / "junction.fq"
+            _write_fq(tefq, reads)
+            rl = ReadLibrary([str(tefq)], "S1")
+            aln = get_aligner("bowtie2", threads=1)
+            bams = aln.map_te_library(rl, telib, d, threads=1)
+            mapped = 0
+            softclipped = 0
+            with pysam.AlignmentFile(str(bams[0]), "rb") as fh:
+                for rec in fh.fetch(until_eof=True):
+                    if rec.is_unmapped:
+                        continue
+                    mapped += 1
+                    if any(op == 4 for op, _ in (rec.cigartuples or [])):
+                        softclipped += 1
+            self.assertGreater(
+                mapped, 0, "no junction reads aligned (end-to-end regression?)"
+            )
+            self.assertGreater(
+                softclipped,
+                0,
+                "no soft-clipped junction alignments (bowtie2 needs --local)",
+            )
+
+
 class TestPslToSam(unittest.TestCase):
     """The PSL->SAM converter (BLAT backend) tested without the blat binary."""
 
