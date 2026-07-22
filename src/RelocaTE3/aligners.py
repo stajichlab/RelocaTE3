@@ -259,7 +259,15 @@ class Bowtie2Backend(AlignerBackend):
     def map_te_library(
         self, reads, te_library, outdir, *, threads=None, tmpdir=None
     ) -> list[Path]:
-        """Map each read side to the TE library (SE, -k 20 to keep multi-mappers)."""
+        """Map each read side to the TE library (SE, -k 20 to keep multi-mappers).
+
+        Uses ``--local`` so bowtie2 soft-clips TE-junction reads (part TE, part
+        genomic flank) instead of dropping them: in the default end-to-end mode a
+        read must align over its full length, so junction reads -- the ones that
+        carry the non-reference insertion signal -- align 0 times and no flank is
+        recovered. ``--local`` matches the soft-clipping behavior of the bwa-mem
+        and minimap2 backends.
+        """
         threads = self._threads(threads)
         self.index(te_library)
         read_set = {"left": reads.left()}
@@ -270,7 +278,11 @@ class Bowtie2Backend(AlignerBackend):
             for side, read_file in read_set.items():
                 out_bam = Path(outdir) / f"{reads.name}.{side}.bam"
                 self._run(
-                    te_library, ["-k", "20", "-U", str(read_file)], out_bam, threads, td
+                    te_library,
+                    ["-k", "20", "--local", "-U", str(read_file)],
+                    out_bam,
+                    threads,
+                    td,
                 )
                 bams.append(out_bam)
         return bams
