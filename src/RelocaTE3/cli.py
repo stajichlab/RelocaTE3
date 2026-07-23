@@ -383,7 +383,7 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     parser.add_argument(
         "--tsd",
         required=True,
-        help="TSD motif (e.g. TTA); TSD-unknown mode is not yet supported",
+        help="TSD motif (e.g. TTA), fixed wildcard (e.g. ...), or UNK to infer each TSD",
     )
     parser.add_argument(
         "-c", "--target", default="ALL", help="Chromosome to analyze, or ALL"
