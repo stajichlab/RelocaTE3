@@ -69,14 +69,9 @@ class InsertionFinder:
             Path to the written ``*.all_nonref_insert.txt`` file.
         """
         if re.search(r"UNK|UKN|unknown", tsd, re.IGNORECASE):
-            # The literal "UNK" sentinel triggers R2's full depth-mode pipeline,
-            # which is not yet ported. Regex-friendly TSD patterns (e.g. "..."
-            # for a 3 bp wildcard) ARE accepted and flow through _tsd_check
-            # naturally — the captured TSD bases come from the read sequence,
-            # mirroring R2's depth-mode output on a fixed-length TSD.
-            raise NotImplementedError(
-                "TSD-unknown (read-depth) inference is not yet ported; provide a "
-                'TSD motif or a fixed-length wildcard regex (e.g. "..." for 3 bp).'
+            return self._find_insertions_unknown_tsd(
+                bam_file, read_repeat_file, target, sample, outdir, te_name,
+                reference_ins,
             )
 
         read_repeat = self._load_read_repeat(read_repeat_file)
@@ -123,6 +118,54 @@ class InsertionFinder:
             te_insertions_reads,
             cluster_chrom,
         )
+        return out_txt
+
+    def _find_insertions_unknown_tsd(
+        self,
+        bam_file: Path,
+        read_repeat_file: Path,
+        target: str,
+        sample: str,
+        outdir: Path,
+        te_name: str,
+        reference_ins: Path | None,
+    ) -> Path:
+        """Call variable-length TSDs using the RelocaTE2 ``UNK`` strategy.
+
+        The live CLI historically used only the fixed-pattern class path.  The
+        function-based path below preserves its output contract while using the
+        already ported breakpoint/depth inference helpers for each cluster.
+        """
+        read_repeat = self._load_read_repeat(read_repeat_file)
+        if reference_ins:
+            from RelocaTE3.reference_te import ReferenceTEAnnotator
+
+            existing_te = ReferenceTEAnnotator.load_existing_te(reference_ins, target)
+        else:
+            existing_te = defaultdict(lambda: {"start": {}, "end": {}})
+
+        result_dir = Path(outdir) / "results"
+        result_dir.mkdir(parents=True, exist_ok=True)
+        out_txt = result_dir / f"{target}.{te_name}.all_nonref_insert.txt"
+        with open(out_txt, "w") as out:
+            for cluster in _stream_clusters(
+                str(bam_file), read_repeat, quality_filter=self._passes_quality
+            ):
+                if target != "ALL" and cluster.chrom != target:
+                    continue
+                for ins in _call_insertions(cluster, genome=None):
+                    # Match the fixed-TSD path's reference-TE edge exclusion.
+                    edges = existing_te[cluster.chrom]
+                    if ins.end in edges["start"] or ins.start - 1 in edges["end"]:
+                        continue
+                    out.write(
+                        f"{ins.te_name}\t{ins.tsd}\t{sample}\t{ins.chrom}\t"
+                        f"{ins.start}..{ins.end}\t{ins.strand}\t"
+                        f"T:{ins.left_junction_reads + ins.right_junction_reads}\t"
+                        f"R:{ins.right_junction_reads}\tL:{ins.left_junction_reads}\t"
+                        f"ST:0\tSR:{ins.right_support_reads}\tSL:{ins.left_support_reads}\n"
+                    )
+        logger.info("Wrote variable-length TSD insertions table %s", out_txt)
         return out_txt
 
     # ------------------------------------------------------------------
@@ -574,8 +617,11 @@ def _junction_info(
 
 def _te_family(read_repeat: dict[str, tuple[str, str]], read_name: str) -> str:
     """Best-effort TE family name for a junction read."""
-    if read_name in read_repeat:
-        return read_repeat[read_name][0]
+    # The genome-aligned flank carries the junction suffix, while the trim
+    # step's read_repeat_name table is keyed by the original untagged name.
+    real_name = _JUNCTION_RE.sub("", read_name)
+    if real_name in read_repeat:
+        return read_repeat[real_name][0]
     return "NA"
 
 
@@ -602,12 +648,18 @@ class _Cluster:
         self.hi = gend if self.hi is None else max(self.hi, gend)
 
 
-def _stream_clusters(bam_path: str, read_repeat: dict[str, tuple[str, str]]):
+def _stream_clusters(
+    bam_path: str,
+    read_repeat: dict[str, tuple[str, str]],
+    quality_filter=None,
+):
     """Yield :class:`_Cluster` objects by streaming a coordinate-sorted BAM."""
     with pysam.AlignmentFile(bam_path, "rb") as bam:
         current: _Cluster | None = None
         for rec in bam.fetch(until_eof=True):
             if rec.is_unmapped:
+                continue
+            if quality_filter is not None and not quality_filter(rec):
                 continue
             chrom = bam.get_reference_name(rec.reference_id)
             gstart = rec.reference_start + 1
@@ -700,7 +752,7 @@ def _resolve_tsd(
     i_start: int,
     i_end: int,
     tsd_len: int,
-    genome: pysam.FastaFile,
+    genome: pysam.FastaFile | None,
 ) -> str:
     """Capture TSD literally from a junction read; fall back to the genome.
 
@@ -718,6 +770,8 @@ def _resolve_tsd(
         captured = _capture_tsd_from_read(obs.seq, "left", tsd_len)
         if captured:
             return captured
+    if genome is None:
+        return "UNK"
     fetched = _fetch_tsd(genome, chrom, i_start, i_end)
     return fetched or "UNK"
 
@@ -726,7 +780,7 @@ def _make_insertion(
     chrom: str,
     left_reads: list[JunctionObservation],
     right_reads: list[JunctionObservation],
-    genome: pysam.FastaFile,
+    genome: pysam.FastaFile | None,
     cluster: "_Cluster",
 ) -> Insertion:
     """Build an :class:`Insertion` from the left/right junction reads of one site.
@@ -781,7 +835,9 @@ def _make_insertion(
     )
 
 
-def _call_insertions(cluster: _Cluster, genome: pysam.FastaFile) -> list[Insertion]:
+def _call_insertions(
+    cluster: _Cluster, genome: pysam.FastaFile | None
+) -> list[Insertion]:
     """Split a cluster into one or more insertions by pairing breakpoints."""
     left = _group_by_position([j for j in cluster.junctions if j.side == "left"])
     right = _group_by_position([j for j in cluster.junctions if j.side == "right"])

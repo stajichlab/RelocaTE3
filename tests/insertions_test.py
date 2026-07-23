@@ -198,22 +198,29 @@ class TestInsertionFinder(unittest.TestCase):
             for r in rows:
                 self.assertNotEqual(r.split("\t")[3], "ALL")
 
-    def test_tsd_unknown_raises(self):
+    def test_tsd_unknown_infers_variable_length_tsd(self):
         with tempfile.TemporaryDirectory() as workdir:
             bam_path = os.path.join(workdir, "flank.bam")
+            # A 5-bp TSD at 101..105: right start=101; left end=105.
             _write_junction_bam(
                 bam_path,
                 "Chr1",
                 5000,
-                [{"name": "r:end:5", "seq": "A" * 40, "start0": 100}],
+                [
+                    {"name": "rR:start:5", "seq": "GATCA" + "A" * 35, "start0": 100},
+                    {"name": "rL:end:5", "seq": "A" * 35 + "GATCA", "start0": 65},
+                ],
             )
             rr = os.path.join(workdir, "rr.txt")
-            Path(rr).write_text("r\tmping\t+\n")
+            Path(rr).write_text("rR\tmping\t+\nrL\tmping\t+\n")
             finder = InsertionFinder()
-            with self.assertRaises(NotImplementedError):
-                finder.find_insertions(
-                    Path(bam_path), Path(rr), "UNK", "Chr1", "HEG4", Path(workdir)
-                )
+            output = finder.find_insertions(
+                Path(bam_path), Path(rr), "UNK", "Chr1", "HEG4", Path(workdir)
+            )
+            row = output.read_text().strip().split("\t")
+            self.assertEqual(row[0], "mping")
+            self.assertEqual(row[1], "GATCA")
+            self.assertEqual(row[4], "101..105")
 
     def test_offset_split_merges_to_one_call(self):
         """A wildcard-TSD 1 bp offset between the two junction sides must not
