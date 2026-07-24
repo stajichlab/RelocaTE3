@@ -142,7 +142,23 @@ class MinimapBackend(AlignerBackend):
         threads=None,
         tmpdir=None,
     ) -> Path:
-        """Delegate to ``Aligner.map_reads_to_genome`` (SE, concatenated)."""
+        """Map to the genome. Paired runs align R1/R2 with ``minimap2 -ax sr`` so a
+        uniquely-mapping mate anchors an ambiguous junction flank; otherwise every
+        FASTQ is aligned single-end (concatenated, behavior-preserving)."""
+        if paired and len(fastqs) >= 2:
+            t = self._threads(threads)
+            with _tmp(tmpdir) as td:
+                sam = os.path.join(td, "genome.pe.sam")
+                # -k 11 -w 5 matches the single-end junction-flank params (short
+                # 10-15 bp flanks need tight seeds); -a for SAM output.
+                cmd = [
+                    "minimap2", "-t", str(t), "-a", "-x", "sr",
+                    "-k", "11", "-w", "5",
+                    str(genome), str(fastqs[0]), str(fastqs[1]),
+                ]
+                with open(sam, "w") as fh:
+                    subprocess.run(cmd, stdout=fh, check=True)
+                return _sam_to_sorted_mapped_bam(sam, out_bam, t)
         return self._aln.map_reads_to_genome(
             str(genome),
             [str(f) for f in fastqs],
