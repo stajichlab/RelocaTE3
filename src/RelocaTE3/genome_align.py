@@ -13,6 +13,7 @@ proximity, not by BAM proper-pair flags.
 from __future__ import annotations
 
 import re
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -303,7 +304,10 @@ def align_flanks_anchored(
     out_bam = Path(out_bam)
     out_bam.parent.mkdir(parents=True, exist_ok=True)
     if len(part_bams) == 1:
-        Path(part_bams[0]).replace(out_bam)
+        # shutil.move (not Path.replace/os.rename) so the tmp -> out_bam move
+        # works across filesystems (scratch tmp vs. network run dir): a rename
+        # across devices raises OSError EXDEV.
+        shutil.move(part_bams[0], str(out_bam))
     else:
         pysam.merge("-f", str(out_bam), *part_bams)
     pysam.index(str(out_bam))
