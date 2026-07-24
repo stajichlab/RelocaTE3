@@ -157,6 +157,47 @@ def test_align_to_genome_anchors_ambiguous_flank_to_mate(tmp_path: Path):
     )
 
 
+@pytest.mark.skipif(shutil.which("bwa") is None, reason="bwa not available")
+def test_align_genome_subcommand_anchors_with_mate(tmp_path: Path):
+    """The `align-genome` CLI subcommand (used by the benchmark) must mate-anchor
+    when given the original reads (-1/-2), matching align_to_genome."""
+    from RelocaTE3.cli import main
+
+    rng = random.Random(7)
+    g = [rng.choice("ACGT") for _ in range(2200)]
+    block = "".join(rng.choice("ACGT") for _ in range(100))
+    g[500:600] = list(block)
+    g[1500:1600] = list(block)
+    anchor = "".join(g[1650:1750])
+    genome = tmp_path / "g.fa"
+    genome.write_text(f">chr1\n{''.join(g)}\n")
+
+    (tmp_path / "flanking").mkdir()
+    flank = tmp_path / "flanking" / "S.left.flankingReads.fq"
+    flank.write_text(f"@r1/1:end:5\n{block}\n+\n{'I' * 100}\n")
+    (tmp_path / "te_containing").mkdir()
+    (tmp_path / "te_containing" / "S.read_repeat_name.txt").write_text(
+        "r1/1:end:5\tmPing\t+\n"
+    )
+    r1fq = tmp_path / "reads_1.fq"
+    r2fq = tmp_path / "reads_2.fq"
+    r1fq.write_text(f"@r1/1\n{block}\n+\n{'I' * 100}\n")
+    r2fq.write_text(f"@r1/2\n{_rc(anchor)}\n+\n{'I' * 100}\n")
+
+    rc = main([
+        "align-genome", "-g", str(genome), "-f", str(flank),
+        "-n", "S", "-o", str(tmp_path), "--genome-aligner", "bwa", "--threads", "1",
+        "-1", str(r1fq), "-2", str(r2fq),
+    ])
+    assert rc == 0
+    bam = tmp_path / "S.repeat.bwa.sorted.bam"
+    with pysam.AlignmentFile(str(bam), "rb") as bf:
+        f = next((r for r in bf.fetch(until_eof=True) if r.query_name == "r1/1:end:5"), None)
+    assert f is not None and not f.is_unmapped
+    assert f.is_paired, "align-genome subcommand did not mate-anchor the flank"
+    assert f.reference_start > 1000  # anchored to the true (1500) copy
+
+
 def test_collect_junction_fullreads(tmp_path: Path):
     """Full (untrimmed) sequences are pulled only for 5'/3' junction reads."""
     reads = ReadLibrary([str(R1), str(R2)], "HEG4")

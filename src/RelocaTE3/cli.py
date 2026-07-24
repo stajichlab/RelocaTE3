@@ -344,9 +344,28 @@ def _menu_align_genome(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     )
     parser.add_argument("-o", "--outdir", default=".", help="Output directory")
     parser.add_argument(
+        "-1",
+        "--left",
+        "--r1",
+        default=None,
+        metavar="R1",
+        help="Original left/R1 reads (FASTQ). When given (with --right), junction "
+        "flanks are aligned paired with their genomic mate so ambiguous flanks are "
+        "anchored to the true insertion (reads read_repeat from --outdir).",
+    )
+    parser.add_argument(
+        "-2",
+        "--right",
+        "--r2",
+        default=None,
+        metavar="R2",
+        help="Original right/R2 reads (FASTQ), the mate file for --left.",
+    )
+    parser.add_argument(
         "--paired",
         action="store_true",
-        help="Align the first two FASTQs as a read pair",
+        help="Align the first two FASTQs as a read pair (legacy; prefer -1/-2 for "
+        "mate-anchored flank alignment)",
     )
     parser.add_argument(
         "--genome-aligner",
@@ -546,6 +565,41 @@ def cmd_index_genome(args: argparse.Namespace) -> int:
 
 def cmd_align_genome(args: argparse.Namespace) -> int:
     """Align trimmed flanking reads to the reference genome (step 4)."""
+    if args.left:
+        # Mate-anchored path: pair each junction flank with its genomic mate so
+        # ambiguous (multi-mapping) flanks are anchored to the true insertion.
+        import tempfile
+
+        from RelocaTE3.aligners import get_aligner
+        from RelocaTE3.genome_align import (
+            align_flanks_anchored,
+            read_read_repeat,
+        )
+        from RelocaTE3.ReadLibrary import ReadLibrary
+
+        reads = ReadLibrary(
+            [args.left] + ([args.right] if args.right else []), args.name
+        )
+        outdir = Path(args.outdir)
+        rr_path = outdir / "te_containing" / f"{args.name}.read_repeat_name.txt"
+        read_repeat = read_read_repeat(rr_path) if rr_path.exists() else {}
+        suffix = "minimap" if args.genome_aligner == "minimap2" else args.genome_aligner
+        out_bam = outdir / f"{args.name}.repeat.{suffix}.sorted.bam"
+        backend = get_aligner(args.genome_aligner, args.threads)
+        backend.index(args.genome_fasta)
+        with tempfile.TemporaryDirectory() as tmp:
+            bam = align_flanks_anchored(
+                backend,
+                args.genome_fasta,
+                list(args.fastq),
+                read_repeat,
+                reads,
+                out_bam,
+                args.threads,
+                tmp,
+            )
+        logger.info("Genome-aligned BAM (mate-anchored) written to %s", bam)
+        return 0
     if args.genome_aligner == "minimap2":
         # Preserve the original minimap2 path byte-for-byte (tuned flags, paired
         # handling, and the {name}.repeat.minimap.sorted.bam output name).

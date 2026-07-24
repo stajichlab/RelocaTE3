@@ -243,6 +243,73 @@ def _restore_pair_names(
             outb.write(rec)
 
 
+def align_flanks_anchored(
+    backend,
+    genome: str,
+    flanking_files: list[str],
+    read_repeat: dict[str, tuple[str, str]],
+    reads: ReadLibrary,
+    out_bam,
+    threads: int,
+    tmp: str,
+) -> Path:
+    """Align junction flanks to ``genome``, anchoring each ambiguous flank with
+    its genomic mate (paired-end); flanks without a mate, and extra support mates,
+    go single-end. Writes the merged coordinate-sorted BAM to ``out_bam``.
+
+    Shared by :func:`align_to_genome` (pipeline path) and the ``align-genome`` CLI
+    subcommand so both get mate-anchoring.
+    """
+    tmp_path = Path(tmp)
+    sample = reads.name
+    r1_fq = tmp_path / f"{sample}.flank_R1.fq"
+    r2_fq = tmp_path / f"{sample}.flank_R2.fq"
+    se_fq = tmp_path / f"{sample}.flank_se.fq"
+    n_pair, n_se, retag = build_flank_pairs(
+        flanking_files, read_repeat, reads, r1_fq, r2_fq, se_fq
+    )
+    # supporting mates not already aligned paired with a flank (e.g. :middle mates)
+    paired_mates = {mate for _flank, mate in retag.values()}
+    support_fq = tmp_path / f"{sample}.support.fq"
+    n_support = recover_support_mates(
+        read_repeat, reads, support_fq, exclude=paired_mates
+    )
+    logger.info(
+        "%s: %d flanks paired with mates, %d single-end flanks, %d extra support",
+        sample,
+        n_pair,
+        n_se,
+        n_support,
+    )
+
+    part_bams: list[str] = []
+    if n_pair > 0:
+        raw_bam = tmp_path / f"{sample}.paired.raw.bam"
+        backend.map_genome(
+            genome, [str(r1_fq), str(r2_fq)], str(raw_bam),
+            paired=True, threads=threads, tmpdir=tmp,
+        )
+        paired_bam = tmp_path / f"{sample}.paired.bam"
+        _restore_pair_names(raw_bam, paired_bam, retag)
+        part_bams.append(str(paired_bam))
+    se_inputs = [str(p) for p, n in ((se_fq, n_se), (support_fq, n_support)) if n > 0]
+    if se_inputs:
+        se_bam = tmp_path / f"{sample}.se.bam"
+        backend.map_genome(
+            genome, se_inputs, str(se_bam), paired=False, threads=threads, tmpdir=tmp,
+        )
+        part_bams.append(str(se_bam))
+
+    out_bam = Path(out_bam)
+    out_bam.parent.mkdir(parents=True, exist_ok=True)
+    if len(part_bams) == 1:
+        Path(part_bams[0]).replace(out_bam)
+    else:
+        pysam.merge("-f", str(out_bam), *part_bams)
+    pysam.index(str(out_bam))
+    return out_bam
+
+
 def align_to_genome(
     reads: ReadLibrary,
     genome: str,
@@ -280,64 +347,9 @@ def align_to_genome(
     fullreads_bam: Path | None = None
     outbam = genome_dir / f"{sample}.genome.bam"
     with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        # Pair each junction flank with its genomic mate: the (usually unique) mate
-        # anchors an ambiguous flank to the true insertion instead of scattering it
-        # single-end. Flanks with no genomic mate stay single-end.
-        r1_fq = tmp_path / f"{sample}.flank_R1.fq"
-        r2_fq = tmp_path / f"{sample}.flank_R2.fq"
-        se_fq = tmp_path / f"{sample}.flank_se.fq"
-        n_pair, n_se, retag = build_flank_pairs(
-            flanking_files, read_repeat, reads, r1_fq, r2_fq, se_fq
+        align_flanks_anchored(
+            backend, genome, flanking_files, read_repeat, reads, outbam, threads, tmp
         )
-        # supporting mates not already aligned paired with a flank (e.g. :middle mates)
-        paired_mates = {mate for _flank, mate in retag.values()}
-        support_fq = tmp_path / f"{sample}.support.fq"
-        n_support = recover_support_mates(
-            read_repeat, reads, support_fq, exclude=paired_mates
-        )
-        logger.info(
-            "%s: %d flanks paired with mates, %d single-end flanks, %d extra support",
-            sample,
-            n_pair,
-            n_se,
-            n_support,
-        )
-
-        part_bams: list[str] = []
-        if n_pair > 0:
-            raw_bam = tmp_path / f"{sample}.paired.raw.bam"
-            backend.map_genome(
-                genome,
-                [str(r1_fq), str(r2_fq)],
-                str(raw_bam),
-                paired=True,
-                threads=threads,
-                tmpdir=tmp,
-            )
-            paired_bam = tmp_path / f"{sample}.paired.bam"
-            _restore_pair_names(raw_bam, paired_bam, retag)
-            part_bams.append(str(paired_bam))
-        se_inputs = [
-            str(p) for p, n in ((se_fq, n_se), (support_fq, n_support)) if n > 0
-        ]
-        if se_inputs:
-            se_bam = tmp_path / f"{sample}.se.bam"
-            backend.map_genome(
-                genome,
-                se_inputs,
-                str(se_bam),
-                paired=False,
-                threads=threads,
-                tmpdir=tmp,
-            )
-            part_bams.append(str(se_bam))
-
-        if len(part_bams) == 1:
-            Path(part_bams[0]).replace(outbam)
-        else:
-            pysam.merge("-f", str(outbam), *part_bams)
-        pysam.index(str(outbam))
 
         # full (untrimmed) junction reads for false-junction filtering
         full_fq = Path(tmp) / f"{sample}.fullreads.fq"
