@@ -85,13 +85,17 @@ def recover_support_mates(
     read_repeat: dict[str, tuple[str, str]],
     reads: ReadLibrary,
     out_fastq: Path,
+    exclude: set[str] | None = None,
 ) -> int:
     """Write the genomic mates of TE-containing reads to ``out_fastq``.
 
     A supporting read is the mate of a TE-containing read when that mate did not
     itself match the TE (i.e. it lands in unique genome sequence and brackets the
-    insertion). Returns the number of supporting reads written.
+    insertion). ``exclude`` names (e.g. mates already aligned paired with a
+    junction flank) are skipped so they are not aligned/counted twice. Returns the
+    number of supporting reads written.
     """
+    exclude = exclude or set()
     if not reads.is_paired:
         out_fastq.write_text("")
         return 0
@@ -108,9 +112,97 @@ def recover_support_mates(
         if mate not in ("1", "2"):
             continue
         other = "2" if mate == "1" else "1"
-        if (base, other) not in te_ends:
-            needed[other].add(f"{base}/{other}")
+        mate_name = f"{base}/{other}"
+        if (base, other) not in te_ends and mate_name not in exclude:
+            needed[other].add(mate_name)
     return _fetch_reads_by_name(reads, needed, out_fastq)
+
+
+def build_flank_pairs(
+    flanking_files: list[str],
+    read_repeat: dict[str, tuple[str, str]],
+    reads: ReadLibrary,
+    r1_out: Path,
+    r2_out: Path,
+    se_out: Path,
+) -> tuple[int, int, dict[str, tuple[str, str]]]:
+    """Pair each junction flank with its genomic mate for anchored re-alignment.
+
+    A junction flank whose paired-end mate did NOT itself match the TE has a
+    genomic mate that usually maps uniquely; pairing the (often ambiguous) flank
+    with it lets the aligner anchor the flank to the true insertion instead of
+    scattering it single-end. Writes flank->``r1_out`` (keeping its junction tag)
+    and mate->``r2_out`` in lockstep; flanks without a genomic mate go to
+    ``se_out``. Paired reads are written with **neutral, matching** names
+    (``<base>/1`` and ``<base>/2``) because bwa-mem/minimap2 require a mate name
+    match; the real names are restored in the BAM after alignment via the returned
+    ``retag`` map. Returns ``(n_paired, n_single_end, retag)`` where ``retag`` maps
+    each pair's base to ``(flank_tagged_name, genomic_mate_name)`` (read1 = flank,
+    read2 = mate).
+    """
+    # (base, mate-end) pairs that matched a TE
+    te_ends: set[tuple[str, str]] = set()
+    for tagged in read_repeat:
+        base, mate = split_mate(strip_tag(tagged))
+        te_ends.add((base, mate))
+
+    # read every flank record and resolve its genomic-mate name (if any)
+    flank_records: list[tuple[str, str, str, str | None]] = []
+    needed: dict[str, set[str]] = {"1": set(), "2": set()}
+    for fq in flanking_files:
+        with pysam.FastxFile(fq) as fx:
+            for rec in fx:
+                base, mate = split_mate(strip_tag(rec.name))
+                mate_name: str | None = None
+                if mate in ("1", "2"):
+                    other = "2" if mate == "1" else "1"
+                    if (base, other) not in te_ends:
+                        mate_name = f"{base}/{other}"
+                        needed[other].add(mate_name)
+                qual = (
+                    rec.quality
+                    if rec.quality is not None
+                    else "I" * len(rec.sequence)
+                )
+                flank_records.append((rec.name, rec.sequence, qual, mate_name))
+
+    # pull the needed genomic-mate sequences from the original FASTQ(s)
+    mate_seqs: dict[str, tuple[str, str]] = {}
+    file_for_end = {"1": reads.left(), "2": reads.right()}
+    for end, names in needed.items():
+        if not names or not file_for_end.get(end):
+            continue
+        with pysam.FastxFile(file_for_end[end]) as fx:
+            for rec in fx:
+                if rec.name in names:
+                    qual = (
+                        rec.quality
+                        if rec.quality is not None
+                        else "I" * len(rec.sequence)
+                    )
+                    mate_seqs[rec.name] = (rec.sequence, qual)
+
+    n_pair = n_se = 0
+    retag: dict[str, tuple[str, str]] = {}
+    with (
+        open(r1_out, "w") as r1,
+        open(r2_out, "w") as r2,
+        open(se_out, "w") as se,
+    ):
+        for name, seq, qual, mate_name in flank_records:
+            base = split_mate(strip_tag(name))[0]
+            if mate_name is not None and mate_name in mate_seqs and base not in retag:
+                mseq, mqual = mate_seqs[mate_name]
+                # neutral matching names so the aligner accepts the pair; restored
+                # to (flank tag / mate name) after alignment.
+                r1.write(f"@{base}/1\n{seq}\n+\n{qual}\n")
+                r2.write(f"@{base}/2\n{mseq}\n+\n{mqual}\n")
+                retag[base] = (name, mate_name)
+                n_pair += 1
+            else:
+                se.write(f"@{name}\n{seq}\n+\n{qual}\n")
+                n_se += 1
+    return n_pair, n_se, retag
 
 
 def collect_junction_fullreads(
@@ -133,6 +225,22 @@ def collect_junction_fullreads(
         if mate in ("1", "2"):
             needed[mate].add(full_name)
     return _fetch_reads_by_name(reads, needed, out_fastq)
+
+
+def _restore_pair_names(
+    in_bam: Path, out_bam: Path, retag: dict[str, tuple[str, str]]
+) -> None:
+    """Rewrite the neutral pair names from :func:`build_flank_pairs` back to the
+    real names: read1 -> flank (with its junction tag), read2 -> genomic mate."""
+    with (
+        pysam.AlignmentFile(str(in_bam), "rb") as inb,
+        pysam.AlignmentFile(str(out_bam), "wb", template=inb) as outb,
+    ):
+        for rec in inb.fetch(until_eof=True):
+            names = retag.get(split_mate(rec.query_name)[0])
+            if names is not None:
+                rec.query_name = names[0] if rec.is_read1 else names[1]
+            outb.write(rec)
 
 
 def align_to_genome(
@@ -169,19 +277,67 @@ def align_to_genome(
     rr_path = outdir / "te_containing" / f"{sample}.read_repeat_name.txt"
     read_repeat = read_read_repeat(rr_path) if rr_path.exists() else {}
 
-    fastq_inputs = list(flanking_files)
     fullreads_bam: Path | None = None
+    outbam = genome_dir / f"{sample}.genome.bam"
     with tempfile.TemporaryDirectory() as tmp:
-        support_fq = Path(tmp) / f"{sample}.support.fq"
-        n_support = recover_support_mates(read_repeat, reads, support_fq)
-        if n_support > 0:
-            fastq_inputs.append(str(support_fq))
-        logger.info("%s: %d supporting mate reads recovered", sample, n_support)
-
-        outbam = genome_dir / f"{sample}.genome.bam"
-        backend.map_genome(
-            genome, fastq_inputs, str(outbam), paired=False, threads=threads, tmpdir=tmp
+        tmp_path = Path(tmp)
+        # Pair each junction flank with its genomic mate: the (usually unique) mate
+        # anchors an ambiguous flank to the true insertion instead of scattering it
+        # single-end. Flanks with no genomic mate stay single-end.
+        r1_fq = tmp_path / f"{sample}.flank_R1.fq"
+        r2_fq = tmp_path / f"{sample}.flank_R2.fq"
+        se_fq = tmp_path / f"{sample}.flank_se.fq"
+        n_pair, n_se, retag = build_flank_pairs(
+            flanking_files, read_repeat, reads, r1_fq, r2_fq, se_fq
         )
+        # supporting mates not already aligned paired with a flank (e.g. :middle mates)
+        paired_mates = {mate for _flank, mate in retag.values()}
+        support_fq = tmp_path / f"{sample}.support.fq"
+        n_support = recover_support_mates(
+            read_repeat, reads, support_fq, exclude=paired_mates
+        )
+        logger.info(
+            "%s: %d flanks paired with mates, %d single-end flanks, %d extra support",
+            sample,
+            n_pair,
+            n_se,
+            n_support,
+        )
+
+        part_bams: list[str] = []
+        if n_pair > 0:
+            raw_bam = tmp_path / f"{sample}.paired.raw.bam"
+            backend.map_genome(
+                genome,
+                [str(r1_fq), str(r2_fq)],
+                str(raw_bam),
+                paired=True,
+                threads=threads,
+                tmpdir=tmp,
+            )
+            paired_bam = tmp_path / f"{sample}.paired.bam"
+            _restore_pair_names(raw_bam, paired_bam, retag)
+            part_bams.append(str(paired_bam))
+        se_inputs = [
+            str(p) for p, n in ((se_fq, n_se), (support_fq, n_support)) if n > 0
+        ]
+        if se_inputs:
+            se_bam = tmp_path / f"{sample}.se.bam"
+            backend.map_genome(
+                genome,
+                se_inputs,
+                str(se_bam),
+                paired=False,
+                threads=threads,
+                tmpdir=tmp,
+            )
+            part_bams.append(str(se_bam))
+
+        if len(part_bams) == 1:
+            Path(part_bams[0]).replace(outbam)
+        else:
+            pysam.merge("-f", str(outbam), *part_bams)
+        pysam.index(str(outbam))
 
         # full (untrimmed) junction reads for false-junction filtering
         full_fq = Path(tmp) / f"{sample}.fullreads.fq"

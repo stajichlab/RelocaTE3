@@ -124,6 +124,42 @@ class TestBackendContract(unittest.TestCase):
                 aln.map_genome(telib, [tefq], d / "x.bam")
 
 
+def _revcomp(seq):
+    return seq.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+
+
+class TestMinimapPairedGenome(unittest.TestCase):
+    """minimap2 must honor ``paired=True`` in ``map_genome`` so junction flanks are
+    anchored by their mate (short-read paired mode ``-ax sr``). Previously the
+    backend concatenated R1+R2 and mapped single-end, so no read was paired."""
+
+    @unittest.skipUnless(_available("minimap2"), "minimap2 not available")
+    def test_map_genome_paired_produces_pairs(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            ref = d / "ref.fa"
+            _write_fa(ref, {"chr1": REF})
+            r1 = d / "r1.fq"
+            r2 = d / "r2.fq"
+            # two distinct pairs so a naive concat (all R1s then all R2s) cannot
+            # accidentally interleave mates; real usage looks like this.
+            _write_fq(r1, [("p", REF[500:600]), ("q", REF[900:1000])])
+            _write_fq(
+                r2,
+                [("p", _revcomp(REF[700:800])), ("q", _revcomp(REF[1100:1200]))],
+            )
+            aln = get_aligner("minimap2", threads=1)
+            aln.index(ref)
+            bam = aln.map_genome(ref, [str(r1), str(r2)], d / "g.bam", paired=True, threads=1)
+            with pysam.AlignmentFile(str(bam), "rb") as bf:
+                recs = [r for r in bf.fetch(until_eof=True) if not r.is_unmapped]
+            self.assertTrue(recs, "no reads mapped")
+            self.assertTrue(
+                any(r.is_paired for r in recs),
+                "minimap2 map_genome(paired=True) did not pair the reads",
+            )
+
+
 class TestBowtie2JunctionSoftclip(unittest.TestCase):
     """Regression: bowtie2 TE-library mapping must soft-clip junction reads.
 
