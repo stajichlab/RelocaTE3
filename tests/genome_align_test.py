@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import random
 import shutil
 from pathlib import Path
@@ -9,7 +10,9 @@ from pathlib import Path
 import pysam
 import pytest
 
+from RelocaTE3.aligners import get_aligner
 from RelocaTE3.genome_align import (
+    align_flanks_anchored,
     align_to_genome,
     build_flank_pairs,
     collect_junction_fullreads,
@@ -196,6 +199,49 @@ def test_align_genome_subcommand_anchors_with_mate(tmp_path: Path):
     assert f is not None and not f.is_unmapped
     assert f.is_paired, "align-genome subcommand did not mate-anchor the flank"
     assert f.reference_start > 1000  # anchored to the true (1500) copy
+
+
+@pytest.mark.skipif(shutil.which("bwa") is None, reason="bwa not available")
+def test_align_flanks_anchored_moves_single_bam_across_devices(
+    tmp_path: Path, monkeypatch
+):
+    """When only one part BAM is produced (all flanks single-end, e.g. the bwa
+    TE-aligner strips mate suffixes), the result must be moved to out_bam even
+    when tmp and out_bam are on different filesystems. Path.replace() raises
+    EXDEV across devices; align_flanks_anchored must move, not rename.
+    """
+    rng = random.Random(1)
+    genome = tmp_path / "g.fa"
+    genome.write_text(">chr1\n" + "".join(rng.choice("ACGT") for _ in range(1000)) + "\n")
+
+    flank = tmp_path / "S.left.flankingReads.fq"
+    flank.write_text("@read_500_2/1:end:5\nACGTACGTACGTACGT\n+\nIIIIIIIIIIIIIIII\n")
+    # mate ALSO matched the TE -> flank goes single-end -> exactly one part BAM
+    read_repeat = {
+        "read_500_2/1:end:5": ("mPing", "+"),
+        "read_500_2/2:start:3": ("mPing", "-"),
+    }
+    reads = ReadLibrary([str(R1), str(R2)], "S")
+
+    tmp = tmp_path / "scratch"
+    tmp.mkdir()
+    out_bam = tmp_path / "out" / "S.repeat.bwa.sorted.bam"
+
+    # Simulate a cross-device move only for the final out_bam rename.
+    real_replace = Path.replace
+
+    def _exdev(self, target):
+        if Path(target) == out_bam:
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", _exdev)
+
+    result = align_flanks_anchored(
+        get_aligner("bwa", 1), str(genome), [str(flank)], read_repeat, reads,
+        out_bam, threads=1, tmp=str(tmp),
+    )
+    assert Path(result).exists() and Path(result).stat().st_size > 0
 
 
 def test_collect_junction_fullreads(tmp_path: Path):
