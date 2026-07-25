@@ -415,10 +415,17 @@ class BlatBackend(AlignerBackend):
         """BLAT indexes at run time; nothing to pre-build."""
 
     def _blat_side(self, te_library, read_file, out_bam, threads, tmpdir):
-        # BLAT wants FASTA/FASTQ query; write a header for SAM assembly.
+        # BLAT reads FASTA, not FASTQ (it treats a FASTQ's "@name" lines as a list
+        # of filenames). Read libraries are FASTQ, so convert the query to FASTA
+        # first; FastxFile handles FASTQ/FASTA (and gzip) and preserves the /1,/2
+        # mate suffix in the name.
+        query_fa = os.path.join(tmpdir, f"query.{Path(out_bam).stem}.fa")
+        with pysam.FastxFile(str(read_file)) as fx, open(query_fa, "w") as out:
+            for rec in fx:
+                out.write(f">{rec.name}\n{rec.sequence}\n")
         psl = os.path.join(tmpdir, "aln.psl")
         subprocess.run(
-            ["blat", str(te_library), str(read_file), "-noHead", "-out=psl", psl],
+            ["blat", str(te_library), query_fa, "-noHead", "-out=psl", psl],
             check=True,
         )
         ref_lengths = {
