@@ -124,6 +124,34 @@ class TestBackendContract(unittest.TestCase):
                 aln.map_genome(telib, [tefq], d / "x.bam")
 
 
+class TestBwaMateSuffix(unittest.TestCase):
+    """bwa mem strips a trailing /1,/2 from read names. map_te_library maps each
+    side separately (left=R1, right=R2), so it must restore the mate suffix
+    (left -> /1, right -> /2); downstream flank-pairing needs it to find each
+    junction flank's genomic mate. minimap2/bowtie2 keep the suffix natively."""
+
+    @unittest.skipUnless(_available("bwa"), "bwa not available")
+    def test_map_te_library_restores_mate_suffix(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            telib = d / "te.fa"
+            _write_fa(telib, {"teA": REF[500:1000]})
+            r1, r2 = d / "r1.fq", d / "r2.fq"
+            _write_fq(r1, [(f"t{i}/1", REF[500 + i * 20 : 500 + i * 20 + 80]) for i in range(1, 6)])
+            _write_fq(r2, [(f"t{i}/2", REF[600 + i * 20 : 600 + i * 20 + 80]) for i in range(1, 6)])
+            rl = ReadLibrary([str(r1), str(r2)], "S1")
+            aln = get_aligner("bwa", threads=1)
+            bams = {b.name: b for b in aln.map_te_library(rl, telib, d, threads=1)}
+            self.assertIn("S1.left.bam", bams)
+            self.assertIn("S1.right.bam", bams)
+            with pysam.AlignmentFile(str(bams["S1.left.bam"]), "rb") as fh:
+                left = [r.query_name for r in fh.fetch(until_eof=True)]
+            with pysam.AlignmentFile(str(bams["S1.right.bam"]), "rb") as fh:
+                right = [r.query_name for r in fh.fetch(until_eof=True)]
+            self.assertTrue(left and all(n.endswith("/1") for n in left), left)
+            self.assertTrue(right and all(n.endswith("/2") for n in right), right)
+
+
 def _revcomp(seq):
     return seq.translate(str.maketrans("ACGT", "TGCA"))[::-1]
 
