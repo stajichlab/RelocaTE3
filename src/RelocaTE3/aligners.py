@@ -68,6 +68,28 @@ def _concat(fastqs, dest: str) -> str:
     return dest
 
 
+def _restore_mate_suffix(bam, mate: str) -> None:
+    """Append ``/{mate}`` to read names that lack a trailing ``/1``/``/2``.
+
+    bwa mem strips a trailing mate suffix from read names; because the TE stage
+    maps each side (R1/R2) to a separate BAM, the side unambiguously fixes the
+    mate. Restoring it lets downstream flank-pairing find each junction flank's
+    genomic mate. Rewrites ``bam`` in place (coordinate order is unchanged) and
+    re-indexes. No-op for reads that already carry a mate suffix.
+    """
+    bam = Path(bam)
+    tmp = bam.with_suffix(".matefix.bam")
+    with pysam.AlignmentFile(str(bam), "rb") as inp:
+        with pysam.AlignmentFile(str(tmp), "wb", template=inp) as out:
+            for rec in inp.fetch(until_eof=True):
+                name = rec.query_name
+                if not (name.endswith("/1") or name.endswith("/2")):
+                    rec.query_name = f"{name}/{mate}"
+                out.write(rec)
+    tmp.replace(bam)
+    pysam.index(str(bam))
+
+
 class AlignerBackend(ABC):
     """One aligner binary, exposing the two RelocaTE3 alignment stages."""
 
@@ -212,6 +234,9 @@ class BwaBackend(AlignerBackend):
             for side, read_file in read_set.items():
                 out_bam = Path(outdir) / f"{reads.name}.{side}.bam"
                 self._mem(te_library, [read_file], out_bam, threads, td, extra=["-a"])
+                # bwa mem strips trailing /1,/2; restore it per side so junction
+                # flanks can later be paired with their genomic mate.
+                _restore_mate_suffix(out_bam, "1" if side == "left" else "2")
                 bams.append(out_bam)
         return bams
 
