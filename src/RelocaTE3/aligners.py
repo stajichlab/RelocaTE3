@@ -350,13 +350,24 @@ class Bowtie2Backend(AlignerBackend):
             return self._run(genome, args, out_bam, threads, td)
 
 
-def psl_to_sam(psl_lines):
+_COMPLEMENT = str.maketrans("ACGTNacgtn", "TGCANtgcan")
+
+
+def _revcomp(seq: str) -> str:
+    return seq.translate(_COMPLEMENT)[::-1]
+
+
+def psl_to_sam(psl_lines, sequences=None):
     """Convert headerless BLAT PSL records to SAM alignment lines.
 
     Handles the common short-read case (single or multi-block, ungapped or with
     small gaps). CIGAR is soft-clip + M/I/D from block coordinates; ``NM`` is the
-    PSL mismatch + inserted-base counts. ``-`` strand sets flag 0x10 (the read is
-    reported reverse-complemented by BLAT, so the sequence is emitted as ``*``).
+    PSL mismatch + inserted-base counts. ``-`` strand sets flag 0x10.
+
+    ``sequences`` (a ``{qname: forward_seq}`` map) fills the SAM SEQ field
+    (reverse-complemented for ``-`` strand, per SAM convention) -- required so the
+    trim step can emit flanking reads, since BLAT's PSL carries no sequence. When
+    omitted, SEQ is ``*``.
     """
     out = []
     for line in psl_lines:
@@ -395,8 +406,13 @@ def psl_to_sam(psl_lines):
         flag = 16 if strand == "-" else 0
         nm = mismatches + q_base_ins + t_base_ins
         pos = t_starts[0] + 1  # SAM is 1-based
+        seq_field = "*"
+        if sequences is not None:
+            s = sequences.get(qname)
+            if s:
+                seq_field = _revcomp(s) if strand == "-" else s
         out.append(
-            f"{qname}\t{flag}\t{tname}\t{pos}\t255\t{cigar_str}\t*\t0\t0\t*\t*\tNM:i:{nm}"
+            f"{qname}\t{flag}\t{tname}\t{pos}\t255\t{cigar_str}\t*\t0\t0\t{seq_field}\t*\tNM:i:{nm}"
         )
     return out
 
@@ -420,9 +436,11 @@ class BlatBackend(AlignerBackend):
         # first; FastxFile handles FASTQ/FASTA (and gzip) and preserves the /1,/2
         # mate suffix in the name.
         query_fa = os.path.join(tmpdir, f"query.{Path(out_bam).stem}.fa")
+        seqs: dict[str, str] = {}
         with pysam.FastxFile(str(read_file)) as fx, open(query_fa, "w") as out:
             for rec in fx:
                 out.write(f">{rec.name}\n{rec.sequence}\n")
+                seqs[rec.name] = rec.sequence
         psl = os.path.join(tmpdir, "aln.psl")
         subprocess.run(
             ["blat", str(te_library), query_fa, "-noHead", "-out=psl", psl],
@@ -439,7 +457,7 @@ class BlatBackend(AlignerBackend):
             for r, ln in ref_lengths.items():
                 fh.write(f"@SQ\tSN:{r}\tLN:{ln}\n")
             with open(psl) as ph:
-                for rec in psl_to_sam(ph):
+                for rec in psl_to_sam(ph, sequences=seqs):
                     fh.write(rec + "\n")
         return _sam_to_sorted_mapped_bam(sam, out_bam, threads)
 
