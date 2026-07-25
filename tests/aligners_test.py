@@ -120,6 +120,13 @@ class TestBackendContract(unittest.TestCase):
             aln = get_aligner("blat")
             bams = aln.map_te_library(rl, telib, d)
             _assert_contract(self, bams[0])
+            # SEQ must be populated (not "*"): the trim step reads it to emit
+            # flanking reads. blat's PSL carries no sequence, so the backend must
+            # fill it from the query.
+            with pysam.AlignmentFile(str(bams[0]), "rb") as fh:
+                recs = list(fh.fetch(until_eof=True))
+            self.assertTrue(recs and all(r.query_sequence for r in recs),
+                            "blat BAM records have no SEQ")
             with self.assertRaises(NotImplementedError):
                 aln.map_genome(telib, [tefq], d / "x.bam")
 
