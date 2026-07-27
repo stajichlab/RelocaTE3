@@ -587,8 +587,10 @@ from RelocaTE3.models import Insertion, JunctionObservation
 _JUNCTION_RE = re.compile(r":(start|end):([53])$")
 # how far apart (bp) reads may be and still belong to one insertion cluster
 RANGE_ALLOWANCE = 1000
-# max separation (bp) between a left and right breakpoint to call a shared TSD
-TSD_WINDOW = 100
+# max gap (bp) between breakpoints of the SAME insertion. Above a TSD (+ read
+# jitter), below the spacing between distinct insertions, so nearby breakpoints
+# group into one sub-insertion while distinct sites stay separate.
+SUBCLUSTER_GAP = 25
 # a full read extending this far past a breakpoint indicates no insertion
 FULLREAD_EXTEND = 10
 # minimum bracketing reads per strand for a support-only (no junction) call
@@ -711,38 +713,44 @@ def _group_by_position(
 
 
 def _pair_breakpoints(
-    left_pos: list[int], right_pos: list[int]
+    left: dict[int, list], right: dict[int, list]
 ) -> list[tuple[int | None, int | None]]:
-    """Pair left/right breakpoints into sub-insertions (RelocaTE2 pairing).
+    """Pair left/right breakpoints into sub-insertions (RelocaTE2-style).
 
-    Each returned tuple is (left_position, right_position); either may be None
-    for a one-sided junction. Left and right are paired when within ``TSD_WINDOW``.
+    ``left``/``right`` map each breakpoint position to its supporting junction
+    reads (so ``len`` is the read support). Breakpoints are grouped into
+    sub-insertions by proximity (one insertion's TSD-adjacent breakpoints fall
+    within ``SUBCLUSTER_GAP``; distinct insertions are farther apart), then within
+    each sub-cluster the **most-supported** (dominant) left and right breakpoint is
+    selected -- mirroring RelocaTE2, which keys reads by breakpoint and resolves
+    the TSD from the dominant boundary. Each returned tuple is
+    ``(left_position, right_position)``; either may be ``None`` for a one-sided
+    sub-cluster.
+
+    This replaces greedy nearest-neighbour pairing within a 100 bp window, which
+    paired a lone left with a distant lone right and reported the ~100 bp gap as a
+    (runaway) TSD -- the dominant source of RelocaTE3's false positives.
     """
-    nL, nR = len(left_pos), len(right_pos)
-    if nL and nR:
-        if nL == 1 and nR == 1:
-            if abs(left_pos[0] - right_pos[0]) > TSD_WINDOW:
-                return [(left_pos[0], None), (None, right_pos[0])]
-            return [(left_pos[0], right_pos[0])]
-        # greedy nearest-neighbour pairing within the TSD window
-        pairs: list[tuple[int | None, int | None]] = []
-        remaining_right = sorted(right_pos)
-        for lp in sorted(left_pos):
-            best = None
-            for rp in remaining_right:
-                if best is None or abs(rp - lp) < abs(best - lp):
-                    best = rp
-            if best is not None and abs(best - lp) <= TSD_WINDOW:
-                pairs.append((lp, best))
-                remaining_right.remove(best)
-            else:
-                pairs.append((lp, None))
-        for rp in remaining_right:
-            pairs.append((None, rp))
-        return pairs
-    if nL:
-        return [(lp, None) for lp in sorted(left_pos)]
-    return [(None, rp) for rp in sorted(right_pos)]
+    if not left and not right:
+        return []
+    marks = sorted([(p, "L") for p in left] + [(p, "R") for p in right])
+    groups: list[list[tuple[int, str]]] = [[]]
+    for pos, side in marks:
+        if groups[-1] and pos - groups[-1][-1][0] > SUBCLUSTER_GAP:
+            groups.append([])
+        groups[-1].append((pos, side))
+
+    pairs: list[tuple[int | None, int | None]] = []
+    for group in groups:
+        lpos = [p for p, s in group if s == "L"]
+        rpos = [p for p, s in group if s == "R"]
+        # dominant = most reads; ties -> the position closer to the other boundary
+        # (left is the right edge of the TSD, right is the left edge) for a
+        # sensible small TSD span.
+        lp = max(lpos, key=lambda p: (len(left[p]), p)) if lpos else None
+        rp = max(rpos, key=lambda p: (len(right[p]), -p)) if rpos else None
+        pairs.append((lp, rp))
+    return pairs
 
 
 def _resolve_tsd(
@@ -845,7 +853,7 @@ def _call_insertions(
         return []
 
     insertions: list[Insertion] = []
-    for lp, rp in _pair_breakpoints(list(left), list(right)):
+    for lp, rp in _pair_breakpoints(left, right):
         left_reads = left.get(lp, []) if lp is not None else []
         right_reads = right.get(rp, []) if rp is not None else []
         ins = _make_insertion(cluster.chrom, left_reads, right_reads, genome, cluster)

@@ -8,8 +8,36 @@ from pathlib import Path
 import pysam
 
 from RelocaTE3.align import Aligner
-from RelocaTE3.insertions import InsertionFinder
+from RelocaTE3.insertions import InsertionFinder, _pair_breakpoints
 from RelocaTE3.reference_te import ReferenceTEAnnotator
+
+
+def _bp(counts):
+    """Build a {position: [reads]} breakpoint map with the given per-position support."""
+    return {pos: [object()] * n for pos, n in counts.items()}
+
+
+class TestPairBreakpoints(unittest.TestCase):
+    """RelocaTE2-style support-dominant breakpoint pairing (replaces the old
+    distance-window pairing that manufactured runaway-TSD false positives)."""
+
+    def test_dominant_breakpoint_absorbs_minor_neighbour(self):
+        # a minor left breakpoint (1 read) beside the dominant left (5 reads) must
+        # be absorbed, not emitted as a separate one-sided call.
+        pairs = _pair_breakpoints(_bp({1003: 5, 1005: 1}), _bp({1000: 5}))
+        self.assertEqual(pairs, [(1003, 1000)])
+
+    def test_far_lone_breakpoints_not_paired_into_runaway(self):
+        # a lone left and a lone right farther apart than a TSD must NOT be paired
+        # (that produced runaway TSDs); each is emitted one-sided.
+        pairs = _pair_breakpoints(_bp({100: 3}), _bp({40: 3}))
+        self.assertEqual(sorted(pairs, key=lambda p: (p[0] or 0, p[1] or 0)),
+                         [(None, 40), (100, None)])
+
+    def test_distinct_sites_stay_separate(self):
+        # two real insertions ~50 bp apart remain two paired calls.
+        pairs = _pair_breakpoints(_bp({1003: 3, 1053: 3}), _bp({1000: 3, 1050: 3}))
+        self.assertEqual(pairs, [(1003, 1000), (1053, 1050)])
 
 DATA = Path(__file__).parent / "data"
 GENOME = DATA / "sim_genome" / "MSU7.Chr3_2M.fa"
