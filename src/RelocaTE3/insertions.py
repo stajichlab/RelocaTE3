@@ -27,17 +27,29 @@ def _reverse_complement(seq: str) -> str:
 class InsertionFinder:
     """Cluster genome-aligned flanking reads into non-reference insertion calls."""
 
-    def __init__(self, mismatch_allow: int = 0, min_mapq: int = 1, verbose: int = 0):
+    def __init__(
+        self,
+        mismatch_allow: int = 0,
+        min_mapq: int = 1,
+        verbose: int = 0,
+        require_both_junctions: bool = False,
+    ):
         """Initialize the finder.
 
         Args:
             mismatch_allow: maximum read/genome mismatches (excluding indels).
             min_mapq: minimum MAPQ for a read to be considered uniquely mapped.
             verbose: verbosity level.
+            require_both_junctions: when True, emit only insertions supported by
+                both a left and a right junction read (drop single-sided calls),
+                matching RelocaTE2, which drops one-sided ``insufficient_data``/
+                ``singleton`` sites. Single-sided calls cannot resolve a TSD (they
+                report ``UNK``) and are the bulk of RelocaTE3's false positives.
         """
         self.mismatch_allow = mismatch_allow
         self.min_mapq = min_mapq
         self.verbose = verbose
+        self.require_both_junctions = require_both_junctions
 
     # ------------------------------------------------------------------
     # public API
@@ -154,6 +166,13 @@ class InsertionFinder:
                 if target != "ALL" and cluster.chrom != target:
                     continue
                 for ins in _call_insertions(cluster, genome=None):
+                    # RelocaTE2 parity: drop single-sided (one-junction) calls,
+                    # which cannot resolve a TSD and dominate the false positives.
+                    if self.require_both_junctions and (
+                        ins.left_junction_reads == 0
+                        or ins.right_junction_reads == 0
+                    ):
+                        continue
                     # Match the fixed-TSD path's reference-TE edge exclusion.
                     edges = existing_te[cluster.chrom]
                     if ins.end in edges["start"] or ins.start - 1 in edges["end"]:

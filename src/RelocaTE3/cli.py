@@ -437,6 +437,13 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         dest="min_mapq",
         help="Minimum MAPQ for a uniquely-mapped read",
     )
+    parser.add_argument(
+        "--require-both-junctions",
+        action="store_true",
+        dest="require_both_junctions",
+        help="Emit only insertions with both a left and right junction read "
+        "(drop single-sided calls; RelocaTE2 parity, fewer false positives)",
+    )
     _add_common_args(parser)
     parser.set_defaults(func=cmd_find_insertions)
     return parser
@@ -641,6 +648,7 @@ def cmd_find_insertions(args: argparse.Namespace) -> int:
         mismatch_allow=args.mismatch_allow,
         min_mapq=args.min_mapq,
         verbose=int(args.verbose),
+        require_both_junctions=getattr(args, "require_both_junctions", False),
     )
     out_txt = finder.find_insertions(
         bam_file=Path(args.bam),

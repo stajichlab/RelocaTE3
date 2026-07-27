@@ -284,6 +284,41 @@ class TestInsertionFinder(unittest.TestCase):
             self.assertEqual(cols[7], "R:1")  # right junction retained
             self.assertEqual(cols[8], "L:1")  # left junction retained
 
+    def test_require_both_junctions_drops_single_sided(self):
+        """require_both_junctions drops one-sided calls (RelocaTE2 parity) while
+        keeping two-sided insertions; default keeps both."""
+        with tempfile.TemporaryDirectory() as workdir:
+            bam_path = os.path.join(workdir, "flank.bam")
+            # Site A: two-sided (left + right) at tsd_start~1000.
+            # Site C: lone left junction ~1000 bp away (single-sided).
+            reads = [
+                {"name": "aR:start:5", "seq": "TTA" + "A" * 37, "start0": 999},
+                {"name": "aL:end:5", "seq": "A" * 37 + "TTA", "start0": 962},
+                {"name": "cL:end:5", "seq": "A" * 37 + "TTA", "start0": 1962},
+            ]
+            _write_junction_bam(bam_path, "Chr1", 5000, reads)
+            read_repeat = os.path.join(workdir, "rr.txt")
+            with open(read_repeat, "w") as fh:
+                for n in ("aR", "aL", "cL"):
+                    fh.write(f"{n}\tmping\t+\n")
+
+            def _run(finder):
+                out = finder.find_insertions(
+                    bam_file=Path(bam_path), read_repeat_file=Path(read_repeat),
+                    tsd="UNK", target="Chr1", sample="HEG4", outdir=Path(workdir),
+                )
+                return [ln for ln in out.read_text().splitlines() if ln.strip()]
+
+            default_rows = _run(InsertionFinder(mismatch_allow=0, min_mapq=1))
+            self.assertEqual(len(default_rows), 2)  # two-sided + single-sided
+
+            both_rows = _run(InsertionFinder(
+                mismatch_allow=0, min_mapq=1, require_both_junctions=True))
+            self.assertEqual(len(both_rows), 1)  # single-sided dropped
+            cols = both_rows[0].split("\t")
+            self.assertNotEqual(cols[7], "R:0")  # kept call has a right junction
+            self.assertNotEqual(cols[8], "L:0")  # ...and a left junction
+
     def test_distinct_sites_not_merged(self):
         """Two real insertions farther apart than the TSD length must stay two
         separate calls (merge must not collapse distinct sites)."""
