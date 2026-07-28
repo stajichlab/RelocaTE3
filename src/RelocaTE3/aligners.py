@@ -268,6 +268,74 @@ class BwaMem2Backend(BwaBackend):
     _index_sentinel = ".bwt.2bit.64"
 
 
+class BwaAlnBackend(BwaBackend):
+    """bwa ``aln``/``samse``/``sampe`` backend for the genome stage (RelocaTE2
+    parity).
+
+    ``bwa mem`` (and minimap2 ``-ax sr``) impose a seed-length floor (mem's
+    ``-k`` defaults to 19), so they silently drop the short (<~19 bp) junction
+    flanks that decide low-coverage / low-VAF insertions. ``bwa aln`` is the
+    backtracking short-read algorithm with no such floor and is exactly what
+    RelocaTE2 uses for flank->genome placement; using it here makes the genome
+    step a true RelocaTE2 parity. It is a subcommand of the same modern bwa
+    binary -- not an older version -- and its SAM is piped through the shared
+    sorted/mapped/indexed-BAM helper (no RelocaTE2-style intermediate shell
+    scripts). ``aln`` takes no tuning flags here, matching RelocaTE2's defaults.
+
+    TE-library search (``map_te_library``) is inherited from :class:`BwaBackend`
+    (bwa mem); the parity variant uses BLAT for that stage, so this backend is
+    used only for ``map_genome``.
+    """
+
+    name = "bwaaln"
+
+    def _aln_sai(self, reference, fastq, sai, threads):
+        with open(sai, "wb") as fh:
+            subprocess.run(
+                [self.binary, "aln", "-t", str(threads), str(reference), str(fastq)],
+                stdout=fh,
+                check=True,
+            )
+
+    def _aln_to_sam(self, reference, fastqs, sam, threads, tmpdir, paired):
+        if paired and len(fastqs) >= 2:
+            sai1 = os.path.join(tmpdir, "r1.sai")
+            sai2 = os.path.join(tmpdir, "r2.sai")
+            self._aln_sai(reference, fastqs[0], sai1, threads)
+            self._aln_sai(reference, fastqs[1], sai2, threads)
+            cmd = [
+                self.binary, "sampe", str(reference),
+                sai1, sai2, str(fastqs[0]), str(fastqs[1]),
+            ]
+        else:
+            combined = _concat(fastqs, os.path.join(tmpdir, "reads.fq"))
+            sai = os.path.join(tmpdir, "se.sai")
+            self._aln_sai(reference, combined, sai, threads)
+            cmd = [self.binary, "samse", str(reference), sai, combined]
+        with open(sam, "w") as fh:
+            subprocess.run(cmd, stdout=fh, check=True)
+
+    def map_genome(
+        self,
+        genome,
+        fastqs,
+        out_bam,
+        *,
+        paired: bool = False,
+        threads=None,
+        tmpdir=None,
+    ) -> Path:
+        """Map flanking/support reads to the genome with bwa ``aln`` -- paired
+        (``sampe``, so a flank is anchored by its mate) or single-end (``samse``,
+        concatenated). Short flanks that ``bwa mem`` drops are placed here."""
+        threads = self._threads(threads)
+        self.index(genome)
+        with _tmp(tmpdir) as td:
+            sam = os.path.join(td, "bwaaln.sam")
+            self._aln_to_sam(genome, fastqs, sam, threads, td, paired)
+            return _sam_to_sorted_mapped_bam(sam, out_bam, threads)
+
+
 class Bowtie2Backend(AlignerBackend):
     """bowtie2 backend. TE stage uses -k to keep multi-mappers for multi-copy TEs."""
 
@@ -489,6 +557,7 @@ BACKENDS: dict[str, type[AlignerBackend]] = {
     "minimap2": MinimapBackend,
     "bwa": BwaBackend,
     "bwamem2": BwaMem2Backend,
+    "bwaaln": BwaAlnBackend,
     "bowtie2": Bowtie2Backend,
     "blat": BlatBackend,
 }

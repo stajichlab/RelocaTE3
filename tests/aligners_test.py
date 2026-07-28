@@ -131,6 +131,44 @@ class TestBackendContract(unittest.TestCase):
                 aln.map_genome(telib, [tefq], d / "x.bam")
 
 
+class TestBwaAlnGenome(unittest.TestCase):
+    """bwaaln backend (RelocaTE2 parity): bwa aln places short junction flanks
+    that bwa mem's seed-length floor drops."""
+
+    @unittest.skipUnless(_available("bwa"), "bwa not available")
+    def test_bwaaln_maps_short_flank_that_mem_drops(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            genome = d / "g.fa"
+            _write_fa(genome, {"chr1": REF})
+            # an 18 bp flank from a unique genomic locus (0-based 1500)
+            flank = REF[1500:1518]
+            fq = d / "flank.fq"
+            _write_fq(fq, [("f18", flank)])
+
+            aln = get_aligner("bwaaln", threads=1)
+            aln.index(genome)
+            bam = aln.map_genome(genome, [fq], d / "aln.bam", paired=False, threads=1)
+            with pysam.AlignmentFile(str(bam), "rb") as fh:
+                placed = [
+                    r for r in fh.fetch(until_eof=True) if not r.is_unmapped
+                ]
+            self.assertTrue(
+                any(r.reference_start == 1500 for r in placed),
+                f"bwa aln did not place the 18bp flank at 1500: "
+                f"{[(r.query_name, r.reference_start) for r in placed]}",
+            )
+            _assert_contract(self, bam)
+
+            # bwa mem (the current backend) drops the same 18 bp flank (-k 19).
+            mem_bam = get_aligner("bwa", threads=1).map_genome(
+                genome, [fq], d / "mem.bam", paired=False, threads=1
+            )
+            with pysam.AlignmentFile(str(mem_bam), "rb") as fh:
+                mem_placed = [r for r in fh.fetch(until_eof=True) if not r.is_unmapped]
+            self.assertEqual(mem_placed, [], "bwa mem unexpectedly mapped the 18bp flank")
+
+
 class TestBwaMateSuffix(unittest.TestCase):
     """bwa mem strips a trailing /1,/2 from read names. map_te_library maps each
     side separately (left=R1, right=R2), so it must restore the mate suffix
