@@ -315,6 +315,71 @@ class TestPslToSam(unittest.TestCase):
         self.assertEqual(psl_to_sam(["psLayout version 3", "", "match\tmis"]), [])
 
 
+class TestExtraOptionPassthrough(unittest.TestCase):
+    """Per-stage extra aligner options reach each backend's command line.
+
+    Lets the benchmark sweep sensitivity knobs (blat -minIdentity, minimap2 -B,
+    bowtie2 --very-sensitive-local, bwa mem/aln tuning) without code changes.
+    """
+
+    def test_get_aligner_accepts_stage_options(self):
+        aln = get_aligner("blat", threads=2, te_opts=["-minIdentity=80"])
+        self.assertEqual(tuple(aln.te_opts), ("-minIdentity=80",))
+        self.assertEqual(tuple(aln.genome_opts), ())
+
+    def test_blat_te_opts_appear_in_command(self):
+        from RelocaTE3.aligners import BlatBackend
+
+        cmd = BlatBackend(te_opts=["-minIdentity=80"])._blat_cmd(
+            "te.fa", "q.fa", "a.psl"
+        )
+        self.assertIn("-minIdentity=80", cmd)
+        # parity defaults are still present and the query/db order is unchanged
+        self.assertIn("-minScore=10", cmd)
+        self.assertIn("-tileSize=7", cmd)
+        self.assertLess(cmd.index("te.fa"), cmd.index("q.fa"))
+
+    def test_bwa_mem_te_opts_appear_in_command(self):
+        from RelocaTE3.aligners import BwaBackend
+
+        # -a (keep multi-mappers) is supplied by map_te_library via `extra`;
+        # here we assert the stage options land on the command line.
+        cmd = BwaBackend(te_opts=["-B", "2"])._mem_cmd(
+            "ref.fa", ["r.fq"], stage="te", extra=["-a"]
+        )
+        self.assertIn("-B", cmd)
+        self.assertIn("2", cmd)
+        self.assertIn("-a", cmd)
+        # reference precedes the reads, and stage opts precede the reference
+        self.assertLess(cmd.index("-B"), cmd.index("ref.fa"))
+        self.assertLess(cmd.index("ref.fa"), cmd.index("r.fq"))
+
+    def test_bwaaln_genome_opts_appear_in_aln_command(self):
+        from RelocaTE3.aligners import BwaAlnBackend
+
+        cmd = BwaAlnBackend(genome_opts=["-n", "0.10"])._aln_cmd("ref.fa", "r.fq", 4)
+        self.assertIn("-n", cmd)
+        self.assertIn("0.10", cmd)
+        self.assertEqual(cmd[1], "aln")
+
+    def test_bowtie2_te_opts_appear_in_command(self):
+        from RelocaTE3.aligners import Bowtie2Backend
+
+        # --local / -k are supplied by map_te_library via read_args; assert the
+        # stage options are appended after them so they can override presets.
+        cmd = Bowtie2Backend(te_opts=["--very-sensitive-local", "-N", "1"])._bt2_cmd(
+            "idx", ["-k", "20", "--local", "-U", "r.fq"], "out.sam", 3, stage="te"
+        )
+        self.assertIn("--very-sensitive-local", cmd)
+        self.assertIn("-N", cmd)
+        self.assertIn("--local", cmd)
+        self.assertLess(cmd.index("--local"), cmd.index("--very-sensitive-local"))
+
+    def test_minimap2_te_opts_reach_the_aligner(self):
+        aln = get_aligner("minimap2", te_opts=["-B", "4"])
+        self.assertEqual(tuple(aln.te_opts), ("-B", "4"))
+
+
 class TestBlatCommand(unittest.TestCase):
     """BLAT command line uses RelocaTE2's sensitivity params (no binary needed)."""
 

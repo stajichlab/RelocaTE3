@@ -95,12 +95,27 @@ class AlignerBackend(ABC):
 
     name: str = ""
 
-    def __init__(self, threads: int = 1):
-        """Store the default thread count for this backend."""
+    def __init__(self, threads: int = 1, te_opts=(), genome_opts=()):
+        """Store the thread count and per-stage extra aligner options.
+
+        ``te_opts``/``genome_opts`` are appended verbatim to the TE-search and
+        genome-placement command lines. They exist so sensitivity knobs can be
+        swept from configuration (blat ``-minIdentity``, minimap2 ``-B``,
+        bowtie2 ``--very-sensitive-local``, bwa tuning) without code changes.
+        The two stages are kept separate because they want opposite settings:
+        TE search benefits from permissive, multi-mapping alignment while
+        genome placement needs near-unique hits to preserve precision.
+        """
         self.threads = threads
+        self.te_opts = tuple(te_opts or ())
+        self.genome_opts = tuple(genome_opts or ())
 
     def _threads(self, threads):
         return threads if threads and threads > 0 else self.threads
+
+    def _stage_opts(self, stage: str) -> list[str]:
+        """Extra options for ``stage`` ('te' or 'genome')."""
+        return list(self.te_opts if stage == "te" else self.genome_opts)
 
     @abstractmethod
     def index(self, reference, *, force: bool = False) -> None:
@@ -131,9 +146,9 @@ class MinimapBackend(AlignerBackend):
 
     name = "minimap2"
 
-    def __init__(self, threads: int = 1):
+    def __init__(self, threads: int = 1, te_opts=(), genome_opts=()):
         """Wrap a :class:`RelocaTE3.align.Aligner` configured for minimap2."""
-        super().__init__(threads)
+        super().__init__(threads, te_opts=te_opts, genome_opts=genome_opts)
         from RelocaTE3.align import Aligner
 
         self._aln = Aligner(threads)
@@ -152,6 +167,7 @@ class MinimapBackend(AlignerBackend):
             str(te_library),
             tmpdir=str(tmpdir) if tmpdir else "",
             cpu_threads=self._threads(threads),
+            extra_opts=self._stage_opts("te"),
         )
 
     def map_genome(
@@ -176,6 +192,7 @@ class MinimapBackend(AlignerBackend):
                 cmd = [
                     "minimap2", "-t", str(t), "-a", "-x", "sr",
                     "-k", "11", "-w", "5",
+                    *self._stage_opts("genome"),
                     str(genome), str(fastqs[0]), str(fastqs[1]),
                 ]
                 with open(sam, "w") as fh:
@@ -187,6 +204,7 @@ class MinimapBackend(AlignerBackend):
             str(out_bam),
             tmpdir=str(tmpdir) if tmpdir else "",
             cpu_threads=self._threads(threads),
+            extra_opts=self._stage_opts("genome"),
         )
 
 
@@ -202,19 +220,28 @@ class BwaBackend(AlignerBackend):
         if force or not Path(f"{reference}{self._index_sentinel}").exists():
             subprocess.run([self.binary, "index", str(reference)], check=True)
 
-    def _mem(self, reference, read_files, out_bam, threads, tmpdir, extra=()):
+    def _mem_cmd(self, reference, read_files, *, threads=1, extra=(), stage="te"):
+        """Build the ``bwa mem`` command for ``stage`` ('te' or 'genome')."""
+        return [
+            self.binary,
+            "mem",
+            "-t",
+            str(threads),
+            *extra,
+            *self._stage_opts(stage),
+            str(reference),
+            *[str(f) for f in read_files],
+        ]
+
+    def _mem(
+        self, reference, read_files, out_bam, threads, tmpdir, extra=(), stage="te"
+    ):
         sam = os.path.join(tmpdir, "bwa.sam")
         with open(sam, "w") as fh:
             subprocess.run(
-                [
-                    self.binary,
-                    "mem",
-                    "-t",
-                    str(threads),
-                    *extra,
-                    str(reference),
-                    *[str(f) for f in read_files],
-                ],
+                self._mem_cmd(
+                    reference, read_files, threads=threads, extra=extra, stage=stage
+                ),
                 stdout=fh,
                 check=True,
             )
@@ -255,9 +282,13 @@ class BwaBackend(AlignerBackend):
         self.index(genome)
         with _tmp(tmpdir) as td:
             if paired and len(fastqs) >= 2:
-                return self._mem(genome, fastqs[:2], out_bam, threads, td)
+                return self._mem(
+                    genome, fastqs[:2], out_bam, threads, td, stage="genome"
+                )
             combined = _concat(fastqs, os.path.join(td, "reads.fq"))
-            return self._mem(genome, [combined], out_bam, threads, td)
+            return self._mem(
+                genome, [combined], out_bam, threads, td, stage="genome"
+            )
 
 
 class BwaMem2Backend(BwaBackend):
@@ -289,10 +320,26 @@ class BwaAlnBackend(BwaBackend):
 
     name = "bwaaln"
 
+    def _aln_cmd(self, reference, fastq, threads):
+        """Build the ``bwa aln`` command (genome stage).
+
+        Extra genome options (e.g. ``-n 0.10`` to widen the edit-distance budget
+        for divergent flanks, or ``-l``/``-k`` seed tuning) are appended here.
+        """
+        return [
+            self.binary,
+            "aln",
+            "-t",
+            str(threads),
+            *self._stage_opts("genome"),
+            str(reference),
+            str(fastq),
+        ]
+
     def _aln_sai(self, reference, fastq, sai, threads):
         with open(sai, "wb") as fh:
             subprocess.run(
-                [self.binary, "aln", "-t", str(threads), str(reference), str(fastq)],
+                self._aln_cmd(reference, fastq, threads),
                 stdout=fh,
                 check=True,
             )
@@ -348,19 +395,28 @@ class Bowtie2Backend(AlignerBackend):
                 ["bowtie2-build", "--quiet", str(reference), str(reference)], check=True
             )
 
-    def _run(self, reference, read_args, out_bam, threads, tmpdir):
+    def _bt2_cmd(self, reference, read_args, sam, threads, stage="te"):
+        """Build the bowtie2 command for ``stage`` ('te' or 'genome').
+
+        Extra options (e.g. ``--very-sensitive-local``/``-N 1`` for divergent TE
+        copies) are appended after ``read_args`` so they override the presets.
+        """
+        return [
+            "bowtie2",
+            "-p",
+            str(threads),
+            "-x",
+            str(reference),
+            "-S",
+            str(sam),
+            *read_args,
+            *self._stage_opts(stage),
+        ]
+
+    def _run(self, reference, read_args, out_bam, threads, tmpdir, stage="te"):
         sam = os.path.join(tmpdir, "bt2.sam")
         subprocess.run(
-            [
-                "bowtie2",
-                "-p",
-                str(threads),
-                "-x",
-                str(reference),
-                "-S",
-                sam,
-                *read_args,
-            ],
+            self._bt2_cmd(reference, read_args, sam, threads, stage=stage),
             check=True,
         )
         return _sam_to_sorted_mapped_bam(sam, out_bam, threads)
@@ -415,7 +471,7 @@ class Bowtie2Backend(AlignerBackend):
             else:
                 combined = _concat(fastqs, os.path.join(td, "reads.fq"))
                 args = ["-U", combined]
-            return self._run(genome, args, out_bam, threads, td)
+            return self._run(genome, args, out_bam, threads, td, stage="genome")
 
 
 _COMPLEMENT = str.maketrans("ACGTNacgtn", "TGCANtgcan")
@@ -505,12 +561,16 @@ class BlatBackend(AlignerBackend):
         # -- exactly the junction reads that carry the non-reference insertion
         # signal -- so RelocaTE2 lowers them to -minScore=10 -tileSize=7. The TE
         # library is the database and the reads are the query (db before query).
+        # Extra TE-stage options (e.g. -minIdentity=80 to lift BLAT's default
+        # 90% identity ceiling for divergent copies) are appended before the
+        # output path so they override the parity defaults above.
         return [
             "blat",
             str(te_library),
             str(query_fa),
             "-minScore=10",
             "-tileSize=7",
+            *self._stage_opts("te"),
             "-noHead",
             "-out=psl",
             str(psl),
@@ -581,12 +641,19 @@ TE_ALIGNERS = tuple(BACKENDS)  # all backends can do TE-library search
 GENOME_ALIGNERS = tuple(n for n in BACKENDS if n != "blat")  # blat has no genome stage
 
 
-def get_aligner(name: str, threads: int = 1) -> AlignerBackend:
-    """Instantiate the aligner backend registered under ``name``."""
+def get_aligner(
+    name: str, threads: int = 1, te_opts=(), genome_opts=()
+) -> AlignerBackend:
+    """Instantiate the aligner backend registered under ``name``.
+
+    ``te_opts``/``genome_opts`` are extra command-line options appended to the
+    TE-search and genome-placement invocations respectively (see
+    :class:`AlignerBackend`).
+    """
     try:
         backend = BACKENDS[name]
     except KeyError:
         raise ValueError(
             f"unknown aligner {name!r}; choices: {sorted(BACKENDS)}"
         ) from None
-    return backend(threads)
+    return backend(threads, te_opts=te_opts, genome_opts=genome_opts)

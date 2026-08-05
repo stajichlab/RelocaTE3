@@ -66,6 +66,7 @@ class Aligner:
         transposon_library: str,
         tmpdir: str = "",
         cpu_threads: int = 0,
+        extra_opts=(),
     ) -> list[Path]:
         """Align short reads to transposon library to find those informative for insertions.
 
@@ -117,6 +118,7 @@ class Aligner:
                     "20",
                     "-p",
                     "0.5",
+                    *extra_opts,
                     "-o",
                     temp_sam,
                     str(transposon_library),
@@ -183,6 +185,7 @@ class Aligner:
         tmpdir: str = "",
         cpu_threads: int = 0,
         paired: bool = False,
+        extra_opts=(),
     ) -> Path:
         """Align trimmed flanking reads to the genome (RelocaTE2 step 4).
 
@@ -242,6 +245,7 @@ class Aligner:
             "11",
             "-w",
             "5",
+            *extra_opts,
             "-o",
             temp_sam,
             str(index),
@@ -264,6 +268,7 @@ class Aligner:
         outbam: str,
         tmpdir: str = "",
         cpu_threads: int = 0,
+        extra_opts=(),
     ) -> Path:
         """Map (single-end) reads in ``fastq_files`` to ``genome`` with minimap2."""
         if cpu_threads <= 0:
@@ -301,6 +306,7 @@ class Aligner:
             "11",
             "-w",
             "5",
+            *extra_opts,
             "-o",
             temp_sam,
             str(genome),
