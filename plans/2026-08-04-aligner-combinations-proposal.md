@@ -64,7 +64,7 @@ Notation: **TE-search → genome-placement**. "P" = primary proposal, "A" = alte
 ### riceTElib divergence (mismatch tolerance — the main experiment)
 Hold genome placement fixed at **bwaaln** and sweep the **TE-search** knobs:
 - **P: minimap2(`-x sr -k11 -w5 -B4 -N20 -p0.5`) → bwaaln.** Restore the default mismatch penalty (`-B 4` vs sr's 8) so divergent TE reads are not double-penalized. Expect the largest divergence-recall gain of the minimap2 options.
-- **P: bwa aln TE-search(`-n 0.10 -l 20`) → bwaaln** *(needs a bwa-aln TE-search path; currently bwaaln is genome-only).* Raise the edit-distance budget and shorten the seed for divergent copies. **Flag:** implementing `bwa aln` as a Stage-1 backend is a prerequisite — scope before testing.
+- ~~**bwa aln TE-search(`-n 0.10 -l 20`)**~~ — **RETRACTED, do not build.** `bwa aln` is end-to-end (no soft-clipping), so it cannot map junction reads at all. Verified empirically: a read that is 50 bp TE + 50 bp genomic flank is **UNMAPPED** by `bwa aln`/`samse`, while `bwa mem` maps it `50M50S`. A bwa-aln TE-search backend would miss exactly the reads that carry the insertion signal. `bwa aln` stays genome-stage only (where its input is an already-trimmed flank).
 - **A: bowtie2(`--very-sensitive-local -N 1 -k 20`) → bwaaln.** Denser, mismatch-tolerant seeding.
 - **A (experiment): blat(`-minScore=10 -tileSize=7 -minIdentity 80`) → bwaaln.** Lifts blat's ~10 % identity ceiling toward the 15–20 % levels; the only way blat reaches high divergence. Watch precision/runtime.
 
@@ -73,10 +73,38 @@ Hold genome placement fixed at **bwaaln** and sweep the **TE-search** knobs:
 - **Genome-stage over-sensitivity hurts precision.** Adding `--secondary=yes -N20 -p0.5` to the *genome* minimap2 step dropped precision 0.90→0.72 (`plans/2026-06-26-genotype-status-parity.md`). Keep Stage 2 primary-only; put sensitivity in Stage 1 + trim.
 - **bwaaln for short flanks is likely a broad win** across all three panels (no `-k 19` seed floor); prioritize the `* → bwaaln` swaps first.
 - **`minIdentity` and `-B` are shared limits, not bugs.** Testing them explores *beyond* RelocaTE2 — report them as "R3 exceeds R2" experiments, separate from parity.
-- **Prerequisite gaps:** a `bwa aln` *TE-search* backend and per-backend parameter passthrough (e.g. blat `-minIdentity`, minimap2 `-B`) do not exist yet; several §5 proposals need small backend changes before they are testable. Scope these as their own tasks.
+- **Prerequisite: DONE.** Per-stage parameter passthrough (`te_opts`/`genome_opts` on `get_aligner`) is implemented, so every §5 parameter proposal is now testable from configuration with no code change. The one remaining prerequisite from the first draft — a bwa-aln TE-search backend — was **retracted as algorithmically unsound** (see §5 divergence).
+- **Empirical anchor for the divergence hypothesis:** a synthetic **15 %-divergent** TE read gets **0 BLAT hits** at the parity settings (`-minScore=10 -tileSize=7`, identity ceiling 90) and **1 hit** with `-minIdentity=70`. This confirms `minIdentity` — not tile/score — is the binding constraint at high divergence.
 - **Test economically:** fix genome=bwaaln first, sweep TE-search per panel, then vary genome only for the winner. Reuse the divergence smoke slice (2 callers, div 0/20, 30×) to rank cheaply before full 324-task runs.
 
-## 7. References
+## 7. Proposed variant matrix for the next benchmark run
+
+Concrete caller variants to register in the benchmark (`te_opts`/`genome_opts`
+are now passthrough-ready). Group A establishes R2↔R3 parity; groups B–C test
+the combinations. Keep `relocate2` in every panel as the reference.
+
+| # | Variant key | TE search (`--te-aligner` + `te_opts`) | Genome (`--genome-aligner` + `genome_opts`) | Purpose / panel |
+|---|---|---|---|---|
+| A0 | `relocate2` | blat `-minScore=10 -tileSize=7` | bwa aln (defaults) | Reference — all panels |
+| A1 | `relocate3-blat-bwaaln` | blat (parity defaults) | bwaaln | **R2↔R3 parity** — all panels |
+| B1 | `relocate3-minimap2-bwaaln` | minimap2 `-k11 -w5 -N20 -p0.5` | bwaaln | short-flank swap — mPing, multi-TE |
+| B2 | `relocate3-bwa-bwaaln` | bwa mem `-a` | bwaaln | multi-copy breadth — multi-TE |
+| B3 | `relocate3-bowtie2-bwaaln` | bowtie2 `-k20 --local` | bwaaln | multi-copy alt — multi-TE |
+| B4 | `relocate3-minimap2-minimap2` | minimap2 `-k11 -w5 -N20 -p0.5` | minimap2 `-k11 -w5` | current baseline — all panels |
+| C1 | `relocate3-minimap2B4-bwaaln` | minimap2 + `-B 4` | bwaaln | divergence: undo sr's `-B 8` |
+| C2 | `relocate3-blatID80-bwaaln` | blat + `-minIdentity=80` | bwaaln | divergence: lift identity ceiling |
+| C3 | `relocate3-bowtie2VS-bwaaln` | bowtie2 + `--very-sensitive-local -N 1` | bwaaln | divergence: denser seeds |
+| C4 | `relocate3-blatID70-bwaaln` | blat + `-minIdentity=70` | bwaaln | divergence: 15–20 % reach (see §6 anchor) |
+
+**Suggested run order (cost-aware).** Panels are 54 samples × variants; do not
+run all 10 variants on all 3 panels at once.
+1. **Parity gate:** A0 + A1 on multi-TE (0 % divergence) — confirm the BLAT fix closes the R2−R3 gap before anything else.
+2. **Genome-swap sweep:** B1–B4 + A0 on mPing and multi-TE.
+3. **Divergence sweep:** C1–C4 + A0 + A1 on the divergence panel, first on the cheap smoke slice (div 0/20, 30×) to rank, then the full grid for the top 2.
+
+Report each variant's detection recall, precision/FDR, and (multi-TE) per-TE-group recall; for the divergence panel report recall **as a function of divergence %**, which is the headline curve.
+
+## 8. References
 - Aligner backends: `src/RelocaTE3/aligners.py`; minimap2 driver: `src/RelocaTE3/align.py`
 - Parity plan (blat params, bwaaln): `plans/2026-08-04-blat-bwaaln-rt2-parity.md`
 - Trim-length recall gap: `plans/2026-07-02-trim-recall-parity.md`
