@@ -76,3 +76,40 @@ def test_build_parser_registers_subcommand():
 
     parsed = build_parser().parse_args(["index-genome", "-g", "ref.fa"])
     assert parsed.func is cmd_index_genome
+
+
+def test_te_and_genome_opts_are_parsed_and_shlex_split():
+    """--te-opts/--genome-opts reach the aligner backends as argument lists.
+
+    The benchmark drives RelocaTE3 through this CLI, so the per-stage aligner
+    option passthrough is only usable if these flags exist and split correctly.
+
+    Values start with "-" (e.g. -minIdentity=80), which argparse would otherwise
+    read as another flag, so the "--opt=value" form is required. Callers/adapters
+    must use that form.
+    """
+    from RelocaTE3.cli import build_parser, split_aligner_opts
+
+    parser = build_parser()
+
+    te = parser.parse_args(
+        ["run", "-l", "r1.fq", "-T", "te.fa", "-n", "s", "-o", "out",
+         "--te-aligner", "blat", "--te-opts=-minIdentity=80"]
+    )
+    assert split_aligner_opts(te.te_opts) == ["-minIdentity=80"]
+
+    # multi-token values must split on whitespace, not be passed as one arg
+    mapped = parser.parse_args(
+        ["map", "-l", "r1.fq", "-T", "te.fa", "-n", "s", "-o", "out",
+         "--te-opts=-B 4"]
+    )
+    assert split_aligner_opts(mapped.te_opts) == ["-B", "4"]
+
+    genome = parser.parse_args(
+        ["align-genome", "-g", "ref.fa", "-f", "f.fq", "-n", "s", "-o", "out",
+         "--genome-aligner", "bwaaln", "--genome-opts=-n 0.10"]
+    )
+    assert split_aligner_opts(genome.genome_opts) == ["-n", "0.10"]
+
+    # absent flags default to no extra options
+    assert split_aligner_opts(None) == []

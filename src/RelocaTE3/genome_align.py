@@ -320,6 +320,7 @@ def align_to_genome(
     outdir: str | Path,
     threads: int = 1,
     genome_aligner: str = "minimap2",
+    genome_opts=(),
 ) -> tuple[Path, Path | None]:
     """Map trimmed flanking reads + supporting mates to ``genome``.
 
@@ -331,7 +332,7 @@ def align_to_genome(
     """
     outdir = Path(outdir)
     sample = reads.name
-    backend = get_aligner(genome_aligner, threads)
+    backend = get_aligner(genome_aligner, threads, genome_opts=genome_opts)
 
     flanking_dir = outdir / "flanking"
     flanking_files = sorted(
