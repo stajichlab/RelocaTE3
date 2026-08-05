@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import re
 import sys
 import textwrap
@@ -100,6 +101,15 @@ def _menu_map(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         choices=list(TE_ALIGNERS),
         help="Aligner for TE-library search (--aligner is a deprecated alias)",
     )
+    parser.add_argument(
+        "--te-opts",
+        dest="te_opts",
+        default="",
+        help=(
+            "Extra options passed verbatim to the TE-search aligner, e.g. "
+            "\"-minIdentity=80\" (blat) or \"-B 4\" (minimap2)"
+        ),
+    )
     _add_common_args(parser)
     parser.set_defaults(func=cmd_map)
     return parser
@@ -185,6 +195,15 @@ def _menu_run(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         default="minimap2",
         choices=list(TE_ALIGNERS),
         help="Aligner for TE-library search (--aligner is a deprecated alias)",
+    )
+    parser.add_argument(
+        "--te-opts",
+        dest="te_opts",
+        default="",
+        help=(
+            "Extra options passed verbatim to the TE-search aligner, e.g. "
+            "\"-minIdentity=80\" (blat) or \"-B 4\" (minimap2)"
+        ),
     )
     parser.add_argument(
         "--min-match",
@@ -375,6 +394,15 @@ def _menu_align_genome(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         help="Aligner for genome re-alignment (blat is not supported here)",
     )
     parser.add_argument(
+        "--genome-opts",
+        dest="genome_opts",
+        default="",
+        help=(
+            "Extra options passed verbatim to the genome aligner, e.g. "
+            "\"-n 0.10\" (bwa aln edit-distance budget)"
+        ),
+    )
+    parser.add_argument(
         "--threads", type=int, default=1, help="CPU threads for alignment"
     )
     _add_common_args(parser)
@@ -465,7 +493,11 @@ def cmd_map(args: argparse.Namespace) -> int:
 
     from RelocaTE3.aligners import get_aligner
 
-    backend = get_aligner(args.te_aligner, args.threads)
+    backend = get_aligner(
+        args.te_aligner,
+        args.threads,
+        te_opts=split_aligner_opts(getattr(args, "te_opts", "")),
+    )
     backend.index(args.te_library)
     bamfiles = backend.map_te_library(reads, args.te_library, out)
     logger.info("%d BAM file(s) written to %s", len(bamfiles), args.outdir)
@@ -516,6 +548,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         reads,
         out,
         te_aligner=args.te_aligner,
+        te_opts=split_aligner_opts(getattr(args, "te_opts", "")),
         len_cut_match=args.minimum_match_length,
         len_cut_trim=args.minimum_trimmed_length,
         mismatch_allowance=args.mismatch_allowance,
@@ -592,7 +625,11 @@ def cmd_align_genome(args: argparse.Namespace) -> int:
         read_repeat = read_read_repeat(rr_path) if rr_path.exists() else {}
         suffix = "minimap" if args.genome_aligner == "minimap2" else args.genome_aligner
         out_bam = outdir / f"{args.name}.repeat.{suffix}.sorted.bam"
-        backend = get_aligner(args.genome_aligner, args.threads)
+        backend = get_aligner(
+            args.genome_aligner,
+            args.threads,
+            genome_opts=split_aligner_opts(getattr(args, "genome_opts", "")),
+        )
         backend.index(args.genome_fasta)
         with tempfile.TemporaryDirectory() as tmp:
             bam = align_flanks_anchored(
@@ -627,7 +664,11 @@ def cmd_align_genome(args: argparse.Namespace) -> int:
         out_bam = (
             Path(args.outdir) / f"{args.name}.repeat.{args.genome_aligner}.sorted.bam"
         )
-        backend = get_aligner(args.genome_aligner, args.threads)
+        backend = get_aligner(
+            args.genome_aligner,
+            args.threads,
+            genome_opts=split_aligner_opts(getattr(args, "genome_opts", "")),
+        )
         backend.index(args.genome_fasta)
         bam = backend.map_genome(
             args.genome_fasta,
@@ -667,6 +708,21 @@ def cmd_find_insertions(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+
+
+def split_aligner_opts(value) -> list[str]:
+    """Split a --te-opts/--genome-opts string into argv tokens.
+
+    The value is passed through verbatim to the aligner, so it is split with
+    shell-like quoting rather than a naive ``str.split``. ``None``/empty yields
+    no extra options.
+    """
+    if not value:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value]
+    return shlex.split(value)
 
 
 def build_parser() -> argparse.ArgumentParser:

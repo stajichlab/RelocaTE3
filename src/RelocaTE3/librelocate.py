@@ -73,6 +73,7 @@ class RelocaTE:
         mismatch_allowance: int = 0,
         len_cut_match: int | None = None,
         len_cut_trim: int | None = None,
+        te_opts=(),
     ) -> int:
         """Align reads to the TE library, then trim and write flanking reads.
 
@@ -91,7 +92,7 @@ class RelocaTE:
         outdir = Path(outdir)
         from RelocaTE3.aligners import get_aligner
 
-        backend = get_aligner(tool, self.cpu_threads)
+        backend = get_aligner(tool, self.cpu_threads, te_opts=te_opts)
         backend.index(TE_library)
         bamfiles = backend.map_te_library(seqreads, TE_library, str(outdir))
 
