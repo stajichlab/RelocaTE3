@@ -315,5 +315,24 @@ class TestPslToSam(unittest.TestCase):
         self.assertEqual(psl_to_sam(["psLayout version 3", "", "match\tmis"]), [])
 
 
+class TestBlatCommand(unittest.TestCase):
+    """BLAT command line uses RelocaTE2's sensitivity params (no binary needed)."""
+
+    def test_uses_relocate2_sensitivity_params(self):
+        from RelocaTE3.aligners import BlatBackend
+
+        cmd = BlatBackend()._blat_cmd("te.fa", "query.fa", "aln.psl")
+        # RelocaTE2 (relocaTE2.py:545) runs: blat -minScore=10 -tileSize=7 <db>
+        # <query> <psl>. BLAT defaults (minScore=30, tileSize=11) miss short and
+        # divergent TE-junction reads, so parity requires these two flags.
+        self.assertIn("-minScore=10", cmd)
+        self.assertIn("-tileSize=7", cmd)
+        # database (TE library) precedes the query, and PSL output is preserved.
+        self.assertEqual(cmd[0], "blat")
+        self.assertLess(cmd.index("te.fa"), cmd.index("query.fa"))
+        self.assertIn("-out=psl", cmd)
+        self.assertIn("-noHead", cmd)
+
+
 if __name__ == "__main__":
     unittest.main()

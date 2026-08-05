@@ -498,6 +498,24 @@ class BlatBackend(AlignerBackend):
     def index(self, reference, *, force: bool = False) -> None:
         """BLAT indexes at run time; nothing to pre-build."""
 
+    def _blat_cmd(self, te_library, query_fa, psl):
+        # RelocaTE2 parity (relocaTE2.py:545): sensitize BLAT for short and
+        # divergent TE-junction reads. BLAT's defaults (minScore=30, tileSize=11)
+        # fail to seed/keep reads with only a short or mismatch-bearing TE overlap
+        # -- exactly the junction reads that carry the non-reference insertion
+        # signal -- so RelocaTE2 lowers them to -minScore=10 -tileSize=7. The TE
+        # library is the database and the reads are the query (db before query).
+        return [
+            "blat",
+            str(te_library),
+            str(query_fa),
+            "-minScore=10",
+            "-tileSize=7",
+            "-noHead",
+            "-out=psl",
+            str(psl),
+        ]
+
     def _blat_side(self, te_library, read_file, out_bam, threads, tmpdir):
         # BLAT reads FASTA, not FASTQ (it treats a FASTQ's "@name" lines as a list
         # of filenames). Read libraries are FASTQ, so convert the query to FASTA
@@ -510,10 +528,7 @@ class BlatBackend(AlignerBackend):
                 out.write(f">{rec.name}\n{rec.sequence}\n")
                 seqs[rec.name] = rec.sequence
         psl = os.path.join(tmpdir, "aln.psl")
-        subprocess.run(
-            ["blat", str(te_library), query_fa, "-noHead", "-out=psl", psl],
-            check=True,
-        )
+        subprocess.run(self._blat_cmd(te_library, query_fa, psl), check=True)
         ref_lengths = {
             r: fa.get_reference_length(r)
             for fa in [pysam.FastaFile(str(te_library))]
