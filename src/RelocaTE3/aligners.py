@@ -555,21 +555,28 @@ class BlatBackend(AlignerBackend):
         """BLAT indexes at run time; nothing to pre-build."""
 
     def _blat_cmd(self, te_library, query_fa, psl):
-        # RelocaTE2 parity (relocaTE2.py:545): sensitize BLAT for short and
-        # divergent TE-junction reads. BLAT's defaults (minScore=30, tileSize=11)
-        # fail to seed/keep reads with only a short or mismatch-bearing TE overlap
-        # -- exactly the junction reads that carry the non-reference insertion
-        # signal -- so RelocaTE2 lowers them to -minScore=10 -tileSize=7. The TE
-        # library is the database and the reads are the query (db before query).
-        # Extra TE-stage options (e.g. -minIdentity=80 to lift BLAT's default
-        # 90% identity ceiling for divergent copies) are appended before the
-        # output path so they override the parity defaults above.
+        # Runs BLAT at its defaults (minScore=30, tileSize=11). We briefly
+        # hardcoded RelocaTE2's -minScore=10 -tileSize=7 here (relocaTE2.py:545)
+        # on the theory that BLAT sensitivity was the recall gap. Benchmarking on
+        # riceTElib (9 samples, 3 coverages) disproved it: those params raise
+        # recall by ~0.05 but collapse precision as coverage rises -- 0.635 /
+        # 0.406 / 0.231 at 5x / 15x / 30x, versus RelocaTE2's steady ~0.83 --
+        # because false positives grow superlinearly with depth (286 -> 1222 ->
+        # 3320) while RelocaTE2's stay flat. The extra calls are short-TSD
+        # (median 3 bp) LINE/SINE junctions that RelocaTE2 discards downstream
+        # and we do not, so the permissive settings are only safe once that
+        # filter exists. At BLAT's defaults RelocaTE3 already beat RelocaTE2 on
+        # F1 at every coverage (0.444 / 0.645 / 0.729 vs 0.438 / 0.620 / 0.696).
+        # See relocate-benchmark docs/2026-08-10-ricetelib-parity-results.md.
+        #
+        # The sensitized values remain available per-run via --te-opts, which is
+        # appended below (before the output path, so it can override anything
+        # defaulted here). The TE library is the database and the reads are the
+        # query, so db precedes query.
         return [
             "blat",
             str(te_library),
             str(query_fa),
-            "-minScore=10",
-            "-tileSize=7",
             *self._stage_opts("te"),
             "-noHead",
             "-out=psl",

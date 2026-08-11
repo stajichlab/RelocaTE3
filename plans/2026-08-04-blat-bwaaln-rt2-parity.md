@@ -1,5 +1,25 @@
 # BLAT + bwa-aln Parity with RelocaTE2
 
+> **OUTCOME (2026-08-10): THIS PLAN'S CENTRAL HYPOTHESIS WAS DISPROVEN AND THE CHANGE HAS BEEN REVERTED.**
+> The plan assumed BLAT's insensitive defaults were the recall gap, and shipped
+> `-minScore=10 -tileSize=7` as PR #40 (`50f939e`). Benchmarking on riceTElib
+> (9 samples x 3 coverages) showed that change is a regression on every axis:
+> recall +0.054 but precision -0.505 (0.325 vs RelocaTE2's 0.830) and F1 -0.195,
+> with false positives growing superlinearly with depth (286 -> 1222 -> 3320 at
+> 5x/15x/30x) while RelocaTE2's stay flat (103 -> 179). It also cost ~8x runtime.
+> RelocaTE3 at BLAT's **defaults** already beat RelocaTE2 on F1 at every coverage
+> (0.444/0.645/0.729 vs 0.438/0.620/0.696), so parity predated this plan.
+> The real gap is a downstream short-TSD LINE/SINE filter RelocaTE2 has and
+> RelocaTE3 lacks -- see "Next" below. Retained from PR #40: the per-stage
+> `te_opts`/`genome_opts` passthrough and CLI `--te-opts`/`--genome-opts`.
+> Full results: relocate-benchmark `docs/2026-08-10-ricetelib-parity-results.md`.
+>
+> **Next (open):** port RelocaTE2's post-BLAT filter that suppresses short-TSD
+> (median 3 bp) LINE/SINE junctions. That is the only route to running sensitized
+> BLAT without the precision collapse, and thus to beating RelocaTE2 on recall by
+> more than Helitron (RelocaTE3 0.59 vs RelocaTE2 0.02 -- our one real win, and
+> it is independent of the BLAT params).
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 > **For a future session:** Read the "Diagnosis" section in full before touching code. The `bwaaln` genome backend already matches RelocaTE2 (PR #39, commit `60082c7`). The remaining, previously-undocumented gap is on the **BLAT TE-search side**: RelocaTE3 runs BLAT at its insensitive defaults while RelocaTE2 runs it with sensitized `-minScore=10 -tileSize=7`. Chunking (`--split`) is a red herring for correctness — see Diagnosis §B.
 

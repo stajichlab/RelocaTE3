@@ -334,9 +334,8 @@ class TestExtraOptionPassthrough(unittest.TestCase):
             "te.fa", "q.fa", "a.psl"
         )
         self.assertIn("-minIdentity=80", cmd)
-        # parity defaults are still present and the query/db order is unchanged
-        self.assertIn("-minScore=10", cmd)
-        self.assertIn("-tileSize=7", cmd)
+        # opts land before the trailing output path, and db/query order holds
+        self.assertLess(cmd.index("-minIdentity=80"), cmd.index("a.psl"))
         self.assertLess(cmd.index("te.fa"), cmd.index("q.fa"))
 
     def test_bwa_mem_te_opts_appear_in_command(self):
@@ -381,22 +380,39 @@ class TestExtraOptionPassthrough(unittest.TestCase):
 
 
 class TestBlatCommand(unittest.TestCase):
-    """BLAT command line uses RelocaTE2's sensitivity params (no binary needed)."""
+    """BLAT command line shape (no binary needed)."""
 
-    def test_uses_relocate2_sensitivity_params(self):
+    def test_does_not_hardcode_sensitivity_params(self):
         from RelocaTE3.aligners import BlatBackend
 
         cmd = BlatBackend()._blat_cmd("te.fa", "query.fa", "aln.psl")
-        # RelocaTE2 (relocaTE2.py:545) runs: blat -minScore=10 -tileSize=7 <db>
-        # <query> <psl>. BLAT defaults (minScore=30, tileSize=11) miss short and
-        # divergent TE-junction reads, so parity requires these two flags.
-        self.assertIn("-minScore=10", cmd)
-        self.assertIn("-tileSize=7", cmd)
+        # RelocaTE2's -minScore=10 -tileSize=7 was hardcoded here for parity, but
+        # benchmarking on riceTElib showed it collapses precision as coverage
+        # rises (0.635/0.406/0.231 at 5x/15x/30x) by admitting short-TSD
+        # LINE/SINE junctions that RelocaTE2 filters downstream and RelocaTE3
+        # does not. BLAT's defaults scored better than RelocaTE2 at every
+        # coverage, so we run at defaults and leave the sensitized values to
+        # --te-opts. See docs 2026-08-10-ricetelib-parity-results.md.
+        self.assertNotIn("-minScore=10", cmd)
+        self.assertNotIn("-tileSize=7", cmd)
         # database (TE library) precedes the query, and PSL output is preserved.
         self.assertEqual(cmd[0], "blat")
         self.assertLess(cmd.index("te.fa"), cmd.index("query.fa"))
         self.assertIn("-out=psl", cmd)
         self.assertIn("-noHead", cmd)
+
+    def test_sensitivity_params_still_reachable_via_te_opts(self):
+        from RelocaTE3.aligners import BlatBackend
+
+        # Reverting the default must not remove the ability to opt back in; the
+        # RelocaTE2 values have to remain expressible for sweeps.
+        cmd = BlatBackend(
+            te_opts=["-minScore=10", "-tileSize=7"]
+        )._blat_cmd("te.fa", "query.fa", "aln.psl")
+        self.assertIn("-minScore=10", cmd)
+        self.assertIn("-tileSize=7", cmd)
+        # opts land before the output path so BLAT still parses the trailing psl
+        self.assertLess(cmd.index("-minScore=10"), cmd.index("aln.psl"))
 
 
 if __name__ == "__main__":
