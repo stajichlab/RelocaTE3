@@ -249,7 +249,7 @@ file. RelocaTE3 emits the same tiers so the two can be compared like for like:
 | `.raw.txt` / `.raw.gff` | every call |
 | `.all.txt` / `.all.gff` | minus one-sided calls sitting within `--distance` (3 bp) of a reference TE boundary |
 | `.gff` | **headline** — minus `singleton`, `insufficient_data` and `supporting_reads` calls |
-| `.high_conf.txt` / `.high_conf.gff` | additionally minus one-sided (single-junction) calls |
+| `.high_conf.txt` / `.high_conf.gff` | additionally minus calls with exactly one junction read on one side and none on the other |
 
 Each tier is a subset of the one above it. Note that the filtering applies to
 the **GFF**, not the table: RelocaTE2 cleans only its GFF and genotypes the
@@ -257,18 +257,19 @@ unfiltered table, so `characterize` sees every call in both tools.
 
 On the rice Chr3 2 Mb fixture the tiers score:
 
-| tier | calls | recall | precision |
-|---|---|---|---|
-| `.all` / `.txt` | 215 | 194/200 (0.970) | 0.902 |
-| headline `.gff` | 215 | 194/200 (0.970) | 0.902 |
-| `.high_conf` | 178 | 178/200 (0.890) | **1.000** |
+| tier | calls | recall | precision | F1 |
+|---|---|---|---|---|
+| `.raw` / `.all` / `.txt` | 199 | 193/200 (0.965) | 0.970 | 0.967 |
+| headline `.gff` | 199 | 193/200 (0.965) | 0.970 | 0.967 |
+| `.high_conf` | 193 | 191/200 (0.955) | 0.990 | **0.972** |
 
-(The headline tier removes nothing here because this run produced no
-`singleton`/`insufficient_data`/`supporting_reads` calls.)
+RelocaTE2 on the same inputs scores 196 calls, 196/200, precision 1.000
+(F1 0.990) — see `notes/2026-08-12-relocate2-chr3-baseline.md`.
 
-Every false positive on this dataset is a one-sided call, so `.high_conf` is the
-set to use when precision matters more than sensitivity. `--require-both-junctions`
-produces the same filtering during calling rather than afterwards.
+`.high_conf` is the set to use when precision matters more than sensitivity.
+Note it is *not* "two-sided calls only" — RelocaTE2 removes only the single-read
+one-sided case, and so does this. `--require-both-junctions` is the stricter
+option, filtering every one-sided call during calling.
 
 The `.raw` → `.all` step is RelocaTE2's reference-TE boundary filter: a call is
 dropped only if it is **one-sided** *and* one of its endpoints lies within

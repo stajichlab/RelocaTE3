@@ -34,8 +34,14 @@ from RelocaTE3.insertions import write_insertion_tiers
 
 # TE, TSD-or-class, sample, chrom, start..end, strand, T:, R:, L:, ST:, SR:, SL:
 TWO_SIDED = "mping\tTTA\tHEG4\tChr3\t100..102\t+\tT:6\tR:3\tL:3\tST:0\tSR:9\tSL:8"
-ONE_SIDED_R = "mping\tUNK\tHEG4\tChr3\t200..200\t-\tT:2\tR:2\tL:0\tST:0\tSR:5\tSL:0"
-ONE_SIDED_L = "mping\tUNK\tHEG4\tChr3\t300..300\t+\tT:1\tR:0\tL:1\tST:0\tSR:0\tSL:4"
+# RelocaTE2's high_conf grep removes the literal patterns
+# "Right_junction_reads=1;Left_junction_reads=0" and its mirror -- *exactly one*
+# read against zero. A one-sided call backed by several reads is kept.
+SINGLE_READ_R = "mping\tUNK\tHEG4\tChr3\t200..200\t-\tT:1\tR:1\tL:0\tST:0\tSR:5\tSL:0"
+SINGLE_READ_L = "mping\tUNK\tHEG4\tChr3\t300..300\t+\tT:1\tR:0\tL:1\tST:0\tSR:0\tSL:4"
+MULTI_READ_ONE_SIDED = (
+    "mping\tUNK\tHEG4\tChr3\t350..350\t+\tT:3\tR:0\tL:3\tST:0\tSR:0\tSL:6"
+)
 SUPPORT_ONLY = (
     "NA\tsupporting_reads\tHEG4\tChr3\t400..500\t+\tT:0\tR:0\tL:0\tST:9\tSR:5\tSL:4"
 )
@@ -46,8 +52,9 @@ INSUFFICIENT = (
 
 ALL_ROWS = [
     TWO_SIDED,
-    ONE_SIDED_R,
-    ONE_SIDED_L,
+    SINGLE_READ_R,
+    SINGLE_READ_L,
+    MULTI_READ_ONE_SIDED,
     SUPPORT_ONLY,
     SINGLETON,
     INSUFFICIENT,
@@ -88,7 +95,7 @@ def test_all_tier_keeps_every_call(written: Path):
 
 def test_headline_gff_drops_the_three_low_confidence_classes(written: Path):
     """clean_false_positive.py:107 greps out singleton/insufficient_data/supporting_reads."""
-    assert _starts_gff(_tier(written, ".gff")) == {"100", "200", "300"}
+    assert _starts_gff(_tier(written, ".gff")) == {"100", "200", "300", "350"}
 
 
 def test_plain_table_is_left_unfiltered(written: Path):
@@ -101,9 +108,14 @@ def test_plain_table_is_left_unfiltered(written: Path):
     assert len(_rows(written)) == len(ALL_ROWS)
 
 
-def test_high_conf_additionally_drops_one_sided_calls(written: Path):
-    """clean_false_positive.py:108 removes Right=1;Left=0 and Right=0;Left=1."""
-    assert _starts_gff(_tier(written, ".high_conf.gff")) == {"100"}
+def test_high_conf_drops_only_single_read_one_sided_calls(written: Path):
+    """clean_false_positive.py:108 removes Right=1;Left=0 and Right=0;Left=1 only.
+
+    A one-sided call carrying several junction reads survives. Dropping every
+    call with a zero side is stricter than RelocaTE2 and costs real insertions:
+    on the Chr3 fixture it discards 16 calls RelocaTE2 keeps.
+    """
+    assert _starts_gff(_tier(written, ".high_conf.gff")) == {"100", "350"}
 
 
 def test_every_tier_has_a_matching_gff(written: Path):
@@ -178,11 +190,13 @@ def _tiers_with_bed(tmp_path: Path, rows: list[str], distance: int = 3) -> Path:
     return table
 
 
+# The boundary filter uses "a zero junction side" (clean_false_positive.py:82),
+# which is a *different*, broader test than the high_conf grep at :108.
 ONE_SIDED_AT_BOUNDARY = (
-    "mping\tUNK\tHEG4\tChr3\t1001..1001\t+\tT:1\tR:1\tL:0\tST:0\tSR:2\tSL:0"
+    "mping\tUNK\tHEG4\tChr3\t1001..1001\t+\tT:3\tR:3\tL:0\tST:0\tSR:2\tSL:0"
 )
 ONE_SIDED_AWAY = (
-    "mping\tUNK\tHEG4\tChr3\t5000..5000\t+\tT:1\tR:1\tL:0\tST:0\tSR:2\tSL:0"
+    "mping\tUNK\tHEG4\tChr3\t5000..5000\t+\tT:3\tR:3\tL:0\tST:0\tSR:2\tSL:0"
 )
 TWO_SIDED_AT_BOUNDARY = (
     "mping\tTTA\tHEG4\tChr3\t1499..1501\t+\tT:8\tR:4\tL:4\tST:0\tSR:9\tSL:9"
@@ -203,7 +217,7 @@ def test_two_sided_call_at_a_boundary_is_kept(tmp_path: Path):
 
 def test_distance_is_configurable(tmp_path: Path):
     """RelocaTE2 exposes -d/--distance, default 3."""
-    row = "mping\tUNK\tHEG4\tChr3\t1008..1008\t+\tT:1\tR:1\tL:0\tST:0\tSR:2\tSL:0"
+    row = "mping\tUNK\tHEG4\tChr3\t1008..1008\t+\tT:3\tR:3\tL:0\tST:0\tSR:2\tSL:0"
     kept = _tiers_with_bed(tmp_path, [row], distance=3)
     assert _starts(_tier(kept, ".all.txt")) == {"1008..1008"}, "8 bp away, d=3: kept"
 

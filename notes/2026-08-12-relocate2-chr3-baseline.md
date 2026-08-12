@@ -31,29 +31,49 @@ RelocaTE3 (this branch, shipped defaults) on **the same** `test_data` files:
 | tier | calls | recall | precision | F1 |
 |---|---|---|---|---|
 | RelocaTE2 headline | 196 | 196/200 (0.980) | 1.000 | **0.990** |
-| RelocaTE3 headline | 198 | 193/200 (0.965) | 0.975 | 0.970 |
-| RelocaTE3 `.high_conf` | 177 | 177/200 (0.885) | 1.000 | 0.939 |
+| RelocaTE3 headline | 199 | 193/200 (0.965) | 0.970 | 0.967 |
+| RelocaTE3 `.high_conf` | 193 | 191/200 (0.955) | 0.990 | **0.972** |
 
-**RelocaTE2 is ahead on this dataset**: F1 0.990 vs 0.970. It finds 3 more true
-insertions and emits 5 false positives fewer. Five truth sites are found only by
-RelocaTE2, two only by RelocaTE3.
+**RelocaTE2 is ahead on this dataset**, F1 0.990 vs 0.972, but by less than it
+first appeared. The first measurement had RelocaTE3's `.high_conf` at F1 0.939;
+that was a bug in *our* tier filter, not a property of the caller — see below.
 
 Note this is the opposite of the riceTElib benchmark, where RelocaTE3 leads at
 every coverage (F1 0.444/0.645/0.729 vs 0.438/0.620/0.696 at 5x/15x/30x).
 Chr3 2 Mb is a single easy region at 6X; riceTElib is a harder multi-TE panel.
 Neither result generalises on its own.
 
-## The gap is second-junction recovery
+## Correction: our high_conf filter was stricter than RelocaTE2's
 
-RelocaTE2's headline and `.high_conf` tiers are **identical** (196 = 196): after
-dropping its low-confidence classes, no one-sided calls remain. RelocaTE2 is
-resolving both junctions almost everywhere.
+RelocaTE2's `high_conf` step greps out the *literal* strings
+`Right_junction_reads=1;Left_junction_reads=0` and its mirror
+(clean_false_positive.py:108) — **exactly one junction read against zero**, and
+nothing else. A one-sided call backed by several junction reads survives.
 
-RelocaTE3 goes 198 -> 177 across the same step, so ~21 of its calls are
-one-sided. **19 truth sites are found by RelocaTE2's headline but absent from
-RelocaTE3's `.high_conf`** — RelocaTE3 sees one junction where RelocaTE2 sees
-two. That is the entire accuracy gap, and it is the item to work on; it is not
-an aligner or parameter difference (those are now identical).
+Our implementation dropped every call with a zero side. On this fixture that
+discarded 16 calls RelocaTE2 keeps:
+
+| RelocaTE3 `.high_conf` rule | calls | recall | precision | F1 |
+|---|---|---|---|---|
+| drop any zero side (wrong) | 177 | 177/200 | 1.000 | 0.939 |
+| drop only 1-vs-0 (RelocaTE2) | 193 | 191/200 | 0.990 | **0.972** |
+
+Note also that RelocaTE2's own headline and `.high_conf` are identical here
+(196 = 196) simply because no `1 vs 0` calls survived its class filter — not
+because it has no one-sided calls. It keeps 4 of them.
+
+## What is actually left
+
+With the filter corrected, **5 truth sites** are found by RelocaTE2 and not by
+RelocaTE3 — down from the 19 the buggy filter implied. At all five, RelocaTE3
+makes **no call at all**; none is a one-sided call that could be rescued by
+recovering a second junction. So "second-junction recovery" was the wrong
+diagnosis.
+
+A separate, larger quality gap: of the 191 sites both callers find, **16 have
+RelocaTE2 resolving a concrete TSD where RelocaTE3 reports `UNK`**. That is
+about TSD inference, not detection, and it is the bigger lever on output
+quality.
 
 ## Incidental finding: the vendored RepeatMasker is synthetic
 
@@ -88,7 +108,8 @@ directly. Outputs and the R3 comparison run live alongside it under
 
 ## Next
 
-- Second-junction recovery (19 sites) — the only remaining accuracy gap.
+- The 5 sites RelocaTE3 misses entirely (not a second-junction problem).
+- TSD inference: 16 shared sites report `UNK` where RelocaTE2 resolves a TSD.
 - Replace or label the synthetic RepeatMasker fixture.
 - The 196/200 references in the acceptance test / PLAN / README can now cite
   this measurement rather than RelocaTE2's README.

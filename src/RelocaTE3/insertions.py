@@ -1359,22 +1359,47 @@ def _row_class(fields: list[str]) -> str:
     return fields[1] if len(fields) > 1 else ""
 
 
-def _is_one_sided(fields: list[str]) -> bool:
-    """True when the call has junction reads on only one side.
-
-    RelocaTE2 drops ``Right_junction_reads=1;Left_junction_reads=0`` and its
-    mirror from high_conf (clean_false_positive.py:108). Reading the counts is
-    equivalent and does not depend on the count being exactly 1.
-    """
+def _junction_counts(fields: list[str]) -> tuple[int, int] | None:
+    """``(right, left)`` junction-read counts, or None if unparseable."""
     if len(fields) < 9:
-        return False
-    right = fields[7].removeprefix("R:")
-    left = fields[8].removeprefix("L:")
+        return None
     try:
-        right_n, left_n = int(right), int(left)
+        return (
+            int(fields[7].removeprefix("R:")),
+            int(fields[8].removeprefix("L:")),
+        )
     except ValueError:
+        return None
+
+
+def _has_empty_side(fields: list[str]) -> bool:
+    """True when one junction side has no reads at all.
+
+    This is the test RelocaTE2's *boundary* filter uses
+    (clean_false_positive.py:82, ``Right == 0 or Left == 0``). It is broader
+    than the high_conf rule below -- do not conflate them.
+    """
+    counts = _junction_counts(fields)
+    if counts is None:
         return False
-    return (right_n == 0) != (left_n == 0)
+    return (counts[0] == 0) != (counts[1] == 0)
+
+
+def _is_single_read_one_sided(fields: list[str]) -> bool:
+    """True for RelocaTE2's high_conf exclusions: exactly one read against zero.
+
+    clean_false_positive.py:108 greps out the literal
+    ``Right_junction_reads=1;Left_junction_reads=0`` and its mirror -- and
+    nothing else. A one-sided call backed by several junction reads survives
+    into high_conf. Treating every zero-sided call as low confidence is stricter
+    than RelocaTE2 and discards real insertions: on the Chr3 2 Mb fixture it
+    removes 16 calls RelocaTE2 keeps, costing ~0.05 recall for no precision
+    gain.
+    """
+    counts = _junction_counts(fields)
+    if counts is None:
+        return False
+    return counts in {(1, 0), (0, 1)}
 
 
 def _load_te_boundaries(reference_ins: Path | str) -> dict[str, set[int]]:
@@ -1456,8 +1481,10 @@ def write_insertion_tiers(
         RelocaTE2's headline set: minus ``singleton`` / ``insufficient_data`` /
         ``supporting_reads`` (clean_false_positive.py:107).
     ``<stem>.high_conf.{txt,gff}``
-        Additionally minus one-sided junction calls
-        (clean_false_positive.py:108).
+        Additionally minus calls with exactly one junction read on one side and
+        none on the other (clean_false_positive.py:108). Note this is narrower
+        than "one-sided": a call with several junction reads on a single side
+        survives, as it does in RelocaTE2.
 
     **The plain ``<stem>.txt`` is left exactly as written.** RelocaTE2 runs
     clean_false_positive.py on the GFF only (relocaTE2.py:704) and concatenates
@@ -1492,12 +1519,12 @@ def write_insertion_tiers(
         every = [
             r
             for r in raw
-            if not (_is_one_sided(r) and _at_te_boundary(r, boundaries, distance))
+            if not (_has_empty_side(r) and _at_te_boundary(r, boundaries, distance))
         ]
     else:
         every = list(raw)
     headline = [r for r in every if _row_class(r) not in LOW_CONFIDENCE_CLASSES]
-    high_conf = [r for r in headline if not _is_one_sided(r)]
+    high_conf = [r for r in headline if not _is_single_read_one_sided(r)]
 
     written: dict[str, Path] = {}
     for name, suffix, subset in (
