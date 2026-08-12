@@ -71,8 +71,9 @@ Common parameters
 -----------------
 
 ``--mismatch`` *N*
-    Mismatches allowed when aligning reads to the TE library (default 0).
-    Use 2 to match the sensitivity of RelocaTE2's benchmark settings.
+    Mismatches allowed when aligning reads to the TE library, and when
+    comparing reads to the genome (default 2, matching RelocaTE2's
+    ``--mismatch`` and ``--mismatch_junction``).
 
 ``--min-match`` *N*
     Minimum number of bases a read must match the TE consensus
@@ -83,10 +84,12 @@ Common parameters
     (``run`` / ``trim``; default 10).
 
 ``--threads`` *N*
-    CPU threads passed to minimap2 (default 1).
+    CPU threads passed to the aligner (default 1).
 
 ``--tsd`` *MOTIF*
-    (``find-insertions``) Target-site duplication motif (e.g. ``TTA``); required.
+    (``find-insertions``) Target-site duplication motif (e.g. ``TTA``), a fixed
+    wildcard (e.g. ``...``), or ``UNK`` to infer each TSD (default ``UNK``,
+    which is what RelocaTE2 always uses).
 
 ``--reference-ins`` *FILE*
     (``find-insertions``) RepeatMasker ``.out`` or BED of reference TE copies.

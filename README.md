@@ -58,7 +58,7 @@ relocaTE3 run-all \
   -T RiceTE.fa \
   -g reference.fa \
   -n HEG4 -o HEG4_out \
-  --threads 8 --mismatch 2 --tsd UNK \
+  --threads 8 \
   --repeatmasker reference.fa.RepeatMasker.out \
   --genotype
 ```
@@ -73,9 +73,8 @@ results match the staged workflow. Pick whichever fits: `run-all` for a laptop o
 a single HPC node, the staged commands when a workflow engine needs to scatter
 work across samples or chromosomes.
 
-The aligner defaults (`--te-aligner blat --genome-aligner bwaaln`) already match
-RelocaTE2. To reproduce the exact configuration validated against RelocaTE2 on
-the rice benchmark, add `--min-mapq 1 --require-both-junctions`.
+**Every default matches RelocaTE2**, so the command above reproduces a stock
+RelocaTE2 run without tuning — see "RelocaTE2 defaults" below for the mapping.
 
 ### Many samples
 
@@ -122,7 +121,7 @@ relocaTE3 run \
   --left reads_1.fq.gz --right reads_2.fq.gz \
   --te-library RiceTE.fa \
   --name HEG4 --outdir HEG4_out \
-  --threads 8 --mismatch 2
+  --threads 8
 
 # 4. re-align the trimmed flanking reads to the genome
 relocaTE3 align-genome \
@@ -134,9 +133,8 @@ relocaTE3 align-genome \
 relocaTE3 find-insertions \
   -b HEG4_out/HEG4.repeat.bwaaln.sorted.bam \
   --read-repeat HEG4_out/te_containing/HEG4.read_repeat_name.txt \
-  --tsd TTA --target ALL --name HEG4 --outdir HEG4_out --te-name mping \
-  --reference-ins reference.fa.RepeatMasker.out \
-  --mismatch 2 --min-mapq 1
+  --target ALL --name HEG4 --outdir HEG4_out --te-name mping \
+  --reference-ins reference.fa.RepeatMasker.out
 
 # 7. genotype the insertions from a reads-to-genome BAM/CRAM
 relocaTE3 characterize \
@@ -222,7 +220,7 @@ family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
 | `--te_fasta` | `-T/--te-library` |
 | `--genome_fasta` | `-g/--genome-fasta` |
 | `--reference_ins` | `find-insertions --reference-ins` |
-| `--mismatch` | `--mismatch` (default 0; use 2 to match the RelocaTE2 benchmark) |
+| `--mismatch` / `--mismatch_junction` | `--mismatch` (one knob covers both; default 2, same as RelocaTE2) |
 | `--aligner blat/bwa/bowtie2` | `run --te-aligner` and `align-genome --genome-aligner` — the defaults (`blat`, `bwa aln`) already match RelocaTE2 |
 | `characterizer.pl` (Perl) | `characterize` |
 | `--mate_1_id` / `--mate_2_id` / `--unpaired_id` | not needed — the mate is taken from which file the read came from |
@@ -231,6 +229,35 @@ family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
 
 `run-all` is the closest equivalent to a single RelocaTE2 invocation. The staged
 subcommands remain available for workflow engines.
+
+## RelocaTE2 defaults
+
+RelocaTE3 ships RelocaTE2's defaults, so an untuned run reproduces RelocaTE2's
+behaviour. Values below are cited from RelocaTE2's source.
+
+| Parameter | RelocaTE2 | RelocaTE3 | Source |
+|---|---|---|---|
+| TE-search aligner | `blat` | `--te-aligner blat` | `relocaTE2.py:204` |
+| Genome placement | `bwa aln` | `--genome-aligner bwaaln` | `relocaTE_align.py` |
+| Mismatches (reads vs TE) | `--mismatch 2` | `--mismatch 2` | `relocaTE2.py:207` |
+| Mismatches (junction reads) | `--mismatch_junction 2` | same `--mismatch` | `relocaTE2.py:208` |
+| Match-length cutoff | `--len_cut_match 10` | `--min-match 10` | `relocaTE2.py:205` |
+| Trimmed-length cutoff | `--len_cut_trim 10` | `--min-trimmed 10` | `relocaTE2.py:206` |
+| TSD | `UNK` (hardcoded) | `--tsd UNK` | `relocaTE2.py:346` |
+| Junction reads required | `left >= 1` **or** `right >= 1` | same; `--require-both-junctions` is opt-in | `relocaTE_insertionFinder.py:365,1732-4` |
+| Threads | `--cpu 1` | `--threads 1` | `relocaTE2.py:199` |
+
+Two RelocaTE2 options have no RelocaTE3 equivalent because they are no longer
+needed: `--mate_1_id`/`--mate_2_id`/`--unpaired_id` (the mate comes from which
+file a read is in) and `--split` (chunking for blat/bwa).
+
+`--size` (insert size, default 500) is not implemented: RelocaTE2 uses it only
+to estimate the span of insertions supported by mate pairs alone, which
+RelocaTE3 does not yet emit as a separate output.
+
+`--min-mapq` (default 1) has no RelocaTE2 counterpart — RelocaTE2 instead
+classifies reads below MAPQ 29 as low-quality using bwa's `XM`/`X1`/`XO` tags
+(`relocaTE_insertionFinder.py:1523`).
 
 ## Choosing an aligner
 

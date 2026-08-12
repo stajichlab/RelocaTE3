@@ -70,7 +70,7 @@ class RelocaTE:
         search_tool: str | None = None,
         minimum_match_length: int = 10,
         minimum_trimmed_length: int = 10,
-        mismatch_allowance: int = 0,
+        mismatch_allowance: int = 2,
         len_cut_match: int | None = None,
         len_cut_trim: int | None = None,
         te_opts=(),
@@ -130,7 +130,7 @@ class RelocaTE:
         outdir: Path,
         minimum_match_length: int = 10,
         minimum_trimmed_length: int = 10,
-        mismatch_allowance: int = 0,
+        mismatch_allowance: int = 2,
     ) -> int:
         """Trim TE sequence from reads and write the step-3 output files.
 
@@ -328,7 +328,7 @@ class RelocaTE:
         bamfiles: list[Path],
         minimum_match_length: int = 10,
         minimum_trimmed_length: int = 10,
-        mismatch_allowance: int = 0,
+        mismatch_allowance: int = 2,
     ) -> TrimmedReadLibrary:
         """Parse TE-library BAM(s) into best-match coordinates per read.
 
@@ -381,7 +381,7 @@ class RelocaTE:
         """
         return RelocaTE._match_rank(new_rec) < RelocaTE._match_rank(old_rec)
 
-    def _parse_te_bam(self, bam: Path, mismatch_allowance: int = 0) -> dict:
+    def _parse_te_bam(self, bam: Path, mismatch_allowance: int = 2) -> dict:
         """Parse one TE-library BAM into ``{read_name: best-match record}``.
 
         Each record stores the read-relative match coordinates, the TE target

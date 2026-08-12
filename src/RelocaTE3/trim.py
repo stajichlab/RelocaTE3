@@ -141,7 +141,7 @@ def trim_read(
     aln: TEReadAlignment,
     len_cut_match: int = 10,
     len_cut_trim: int = 10,
-    mismatch_allowance: int = 0,
+    mismatch_allowance: int = 2,
 ) -> TrimmedRead | None:
     """Classify a TE alignment and return the trimmed flanking read, or None.
 

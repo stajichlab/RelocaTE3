@@ -145,9 +145,9 @@ def _menu_trim(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         "--mismatch",
         type=int,
-        default=0,
+        default=2,
         dest="mismatch_allowance",
-        help="Allowed mismatches in TE alignment",
+        help="Allowed mismatches in TE alignment (default: 2, matching RelocaTE2)",
     )
     _add_common_args(parser)
     parser.set_defaults(func=cmd_trim)
@@ -224,9 +224,9 @@ def _menu_run(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         "--mismatch",
         type=int,
-        default=0,
+        default=2,
         dest="mismatch_allowance",
-        help="Allowed mismatches in TE alignment",
+        help="Allowed mismatches in TE alignment (default: 2, matching RelocaTE2)",
     )
     _add_common_args(parser)
     parser.set_defaults(func=cmd_run)
@@ -350,8 +350,9 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
         help="Minimum trimmed flanking sequence length to retain",
     )
     te.add_argument(
-        "--mismatch", type=int, default=0, dest="mismatch_allowance",
-        help="Allowed mismatches (TE alignment and read/genome comparison)",
+        "--mismatch", type=int, default=2, dest="mismatch_allowance",
+        help="Allowed mismatches, TE alignment and read/genome comparison "
+        "(default: 2, matching RelocaTE2's --mismatch and --mismatch_junction)",
     )
 
     gen = parser.add_argument_group("Genome placement (step 4)")
@@ -632,8 +633,9 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     parser.add_argument(
         "--tsd",
-        required=True,
-        help="TSD motif (e.g. TTA), fixed wildcard (e.g. ...), or UNK to infer each TSD",
+        default="UNK",
+        help="TSD motif (e.g. TTA), fixed wildcard (e.g. ...), or UNK to infer "
+        "each TSD (default: UNK -- RelocaTE2 hardcodes UNK, relocaTE2.py:346)",
     )
     parser.add_argument(
         "-c", "--target", default="ALL", help="Chromosome to analyze, or ALL"
@@ -657,9 +659,10 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     parser.add_argument(
         "--mismatch",
         type=int,
-        default=0,
+        default=2,
         dest="mismatch_allow",
-        help="Allowed read/genome mismatches (excluding indels)",
+        help="Allowed read/genome mismatches, excluding indels "
+        "(default: 2, matching RelocaTE2's --mismatch_junction)",
     )
     parser.add_argument(
         "--min-mapq",

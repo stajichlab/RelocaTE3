@@ -74,7 +74,7 @@ def run_sample(
     threads: int = 1,
     len_cut_match: int = 10,
     len_cut_trim: int = 10,
-    mismatch_allowance: int = 0,
+    mismatch_allowance: int = 2,
     required_junction_reads: int = 1,
     te_aligner: str = "blat",
     genome_aligner: str = "bwaaln",
@@ -195,7 +195,7 @@ def run_samples(
     step_threads: int = 1,
     len_cut_match: int = 10,
     len_cut_trim: int = 10,
-    mismatch_allowance: int = 0,
+    mismatch_allowance: int = 2,
     required_junction_reads: int = 1,
     verbose: int = 0,
 ) -> list[Path | None]:
