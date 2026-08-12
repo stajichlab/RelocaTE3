@@ -3,26 +3,44 @@
 RelocaTE3 identifies transposable element (TE) insertion polymorphisms from
 short-read resequencing data, at single-base resolution, by comparison to a
 reference genome. It is a modern, pure-Python reimplementation of
-[RelocaTE2](https://github.com/JinfengChen/RelocaTE2) built on `minimap2`
-(default) and `samtools` (plus `pysam`/`biopython`) — no seqtk or Perl. The
-aligner for each stage is selectable: `minimap2`, `bwa`, `bwa-mem2`, `bowtie2`,
-or `blat` (see "Choosing an aligner").
+[RelocaTE2](https://github.com/JinfengChen/RelocaTE2) built on `samtools`
+(plus `pysam`/`biopython`) — no seqtk or Perl. By default it uses the same
+aligner pair as RelocaTE2, `blat` for TE search and `bwa aln` for genome
+placement, but the aligner for each stage is selectable: `minimap2`, `bwa`,
+`bwa-mem2`, `bwa aln`, `bowtie2`, or `blat` (see "Choosing an aligner").
 
 > Status: reference implementation. The full pipeline (read trimming → genome
 > re-alignment → non-reference insertion calling → reference/shared insertions →
-> genotyping) runs end to end. On the rice Chr3 2 Mb benchmark it recovers
-> ~178/200 simulated insertions (~89% recall, ~90% precision); see
-> `tests/acceptance_test.py`. See `PLAN.md` for the roadmap (Rust acceleration and
+> genotyping) runs end to end. On the rice Chr3 2 Mb benchmark, at the shipped
+> defaults, it recovers 194/200 simulated insertions (97% recall, 90%
+> precision). RelocaTE2 on the same data, measured: 196/200 at precision 1.000
+> (`notes/2026-08-12-relocate2-chr3-baseline.md`) — it still leads on this
+> fixture, by resolving a second junction where RelocaTE3 sees only one. See
+> `tests/acceptance_test.py`, which gates the minimap2 configuration
+> (~178/200) so it can run without blat. See `PLAN.md` for the roadmap (Rust acceleration and
 > Nextflow scatter are planned).
 
 ## Installation
 
-With [pixi](https://pixi.sh) (recommended — pins `minimap2`/`samtools`/`bedtools`):
+With [pixi](https://pixi.sh) (recommended — pins the aligners/`samtools`/`bedtools`):
 
 ```bash
 pixi install
 pixi run relocaTE3 --help
 ```
+
+The default TE aligner is `blat`, which cannot be installed alongside the
+plotting stack (its bioconda build hard-pins `zlib 1.2.11`, and it is linux-64
+only). It therefore lives in a separate pixi environment that also carries
+RelocaTE3 itself:
+
+```bash
+pixi run -e blat relocaTE3 --help     # linux-64; blat + RelocaTE3 together
+```
+
+Any `blat` on `PATH` works just as well — the backend simply shells out to it.
+Without one, pass `--te-aligner bowtie2` (the closest alternative on the rice
+benchmark); RelocaTE3 will say so if `blat` is missing.
 
 Or into an existing environment that already provides `minimap2` and `samtools`:
 
@@ -42,7 +60,7 @@ relocaTE3 run-all \
   -T RiceTE.fa \
   -g reference.fa \
   -n HEG4 -o HEG4_out \
-  --threads 8 --mismatch 2 --tsd UNK \
+  --threads 8 \
   --repeatmasker reference.fa.RepeatMasker.out \
   --genotype
 ```
@@ -57,9 +75,8 @@ results match the staged workflow. Pick whichever fits: `run-all` for a laptop o
 a single HPC node, the staged commands when a workflow engine needs to scatter
 work across samples or chromosomes.
 
-To reproduce the configuration validated against RelocaTE2 on the rice benchmark,
-add `--te-aligner blat --genome-aligner bwaaln --min-mapq 1
---require-both-junctions`.
+**Every default matches RelocaTE2**, so the command above reproduces a stock
+RelocaTE2 run without tuning — see "RelocaTE2 defaults" below for the mapping.
 
 ### Many samples
 
@@ -106,7 +123,7 @@ relocaTE3 run \
   --left reads_1.fq.gz --right reads_2.fq.gz \
   --te-library RiceTE.fa \
   --name HEG4 --outdir HEG4_out \
-  --threads 8 --mismatch 2
+  --threads 8
 
 # 4. re-align the trimmed flanking reads to the genome
 relocaTE3 align-genome \
@@ -116,11 +133,10 @@ relocaTE3 align-genome \
 
 # 5. cluster junction/supporting reads into non-reference insertions
 relocaTE3 find-insertions \
-  -b HEG4_out/HEG4.repeat.minimap.sorted.bam \
+  -b HEG4_out/HEG4.repeat.bwaaln.sorted.bam \
   --read-repeat HEG4_out/te_containing/HEG4.read_repeat_name.txt \
-  --tsd TTA --target ALL --name HEG4 --outdir HEG4_out --te-name mping \
-  --reference-ins reference.fa.RepeatMasker.out \
-  --mismatch 2 --min-mapq 1
+  --target ALL --name HEG4 --outdir HEG4_out --te-name mping \
+  --reference-ins reference.fa.RepeatMasker.out
 
 # 7. genotype the insertions from a reads-to-genome BAM/CRAM
 relocaTE3 characterize \
@@ -170,7 +186,8 @@ Under `--outdir` (example for `--name HEG4`, and `find-insertions --te-name mpin
 
 ```
 HEG4.left.bam / HEG4.right.bam            reads aligned to the TE library (map)
-HEG4.repeat.minimap.sorted.bam           flanking reads aligned to the genome (align-genome)
+HEG4.repeat.bwaaln.sorted.bam            flanking reads aligned to the genome (align-genome;
+                                          named for the aligner, minimap2 abbreviates to "minimap")
 flanking/
   HEG4.left.flankingReads.fq             trimmed flanking reads (5'/3')
   HEG4.right.flankingReads.fq
@@ -180,7 +197,12 @@ te_containing/
 te_portions/
   HEG4.five_prime.fa / HEG4.three_prime.fa   TE-matching read portions
 results/
-  ALL.mping.all_nonref_insert.txt                        non-reference insertions (find-insertions)
+  ALL.mping.all_nonref_insert.txt                        non-reference insertions, every call (characterize input)
+  ALL.mping.all_nonref_insert.gff                        RelocaTE2's headline filtered set
+  ALL.mping.all_nonref_insert.raw.txt / .gff             every call
+  ALL.mping.all_nonref_insert.all.txt / .gff             minus one-sided calls at reference TE boundaries
+  ALL.mping.all_nonref_insert.high_conf.txt / .gff       two-sided junction calls only
+  ALL.mping.all_nonref_supporting.txt / .gff             sites supported by mate pairs alone (no junction read)
   ALL.mping.all_nonref_insert.characTErized.gff / .txt   genotyped insertions (characterize)
   HEG4.all_ref_insert.gff / .txt                         reference/shared insertions (find-reference)
 existingTE.bed                                           reference TE copies (find-reference/annotate-ref)
@@ -205,8 +227,8 @@ family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
 | `--te_fasta` | `-T/--te-library` |
 | `--genome_fasta` | `-g/--genome-fasta` |
 | `--reference_ins` | `find-insertions --reference-ins` |
-| `--mismatch` | `--mismatch` (default 0; use 2 to match the RelocaTE2 benchmark) |
-| `--aligner blat/bwa/bowtie2` | `run --te-aligner` and `align-genome --genome-aligner` (see below) |
+| `--mismatch` / `--mismatch_junction` | `--mismatch` (one knob covers both; default 2, same as RelocaTE2) |
+| `--aligner blat/bwa/bowtie2` | `run --te-aligner` and `align-genome --genome-aligner` — the defaults (`blat`, `bwa aln`) already match RelocaTE2 |
 | `characterizer.pl` (Perl) | `characterize` |
 | `--mate_1_id` / `--mate_2_id` / `--unpaired_id` | not needed — the mate is taken from which file the read came from |
 | whole pipeline in one command | `run-all` |
@@ -215,23 +237,131 @@ family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
 `run-all` is the closest equivalent to a single RelocaTE2 invocation. The staged
 subcommands remain available for workflow engines.
 
+## Output tiers
+
+RelocaTE2 does not publish one call set, it publishes several
+(`clean_false_positive.py`), and its headline number comes from the *filtered*
+file. RelocaTE3 emits the same tiers so the two can be compared like for like:
+
+| file | contents |
+|---|---|
+| `.txt` | **every call** — the table, left unfiltered |
+| `.raw.txt` / `.raw.gff` | every call |
+| `.all.txt` / `.all.gff` | minus one-sided calls sitting within `--distance` (3 bp) of a reference TE boundary |
+| `.gff` | **headline** — minus `singleton`, `insufficient_data` and `supporting_reads` calls |
+| `.high_conf.txt` / `.high_conf.gff` | additionally minus calls with exactly one junction read on one side and none on the other |
+
+Each tier is a subset of the one above it. Note that the filtering applies to
+the **GFF**, not the table: RelocaTE2 cleans only its GFF and genotypes the
+unfiltered table, so `characterize` sees every call in both tools.
+
+On the rice Chr3 2 Mb fixture the tiers score:
+
+| tier | calls | recall | precision | F1 |
+|---|---|---|---|---|
+| `.raw` / `.all` / `.txt` | 199 | 193/200 (0.965) | 0.970 | 0.967 |
+| headline `.gff` | 199 | 193/200 (0.965) | 0.970 | 0.967 |
+| `.high_conf` | 193 | 191/200 (0.955) | 0.990 | **0.972** |
+
+RelocaTE2 on the same inputs scores 196 calls, 196/200, precision 1.000
+(F1 0.990) — see `notes/2026-08-12-relocate2-chr3-baseline.md`.
+
+`.high_conf` is the set to use when precision matters more than sensitivity.
+Note it is *not* "two-sided calls only" — RelocaTE2 removes only the single-read
+one-sided case, and so does this. `--require-both-junctions` is the stricter
+option, filtering every one-sided call during calling.
+
+The `.raw` → `.all` step is RelocaTE2's reference-TE boundary filter: a call is
+dropped only if it is **one-sided** *and* one of its endpoints lies within
+`--distance` bp of a reference TE's start or end, on the reasoning that reads
+from an intact reference copy's edge mimic a novel junction. A two-sided call at
+a boundary is kept. It needs `--reference-ins` (or `run-all --repeatmasker`);
+without one, `.all` equals `.raw`.
+
+On the Chr3 2 Mb fixture this filter removes nothing — of 37 one-sided calls,
+none fall within even 50 bp of a reference TE boundary — so it is not what
+separates RelocaTE3's precision from RelocaTE2's there. `.high_conf` is.
+
+## Mate-pair-only insertions
+
+When a cluster has supporting mates but no junction read mapped, RelocaTE2 still
+calls a site and writes it to `all_nonref_supporting.{txt,gff}` — kept out of
+`all_nonref_insert` because, with `T:0 R:0 L:0`, it is much weaker evidence.
+RelocaTE3 does the same. Three cases, following RelocaTE2:
+
+- **both strands** — the site lies in the gap between the innermost mates
+- **forward only** — spans one library insert onwards from the rightmost mate
+- **reverse only** — the mirror image
+
+`-s/--size` (default 500) is the library insert size used for the one-sided
+spans; RelocaTE2 widens it by 20% for library spread.
+
+Treat these as leads, not calls. On the Chr3 2 Mb fixture the path produces 6
+sites and **none** of them correspond to a true insertion — each rests on a
+single read per strand. They are reported because RelocaTE2 reports them, and
+they are filed separately for the same reason RelocaTE2 files them separately.
+
+## RelocaTE2 defaults
+
+RelocaTE3 ships RelocaTE2's defaults, so an untuned run reproduces RelocaTE2's
+behaviour. Values below are cited from RelocaTE2's source.
+
+| Parameter | RelocaTE2 | RelocaTE3 | Source |
+|---|---|---|---|
+| TE-search aligner | `blat` | `--te-aligner blat` | `relocaTE2.py:204` |
+| Genome placement | `bwa aln` | `--genome-aligner bwaaln` | `relocaTE_align.py` |
+| Mismatches (reads vs TE) | `--mismatch 2` | `--mismatch 2` | `relocaTE2.py:207` |
+| Mismatches (junction reads) | `--mismatch_junction 2` | same `--mismatch` | `relocaTE2.py:208` |
+| Match-length cutoff | `--len_cut_match 10` | `--min-match 10` | `relocaTE2.py:205` |
+| Trimmed-length cutoff | `--len_cut_trim 10` | `--min-trimmed 10` | `relocaTE2.py:206` |
+| TSD | `UNK` (hardcoded) | `--tsd UNK` | `relocaTE2.py:346` |
+| Junction reads required | `left >= 1` **or** `right >= 1` | same; `--require-both-junctions` is opt-in | `relocaTE_insertionFinder.py:365,1732-4` |
+| Threads | `--cpu 1` | `--threads 1` | `relocaTE2.py:199` |
+
+Two RelocaTE2 options have no RelocaTE3 equivalent because they are no longer
+needed: `--mate_1_id`/`--mate_2_id`/`--unpaired_id` (the mate comes from which
+file a read is in) and `--split` (chunking for blat/bwa).
+
+`--size` (insert size, default 500) is not implemented: RelocaTE2 uses it only
+to estimate the span of insertions supported by mate pairs alone, which
+RelocaTE3 does not yet emit as a separate output.
+
+`--min-mapq` (default 1) has no RelocaTE2 counterpart — RelocaTE2 instead
+classifies reads below MAPQ 29 as low-quality using bwa's `XM`/`X1`/`XO` tags
+(`relocaTE_insertionFinder.py:1523`).
+
 ## Choosing an aligner
 
 The aligner is selectable per stage:
 
-- **TE-library search** (`map` / `run`): `--te-aligner {minimap2,bwa,bwamem2,bowtie2,blat}`
-  (default `minimap2`). `--aligner` is a deprecated alias.
-- **Genome re-alignment** (`align-genome`): `--genome-aligner {minimap2,bwa,bwamem2,bowtie2}`
-  (default `minimap2`). `blat` is TE-search only and is rejected here.
+- **TE-library search** (`map` / `run`): `--te-aligner {minimap2,bwa,bwamem2,bwaaln,bowtie2,blat}`
+  (default `blat`, matching RelocaTE2). `--aligner` is a deprecated alias.
+- **Genome re-alignment** (`align-genome`): `--genome-aligner {minimap2,bwa,bwamem2,bwaaln,bowtie2}`
+  (default `bwaaln`, matching RelocaTE2). `blat` is TE-search only and is
+  rejected here.
+
+Measured on the riceTElib benchmark (9 samples x 3 coverages), matched true
+calls and precision at 30x:
+
+| TE search / genome | matched 5x | 15x | 30x | precision 30x |
+|---|---|---|---|---|
+| `blat` / `bwaaln` (default) | 455 | 781 | 962 | 0.845 |
+| `bowtie2` / `bwa` | 428 | 761 | 946 | 0.848 |
+| `minimap2` / `minimap2` | 346 | 632 | 798 | 0.827 |
+| RelocaTE2 | 449 | 739 | 897 | 0.834 |
+
+`bowtie2` is the best option when `blat` is unavailable — it costs ~2% of the
+matched calls and needs no extra environment.
 
 ```bash
 relocaTE3 run --left r1.fq --right r2.fq -T RiceTE.fa -n HEG4 -o HEG4_out --te-aligner bwa
 relocaTE3 align-genome -g reference.fa -f HEG4_out/flanking/*.flankingReads.fq -n HEG4 -o HEG4_out --genome-aligner bwa
 ```
 
-`bwa`, `bwa-mem2`, and `bowtie2` are pinned by pixi. `blat` is optional — provide it
-on `PATH` (its bioconda build conflicts with the pinned plotting stack). Non-minimap2
-genome BAMs are named `{name}.repeat.{aligner}.sorted.bam`.
+`minimap2`, `bwa`, `bwa-mem2`, and `bowtie2` are pinned in the default pixi
+environment; `blat` is in the separate `blat` environment (see Installation).
+Non-minimap2 genome BAMs are named `{name}.repeat.{aligner}.sorted.bam` — with
+the default `bwaaln` that is `{name}.repeat.bwaaln.sorted.bam`.
 
 ## Development
 

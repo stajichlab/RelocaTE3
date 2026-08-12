@@ -97,9 +97,10 @@ def _menu_map(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--te-aligner",
         "--aligner",
         dest="te_aligner",
-        default="minimap2",
+        default="blat",
         choices=list(TE_ALIGNERS),
-        help="Aligner for TE-library search (--aligner is a deprecated alias)",
+        help="Aligner for TE-library search (default: blat, matching RelocaTE2; "
+        "--aligner is a deprecated alias)",
     )
     parser.add_argument(
         "--te-opts",
@@ -144,9 +145,9 @@ def _menu_trim(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         "--mismatch",
         type=int,
-        default=0,
+        default=2,
         dest="mismatch_allowance",
-        help="Allowed mismatches in TE alignment",
+        help="Allowed mismatches in TE alignment (default: 2, matching RelocaTE2)",
     )
     _add_common_args(parser)
     parser.set_defaults(func=cmd_trim)
@@ -192,9 +193,10 @@ def _menu_run(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--te-aligner",
         "--aligner",
         dest="te_aligner",
-        default="minimap2",
+        default="blat",
         choices=list(TE_ALIGNERS),
-        help="Aligner for TE-library search (--aligner is a deprecated alias)",
+        help="Aligner for TE-library search (default: blat, matching RelocaTE2; "
+        "--aligner is a deprecated alias)",
     )
     parser.add_argument(
         "--te-opts",
@@ -222,9 +224,9 @@ def _menu_run(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         "--mismatch",
         type=int,
-        default=0,
+        default=2,
         dest="mismatch_allowance",
-        help="Allowed mismatches in TE alignment",
+        help="Allowed mismatches in TE alignment (default: 2, matching RelocaTE2)",
     )
     _add_common_args(parser)
     parser.set_defaults(func=cmd_run)
@@ -330,9 +332,9 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
     """
     te = parser.add_argument_group("TE-library search (steps 2-3)")
     te.add_argument(
-        "--te-aligner", dest="te_aligner", default="minimap2",
+        "--te-aligner", dest="te_aligner", default="blat",
         choices=["minimap2", "bwa", "bwamem2", "bwaaln", "bowtie2", "blat"],
-        help="Aligner for TE-library search",
+        help="Aligner for TE-library search (default: blat, matching RelocaTE2)",
     )
     te.add_argument(
         "--te-opts", dest="te_opts", default="",
@@ -348,15 +350,17 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
         help="Minimum trimmed flanking sequence length to retain",
     )
     te.add_argument(
-        "--mismatch", type=int, default=0, dest="mismatch_allowance",
-        help="Allowed mismatches (TE alignment and read/genome comparison)",
+        "--mismatch", type=int, default=2, dest="mismatch_allowance",
+        help="Allowed mismatches, TE alignment and read/genome comparison "
+        "(default: 2, matching RelocaTE2's --mismatch and --mismatch_junction)",
     )
 
     gen = parser.add_argument_group("Genome placement (step 4)")
     gen.add_argument(
-        "--genome-aligner", dest="genome_aligner", default="minimap2",
+        "--genome-aligner", dest="genome_aligner", default="bwaaln",
         choices=["minimap2", "bwa", "bwamem2", "bwaaln", "bowtie2"],
-        help="Aligner for genome re-alignment (blat is not supported here)",
+        help="Aligner for genome re-alignment (default: bwaaln, matching "
+        "RelocaTE2; blat is not supported here)",
     )
     gen.add_argument(
         "--genome-opts", dest="genome_opts", default="",
@@ -375,6 +379,16 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
     call.add_argument(
         "--te-name", dest="te_name", default="repeat",
         help="TE label used in output filenames",
+    )
+    call.add_argument(
+        "-s", "--size", type=int, default=500, dest="insert_size",
+        help="Library insert size for mate-pair-only insertions "
+        "(default: 500, matching RelocaTE2)",
+    )
+    call.add_argument(
+        "--distance", type=int, default=3, dest="distance",
+        help="Reference-TE boundary window for dropping one-sided calls "
+        "(default: 3, matching RelocaTE2)",
     )
     call.add_argument(
         "--min-mapq", type=int, default=1, dest="min_mapq",
@@ -588,9 +602,10 @@ def _menu_align_genome(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     parser.add_argument(
         "--genome-aligner",
         dest="genome_aligner",
-        default="minimap2",
+        default="bwaaln",
         choices=list(GENOME_ALIGNERS),
-        help="Aligner for genome re-alignment (blat is not supported here)",
+        help="Aligner for genome re-alignment (default: bwaaln, matching "
+        "RelocaTE2; blat is not supported here)",
     )
     parser.add_argument(
         "--genome-opts",
@@ -628,8 +643,9 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     parser.add_argument(
         "--tsd",
-        required=True,
-        help="TSD motif (e.g. TTA), fixed wildcard (e.g. ...), or UNK to infer each TSD",
+        default="UNK",
+        help="TSD motif (e.g. TTA), fixed wildcard (e.g. ...), or UNK to infer "
+        "each TSD (default: UNK -- RelocaTE2 hardcodes UNK, relocaTE2.py:346)",
     )
     parser.add_argument(
         "-c", "--target", default="ALL", help="Chromosome to analyze, or ALL"
@@ -653,9 +669,27 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     parser.add_argument(
         "--mismatch",
         type=int,
-        default=0,
+        default=2,
         dest="mismatch_allow",
-        help="Allowed read/genome mismatches (excluding indels)",
+        help="Allowed read/genome mismatches, excluding indels "
+        "(default: 2, matching RelocaTE2's --mismatch_junction)",
+    )
+    parser.add_argument(
+        "-s",
+        "--size",
+        type=int,
+        default=500,
+        dest="insert_size",
+        help="Sequencing library insert size, used to span insertions supported "
+        "by mate pairs alone (default: 500, matching RelocaTE2's -s/--size)",
+    )
+    parser.add_argument(
+        "--distance",
+        type=int,
+        default=3,
+        dest="distance",
+        help="Reference-TE boundary window for dropping one-sided calls "
+        "(default: 3, matching RelocaTE2's clean_false_positive -d)",
     )
     parser.add_argument(
         "--min-mapq",
@@ -900,6 +934,8 @@ def cmd_run_all(args: argparse.Namespace) -> int:
         mismatch_allow=args.mismatch_allowance,
         min_mapq=args.min_mapq,
         require_both_junctions=args.require_both_junctions,
+        insert_size=args.insert_size,
+        distance=args.distance,
     )
 
     # Steps 0/6 -- reference/shared calls (RelocaTE2's all_ref_insert.*).
@@ -1197,13 +1233,14 @@ def cmd_align_genome(args: argparse.Namespace) -> int:
 
 def cmd_find_insertions(args: argparse.Namespace) -> int:
     """Find non-reference insertions from genome-aligned flanking reads (step 5)."""
-    from RelocaTE3.insertions import InsertionFinder
+    from RelocaTE3.insertions import InsertionFinder, write_insertion_tiers
 
     finder = InsertionFinder(
         mismatch_allow=args.mismatch_allow,
         min_mapq=args.min_mapq,
         verbose=int(args.verbose),
         require_both_junctions=getattr(args, "require_both_junctions", False),
+        insert_size=getattr(args, "insert_size", 500),
     )
     out_txt = finder.find_insertions(
         bam_file=Path(args.bam),
@@ -1215,7 +1252,16 @@ def cmd_find_insertions(args: argparse.Namespace) -> int:
         te_name=args.te_name,
         reference_ins=Path(args.reference_ins) if args.reference_ins else None,
     )
-    logger.info("Non-reference insertions written to %s", out_txt)
+    # RelocaTE2 publishes tiered call sets rather than one file
+    # (clean_false_positive.py); write the same tiers so a RelocaTE3 run can be
+    # compared against a RelocaTE2 run like for like.
+    write_insertion_tiers(
+        out_txt,
+        sample=args.name,
+        reference_ins=args.reference_ins,
+        distance=getattr(args, "distance", 3),
+    )
+    logger.info("Non-reference insertions written to %s (+ .all/.high_conf tiers)", out_txt)
     return 0
 
 

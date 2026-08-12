@@ -86,6 +86,7 @@ print(cfg['relocate3']['tsd'])
 print(cfg['relocate3']['threads'])
 print(int(bool(cfg['relocate3']['characterize'])))
 print(cfg['relocate3'].get('characterize_source', 'external'))
+print(cfg['relocate3'].get('genome_aligner', 'bwaaln'))
 "
 }
 
@@ -119,6 +120,7 @@ TSD="${CFG[16]}"
 CFG_THREADS="${CFG[17]}"
 DO_CHARACTERIZE="${CFG[18]}"
 CHAR_SOURCE="${CFG[19]}"
+GENOME_ALIGNER="${CFG[20]}"
 
 mkdir -p "$OUTROOT" "$LOG_DIR"
 
@@ -157,7 +159,15 @@ mkdir -p "$SAMPLE_OUTDIR"
 READ_REPEAT="${SAMPLE_OUTDIR}/te_containing/${SAMPLE}.read_repeat_name.txt"
 FLANK5="${SAMPLE_OUTDIR}/flanking/${SAMPLE}.left.flankingReads.fq"
 FLANK3="${SAMPLE_OUTDIR}/flanking/${SAMPLE}.right.flankingReads.fq"
-GENOME_BAM="${SAMPLE_OUTDIR}/${SAMPLE}.repeat.minimap.sorted.bam"
+# align-genome names the BAM after the aligner, and only minimap2 abbreviates
+# (see cmd_align_genome in src/RelocaTE3/cli.py). Hardcoding "minimap" here
+# broke as soon as the default genome aligner became bwaaln.
+if [[ "$GENOME_ALIGNER" == "minimap2" ]]; then
+  BAM_TAG="minimap"
+else
+  BAM_TAG="$GENOME_ALIGNER"
+fi
+GENOME_BAM="${SAMPLE_OUTDIR}/${SAMPLE}.repeat.${BAM_TAG}.sorted.bam"
 NONREF_TXT="${SAMPLE_OUTDIR}/results/${TARGET}.${TE_NAME}.all_nonref_insert.txt"
 
 echo "[$(date)] RelocaTE3 validation run"
@@ -168,7 +178,7 @@ echo "  R1          : $R1"
 echo "  R2          : $R2"
 echo "  outdir      : $SAMPLE_OUTDIR"
 echo "  threads     : $THREADS"
-echo "  aligner     : $ALIGNER"
+echo "  aligner     : $ALIGNER (TE) / $GENOME_ALIGNER (genome)"
 echo "  mismatch    : $MISMATCH"
 echo "  match/trim  : ${MIN_MATCH}/${MIN_TRIMMED}"
 echo "  te_name/TSD : ${TE_NAME}/${TSD}"
@@ -225,7 +235,8 @@ if [[ ! -s "$GENOME_BAM" ]]; then
     -f "${FLANK_INPUTS[@]}" \
     -n "$SAMPLE" \
     -o "$SAMPLE_OUTDIR" \
-    --threads "$THREADS"
+    --threads "$THREADS" \
+    --genome-aligner "$GENOME_ALIGNER"
 else
   echo "[$(date)] genome-aligned BAM exists, skipping align-genome"
 fi

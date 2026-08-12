@@ -1,16 +1,23 @@
 """Acceptance gate: full 14-family run vs the simulation truth.
 
-RelocaTE2's published benchmark on this exact rice Chr3 2 Mb dataset recovered
-196 of the 200 simulated insertions (`bedtools window -w 10` against
-``MSU7.Chr3_2M.ALL.gff``). This test runs RelocaTE3 with the same full
+RelocaTE2 recovers 196 of the 200 simulated insertions on this exact rice
+Chr3 2 Mb dataset (`bedtools window -w 10` against ``MSU7.Chr3_2M.ALL.gff``),
+at precision 1.000. Measured 2026-08-12 by running RelocaTE2 itself, not quoted
+from its README -- see ``notes/2026-08-12-relocate2-chr3-baseline.md``. This test runs RelocaTE3 with the same full
 ``RiceTE.fa`` library and asserts comparable recovery, so regressions in
-sensitivity are caught. RelocaTE3 uses minimap2 (not blat) and single-end
-flank mapping, so it is expected to trail RelocaTE2 somewhat; the thresholds
-below leave margin under the observed ~178/200 (~89%) recall at ~90% precision.
+sensitivity are caught.
+
+This gate pins ``te_aligner="minimap2"`` explicitly even though the shipped
+defaults are now blat/bwaaln (matching RelocaTE2). blat cannot live in the
+default pixi environment, so a gate on the defaults would simply skip wherever
+blat is absent -- including `pixi run test` and CI -- and the thresholds below
+are calibrated against minimap2 anyway. `test_run_all_cli_end_to_end` covers
+the shipped defaults instead, skipping when blat is unavailable.
 """
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -49,7 +56,8 @@ def _overlaps(a: tuple[str, int, int], b: tuple[str, int, int], window: int) -> 
 def test_acceptance_full_library(tmp_path: Path):
     reads = ReadLibrary([str(R1), str(R2)], "HEG4")
     gff = run_sample(
-        reads, str(RICETE), str(GENOME), tmp_path, threads=4, mismatch_allowance=2
+        reads, str(RICETE), str(GENOME), tmp_path, threads=4, mismatch_allowance=2,
+        te_aligner="minimap2", genome_aligner="minimap2",
     )
     calls = _load_intervals(gff)
     truth = _load_intervals(TRUTH)
@@ -59,7 +67,8 @@ def test_acceptance_full_library(tmp_path: Path):
     true_calls = sum(1 for c in calls if any(_overlaps(c, t, WINDOW) for t in truth))
     precision = true_calls / len(calls) if calls else 0.0
 
-    # RelocaTE2 reference: 196/200. RelocaTE3 (minimap2) target: >= 170/200 recall.
+    # RelocaTE2 measured: 196/200 at precision 1.000 (see notes/2026-08-12-*).
+    # RelocaTE3 (minimap2) target: >= 170/200 recall.
     assert recovered >= 170, f"recall regressed: {recovered}/200"
     assert precision >= 0.85, f"precision regressed: {precision:.2f}"
 
@@ -68,6 +77,10 @@ RM_OUT = DATA / "sim_genome" / "MSU7.Chr3_2M.fa.RepeatMasker.out"
 
 
 @pytest.mark.skipif(not RICETE.exists(), reason="RiceTE.fa not vendored")
+@pytest.mark.skipif(
+    shutil.which("blat") is None,
+    reason="blat not on PATH (it is the default TE aligner; see pixi env 'blat')",
+)
 def test_run_all_cli_end_to_end(tmp_path: Path):
     """`relocaTE3 run-all` drives the whole pipeline from one command.
 

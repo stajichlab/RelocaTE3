@@ -33,6 +33,7 @@ class InsertionFinder:
         min_mapq: int = 1,
         verbose: int = 0,
         require_both_junctions: bool = False,
+        insert_size: int = 500,
     ):
         """Initialize the finder.
 
@@ -50,6 +51,7 @@ class InsertionFinder:
         self.min_mapq = min_mapq
         self.verbose = verbose
         self.require_both_junctions = require_both_junctions
+        self.insert_size = insert_size
 
     # ------------------------------------------------------------------
     # public API
@@ -159,12 +161,14 @@ class InsertionFinder:
         result_dir = Path(outdir) / "results"
         result_dir.mkdir(parents=True, exist_ok=True)
         out_txt = result_dir / f"{target}.{te_name}.all_nonref_insert.txt"
+        support_only: list[Insertion] = []
         with open(out_txt, "w") as out:
             for cluster in _stream_clusters(
                 str(bam_file), read_repeat, quality_filter=self._passes_quality
             ):
                 if target != "ALL" and cluster.chrom != target:
                     continue
+                wrote_any = False
                 for ins in _call_insertions(cluster, genome=None):
                     # RelocaTE2 parity: drop single-sided (one-junction) calls,
                     # which cannot resolve a TSD and dominate the false positives.
@@ -184,7 +188,15 @@ class InsertionFinder:
                         f"R:{ins.right_junction_reads}\tL:{ins.left_junction_reads}\t"
                         f"ST:0\tSR:{ins.right_support_reads}\tSL:{ins.left_support_reads}\n"
                     )
+                    wrote_any = True
+                # RelocaTE2 calls a site from mates alone only when no junction
+                # read produced one, and files it separately (NONSUP).
+                if not wrote_any:
+                    call = call_support_only(cluster, insert_size=self.insert_size)
+                    if call is not None:
+                        support_only.append(call)
         logger.info("Wrote variable-length TSD insertions table %s", out_txt)
+        write_supporting_reads(result_dir, target, te_name, sample, support_only)
         return out_txt
 
     # ------------------------------------------------------------------
@@ -713,6 +725,8 @@ def _stream_clusters(
                         _te_family(read_repeat, name),
                         te_end,
                         seq,
+                        gstart,
+                        gend,
                     )
                 )
             else:
@@ -844,7 +858,16 @@ def _make_insertion(
     orients = [j.te_orientation for j in junctions]
     strand = "+" if orients.count("+") >= orients.count("-") else "-"
 
-    spans = [(s, e) for _n, s, e, _strand, _seq in cluster.support]
+    # RelocaTE2 estimates TSD length from a depth pileup over the *junction*
+    # reads of the cluster, dividing by their count
+    # (relocaTE_insertionFinder.py:1069-1076 feeding tsd_finder at :843).
+    # Junction reads all abut the same breakpoint, so the TSD is the run of
+    # positions nearly all of them cover. Supporting mates are spread across the
+    # library insert and never reach the cutoff -- using them returned 0 for 15
+    # of the 16 Chr3 sites where RelocaTE2 resolves a TSD and we reported UNK.
+    spans = [(j.gstart, j.gend) for j in cluster.junctions if j.gend >= j.gstart > 0]
+    if not spans:  # support-only clusters keep the previous behaviour
+        spans = [(s, e) for _n, s, e, _strand, _seq in cluster.support]
 
     if left_reads and right_reads:
         i_end = left_reads[0].position  # right edge of TSD
@@ -918,9 +941,14 @@ def _estimate_tsd_length_from_depth(
 
     Port of RelocaTE2 ``tsd_finder`` (relocaTE_insertionFinder.py:843). Builds a
     per-base depth pileup from ``spans`` (1-based inclusive ``(start, end)``
-    tuples), then for each fractional threshold (in order) counts contiguous
-    positions whose depth >= ``threshold * len(spans)``. Returns the first
-    non-zero length, or 0 if none qualify.
+    tuples), then for each fractional threshold (in order) counts the positions
+    whose depth >= ``threshold * len(spans)``. Returns the first non-zero
+    length, or 0 if none qualify. Positions need not be contiguous, matching
+    ``tsd_finder``; and because the first non-zero result wins, a single base
+    covered by every read yields 1 rather than falling to a looser threshold.
+
+    ``spans`` must be the cluster's *junction*-read spans -- see the call site
+    in ``_make_insertion``.
 
     The ``breakpoint`` argument is reserved for future locality refinement; the
     R2 reference implementation also passes a candidate position but does not
@@ -965,6 +993,72 @@ def _count_support(ins: Insertion, cluster: _Cluster) -> None:
             right += 1
     ins.left_support_reads = left
     ins.right_support_reads = right
+
+
+#: RelocaTE2's -s/--size: sequencing library insert size (relocaTE2.py:198).
+DEFAULT_INSERT_SIZE = 500
+
+#: RelocaTE2 extends a one-sided supporting cluster by insert size * (1 + 0.2),
+#: its comment reading "insertion size of library * (1 + sd of library)"
+#: (relocaTE_insertionFinder.py:446).
+_INSERT_SD_FACTOR = 1.2
+
+
+def call_support_only(
+    cluster: _Cluster, insert_size: int = DEFAULT_INSERT_SIZE
+) -> Insertion | None:
+    """Call an insertion from supporting (mate) reads alone -- RelocaTE2's NONSUP.
+
+    RelocaTE2 writes these to a separate ``all_nonref_supporting`` file rather
+    than into ``all_nonref_insert`` (relocaTE_insertionFinder.py:431-459): they
+    carry no junction reads at all (T:0 R:0 L:0), so they are much weaker
+    evidence and are kept apart from the main call set. RelocaTE3 follows that
+    split exactly -- these never enter the insertion tiers.
+
+    Three cases, matching RelocaTE2:
+
+    * **both strands** -- forward mates bracket the site on the left, reverse
+      mates on the right; the insertion lies in the gap between the innermost
+      reads. Overlapping brackets are ambiguous and rejected (:440).
+    * **forward only** -- the site starts at the rightmost forward end and runs
+      one library insert onwards (:446).
+    * **reverse only** -- the mirror image (:455).
+
+    Unlike :func:`_call_support_only`, no minimum read count is imposed, because
+    RelocaTE2 imposes none; the separate output file is what marks these as
+    provisional.
+    """
+    plus_ends = [gend for _n, _s, gend, strand, _q in cluster.support if strand == "+"]
+    minus_starts = [
+        gstart for _n, gstart, _e, strand, _q in cluster.support if strand == "-"
+    ]
+    if not plus_ends and not minus_starts:
+        return None
+
+    span = int(float(insert_size) * _INSERT_SD_FACTOR)
+    if plus_ends and minus_starts:
+        ins_start = max(plus_ends)
+        ins_end = min(minus_starts)
+        if ins_start > ins_end:
+            return None  # mates overlap: cannot bracket a gap
+    elif plus_ends:
+        ins_start = max(plus_ends)
+        ins_end = ins_start + span
+    else:
+        ins_end = min(minus_starts)
+        ins_start = max(1, ins_end - span)  # stay on the contig
+
+    return Insertion(
+        chrom=cluster.chrom,
+        start=ins_start,
+        end=ins_end,
+        te_name="NA",
+        strand="+",
+        tsd="supporting_reads",
+        left_support_reads=len(plus_ends),
+        right_support_reads=len(minus_starts),
+        note="Non-reference, supporting reads only",
+    )
 
 
 def _call_support_only(
@@ -1224,3 +1318,256 @@ def write_insertions_txt(insertions: list[Insertion], path: str | Path) -> None:
                 )
                 + "\n"
             )
+
+
+def write_supporting_reads(
+    result_dir: Path | str,
+    target: str,
+    te_name: str,
+    sample: str,
+    insertions: list[Insertion],
+) -> Path:
+    """Write ``<target>.<TE>.all_nonref_supporting.{txt,gff}`` (RelocaTE2 NONSUP).
+
+    Always written, even when empty, so downstream steps never have to test for
+    the file's existence -- RelocaTE2 opens it unconditionally too
+    (relocaTE_insertionFinder.py:151).
+    """
+    result_dir = Path(result_dir)
+    result_dir.mkdir(parents=True, exist_ok=True)
+    txt_path = result_dir / f"{target}.{te_name}.all_nonref_supporting.txt"
+    gff_path = result_dir / f"{target}.{te_name}.all_nonref_supporting.gff"
+    with open(txt_path, "w") as txt:
+        for ins in insertions:
+            txt.write(
+                f"{ins.te_name}\t{ins.tsd}\t{sample}\t{ins.chrom}\t"
+                f"{ins.start}..{ins.end}\t{ins.strand}\tT:0\tR:0\tL:0\t"
+                f"ST:{ins.left_support_reads + ins.right_support_reads}\t"
+                f"SR:{ins.right_support_reads}\tSL:{ins.left_support_reads}\n"
+            )
+    write_insertions_gff(insertions, gff_path, sample)
+    logger.info(
+        "Wrote %d supporting-reads-only insertions to %s",
+        len(insertions),
+        txt_path,
+    )
+    return txt_path
+
+
+# ---------------------------------------------------------------------------
+# Tiered output (RelocaTE2 clean_false_positive.py)
+# ---------------------------------------------------------------------------
+
+#: Call classes RelocaTE2 strips from its headline output. RelocaTE3 records the
+#: class in the TSD column, exactly where RelocaTE2 does.
+LOW_CONFIDENCE_CLASSES = frozenset(
+    {"singleton", "insufficient_data", "supporting_reads"}
+)
+
+
+def _table_stem(table: Path) -> str:
+    """``.../ALL.mping.all_nonref_insert.txt`` -> ``.../ALL.mping.all_nonref_insert``."""
+    return str(table)[: -len(table.suffix)] if table.suffix else str(table)
+
+
+def _row_class(fields: list[str]) -> str:
+    """The TSD column, which doubles as the call class for low-confidence calls."""
+    return fields[1] if len(fields) > 1 else ""
+
+
+def _junction_counts(fields: list[str]) -> tuple[int, int] | None:
+    """``(right, left)`` junction-read counts, or None if unparseable."""
+    if len(fields) < 9:
+        return None
+    try:
+        return (
+            int(fields[7].removeprefix("R:")),
+            int(fields[8].removeprefix("L:")),
+        )
+    except ValueError:
+        return None
+
+
+def _has_empty_side(fields: list[str]) -> bool:
+    """True when one junction side has no reads at all.
+
+    This is the test RelocaTE2's *boundary* filter uses
+    (clean_false_positive.py:82, ``Right == 0 or Left == 0``). It is broader
+    than the high_conf rule below -- do not conflate them.
+    """
+    counts = _junction_counts(fields)
+    if counts is None:
+        return False
+    return (counts[0] == 0) != (counts[1] == 0)
+
+
+def _is_single_read_one_sided(fields: list[str]) -> bool:
+    """True for RelocaTE2's high_conf exclusions: exactly one read against zero.
+
+    clean_false_positive.py:108 greps out the literal
+    ``Right_junction_reads=1;Left_junction_reads=0`` and its mirror -- and
+    nothing else. A one-sided call backed by several junction reads survives
+    into high_conf. Treating every zero-sided call as low confidence is stricter
+    than RelocaTE2 and discards real insertions: on the Chr3 2 Mb fixture it
+    removes 16 calls RelocaTE2 keeps, costing ~0.05 recall for no precision
+    gain.
+    """
+    counts = _junction_counts(fields)
+    if counts is None:
+        return False
+    return counts in {(1, 0), (0, 1)}
+
+
+def _load_te_boundaries(reference_ins: Path | str) -> dict[str, set[int]]:
+    """``{chrom: {boundary positions}}`` from a RepeatMasker .out or BED."""
+    from RelocaTE3.reference_te import ReferenceTEAnnotator
+
+    table = ReferenceTEAnnotator.load_existing_te(reference_ins, "ALL")
+    return {
+        chrom: set(sides["start"]) | set(sides["end"])
+        for chrom, sides in table.items()
+    }
+
+
+def _at_te_boundary(
+    fields: list[str], boundaries: dict[str, set[int]], distance: int
+) -> bool:
+    """True when either endpoint sits within ``distance`` bp of a TE boundary.
+
+    RelocaTE2 compares the call's start and end against the reference copy's
+    start and end (clean_false_positive.py:84-91, four ``elif`` arms).
+    """
+    if len(fields) < 5:
+        return False
+    positions = boundaries.get(fields[3])
+    if not positions:
+        return False
+    span = fields[4]
+    start_s, _, end_s = span.partition("..")
+    try:
+        ends = (int(start_s), int(end_s or start_s))
+    except ValueError:
+        return False
+    return any(
+        abs(end - boundary) <= distance for end in ends for boundary in positions
+    )
+
+
+def _row_to_gff(fields: list[str], sample: str, source: str = "RelocaTE3") -> str | None:
+    """Render one table row as GFF3 with RelocaTE2's attribute set."""
+    if len(fields) < 12:
+        return None
+    te_name, tsd, _exper, chrom, span, strand = fields[:6]
+    start, _, end = span.partition("..")
+    right_j = fields[7].removeprefix("R:")
+    left_j = fields[8].removeprefix("L:")
+    right_s = fields[10].removeprefix("SR:")
+    left_s = fields[11].removeprefix("SL:")
+    attrs = (
+        f"ID={chrom}.{start}.spanners;Name={te_name};TSD={tsd};"
+        f"Note=Non-reference, not found in reference;"
+        f"Right_junction_reads={right_j};Left_junction_reads={left_j};"
+        f"Right_support_reads={right_s};Left_support_reads={left_s};"
+    )
+    return f"{chrom}\t{source}\t{sample}\t{start}\t{end}\t.\t{strand}\t.\t{attrs}"
+
+
+def write_insertion_tiers(
+    table: Path | str,
+    sample: str,
+    reference_ins: Path | str | None = None,
+    distance: int = 3,
+) -> dict[str, Path]:
+    """Derive RelocaTE2's tiered call sets from a written all_nonref_insert table.
+
+    RelocaTE2 publishes several files, not one (``clean_false_positive.py``).
+    Users comparing RelocaTE3 against a RelocaTE2 run were comparing RelocaTE3's
+    unfiltered calls against RelocaTE2's filtered ones. This writes, alongside
+    the table already produced:
+
+    ``<stem>.raw.{txt,gff}``
+        Every call RelocaTE3 made.
+    ``<stem>.all.{txt,gff}``
+        Minus one-sided calls whose breakpoint sits within ``distance`` bp of a
+        reference TE boundary (clean_false_positive.py:82-91). Reads from an
+        intact reference copy's edge mimic a novel junction; a *two-sided* call
+        at a boundary is genuine and is kept. Requires ``reference_ins``;
+        without it this tier equals ``.raw``.
+    ``<stem>.gff``
+        RelocaTE2's headline set: minus ``singleton`` / ``insufficient_data`` /
+        ``supporting_reads`` (clean_false_positive.py:107).
+    ``<stem>.high_conf.{txt,gff}``
+        Additionally minus calls with exactly one junction read on one side and
+        none on the other (clean_false_positive.py:108). Note this is narrower
+        than "one-sided": a call with several junction reads on a single side
+        survives, as it does in RelocaTE2.
+
+    **The plain ``<stem>.txt`` is left exactly as written.** RelocaTE2 runs
+    clean_false_positive.py on the GFF only (relocaTE2.py:704) and concatenates
+    the table unfiltered (:703), then genotypes that unfiltered table with
+    characterizer.pl (:707). Filtering the table here would quietly drop calls
+    from genotyping that RelocaTE2 genotypes.
+
+    Args:
+        table: the ``all_nonref_insert.txt`` just written.
+        sample: sample name, for the GFF's third column.
+        reference_ins: RepeatMasker ``.out`` or BED of reference TE copies. The
+            boundary filter is skipped when omitted, matching RelocaTE2, which
+            bails out when its overlap file comes back empty
+            (clean_false_positive.py:64).
+        distance: RelocaTE2's ``-d/--distance``, default 3.
+
+    Returns:
+        Mapping of tier name (``raw``/``all``/``final``/``high_conf``) to its
+        GFF path.
+    """
+    table = Path(table)
+    stem = _table_stem(table)
+    rows = [
+        line.split("\t")
+        for line in table.read_text().splitlines()
+        if line.strip()
+    ]
+
+    raw = rows
+    if reference_ins:
+        boundaries = _load_te_boundaries(reference_ins)
+        every = [
+            r
+            for r in raw
+            if not (_has_empty_side(r) and _at_te_boundary(r, boundaries, distance))
+        ]
+    else:
+        every = list(raw)
+    headline = [r for r in every if _row_class(r) not in LOW_CONFIDENCE_CLASSES]
+    high_conf = [r for r in headline if not _is_single_read_one_sided(r)]
+
+    written: dict[str, Path] = {}
+    for name, suffix, subset in (
+        ("raw", ".raw", raw),
+        ("all", ".all", every),
+        ("final", "", headline),
+        ("high_conf", ".high_conf", high_conf),
+    ):
+        gff_path = Path(f"{stem}{suffix}.gff")
+        with open(gff_path, "w") as fh:
+            for fields in subset:
+                line = _row_to_gff(fields, sample)
+                if line:
+                    fh.write(line + "\n")
+        written[name] = gff_path
+        # Companion tables for the suffixed tiers only. The plain <stem>.txt is
+        # the caller's own output and stays unfiltered (see the docstring).
+        if suffix:
+            with open(f"{stem}{suffix}.txt", "w") as fh:
+                for fields in subset:
+                    fh.write("\t".join(fields) + "\n")
+
+    logger.info(
+        "Insertion tiers: %d raw, %d all, %d final, %d high_conf",
+        len(raw),
+        len(every),
+        len(headline),
+        len(high_conf),
+    )
+    return written

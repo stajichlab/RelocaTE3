@@ -19,9 +19,17 @@ GENOME = DATA / "sim_genome" / "MSU7.Chr3_2M.fa"
 
 
 def test_run_sample_produces_outputs(tmp_path: Path):
-    """run_sample trims, re-aligns, calls insertions, and returns the GFF path."""
+    """run_sample trims, re-aligns, calls insertions, and returns the GFF path.
+
+    Pinned to minimap2 rather than the shipped blat/bwaaln defaults: this covers
+    pipeline plumbing, not aligner choice, and must keep running in the default
+    pixi environment, which cannot carry blat.
+    """
     reads = ReadLibrary([str(R1), str(R2)], "HEG4")
-    gff = run_sample(reads, str(TELIB), str(GENOME), tmp_path, threads=2)
+    gff = run_sample(
+        reads, str(TELIB), str(GENOME), tmp_path, threads=2,
+        te_aligner="minimap2", genome_aligner="minimap2",
+    )
     assert (tmp_path / "te_containing" / "HEG4.read_repeat_name.txt").exists()
     left = tmp_path / "flanking" / "HEG4.left.flankingReads.fq"
     assert left.exists() and os.path.getsize(left) > 0
@@ -60,6 +68,9 @@ def test_run_cli_generates_flanking_reads(tmp_path: Path):
             str(tmp_path),
             "--threads",
             "2",
+            # minimap2, not the blat default: see test_run_sample_produces_outputs
+            "--te-aligner",
+            "minimap2",
         ]
     )
     assert rc == 0
@@ -69,3 +80,62 @@ def test_run_cli_generates_flanking_reads(tmp_path: Path):
 def test_cli_main_handles_installed_subcommand():
     """RelocaTE3.cli.main is the canonical parser and handles installed subcommands (index-genome exists only on it)."""
     assert main(["index-genome", "--help"]) == 0
+
+
+def test_run_sample_forwards_aligner_choices(monkeypatch, tmp_path: Path):
+    """run_sample must let callers pick the aligners.
+
+    The defaults are blat/bwaaln (matching RelocaTE2), but blat is not in the
+    default pixi environment. Without a passthrough, every caller of run_sample
+    -- including the acceptance gate -- would hard-require blat with no way to
+    ask for anything else.
+    """
+    import RelocaTE3.pipeline as pipeline_mod
+
+    seen: dict[str, str] = {}
+
+    def fake_identify(self, reads, outdir, **kwargs):
+        seen["te_aligner"] = kwargs.get("te_aligner")
+        (Path(outdir) / "te_containing").mkdir(parents=True, exist_ok=True)
+        return 0
+
+    def fake_align(reads, genome, outdir, **kwargs):
+        seen["genome_aligner"] = kwargs.get("genome_aligner")
+        return Path(outdir) / "g.bam", None
+
+    monkeypatch.setattr(pipeline_mod.RelocaTE, "identify_TE_reads", fake_identify)
+    monkeypatch.setattr(pipeline_mod, "align_to_genome", fake_align)
+    monkeypatch.setattr(pipeline_mod, "find_insertions", lambda *a, **k: [])
+
+    reads = ReadLibrary([str(R1), str(R2)], "HEG4")
+    run_sample(
+        reads, str(TELIB), str(GENOME), tmp_path,
+        te_aligner="minimap2", genome_aligner="bowtie2",
+    )
+    assert seen == {"te_aligner": "minimap2", "genome_aligner": "bowtie2"}
+
+
+def test_run_sample_defaults_match_relocate2(monkeypatch, tmp_path: Path):
+    """Unspecified, run_sample uses the RelocaTE2-matching pair."""
+    import RelocaTE3.pipeline as pipeline_mod
+
+    seen: dict[str, str] = {}
+    monkeypatch.setattr(
+        pipeline_mod.RelocaTE, "identify_TE_reads",
+        lambda self, reads, outdir, **kw: (
+            seen.__setitem__("te_aligner", kw.get("te_aligner")),
+            (Path(outdir) / "te_containing").mkdir(parents=True, exist_ok=True),
+            0,
+        )[-1],
+    )
+    monkeypatch.setattr(
+        pipeline_mod, "align_to_genome",
+        lambda reads, genome, outdir, **kw: (
+            seen.__setitem__("genome_aligner", kw.get("genome_aligner")),
+            (Path(outdir) / "g.bam", None),
+        )[-1],
+    )
+    monkeypatch.setattr(pipeline_mod, "find_insertions", lambda *a, **k: [])
+
+    run_sample(ReadLibrary([str(R1), str(R2)], "HEG4"), str(TELIB), str(GENOME), tmp_path)
+    assert seen == {"te_aligner": "blat", "genome_aligner": "bwaaln"}
