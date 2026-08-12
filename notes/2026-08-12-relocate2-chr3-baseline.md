@@ -83,6 +83,51 @@ reads, so it returned 0 (see the commit). After the fix, `high_conf`:
 
 The F1 gap to RelocaTE2 is now 0.008, from 0.018.
 
+## Update 2026-08-12 (later): parity reached on this fixture
+
+Three further fixes closed the remaining gap. All numbers are the `high_conf`
+tier on RelocaTE2's own inputs, scored identically:
+
+| step | calls | recall | precision | F1 |
+|---|---|---|---|---|
+| after the TSD-input fix | 193 | 193/200 | 1.000 | 0.982 |
+| + adjacent-insertion split | 195 | 195/200 | 1.000 | 0.987 |
+| + gated reference-edge exclusion | **196** | **196/200** | **1.000** | **0.990** |
+| RelocaTE2 | 196 | 196/200 | 1.000 | 0.990 |
+
+And the agreement is call-for-call, not just in aggregate: **0 calls unique to
+either caller**, all 196 shared.
+
+The three sites turned out to have two different causes, neither of them
+"second-junction recovery":
+
+- **Chr3:155988, Chr3:672724** — two real insertions ~26 bp apart. Their *inner*
+  breakpoints fall inside `SUBCLUSTER_GAP`, so `_pair_breakpoints` put them in
+  one group and paired insertion A's left breakpoint with insertion B's right,
+  emitting one call at neither site. The pairing is geometrically impossible
+  (a valid pair has `left >= right`), so it can be detected and split.
+- **Chr3:257448** — a well-supported two-sided call (3 left, 6 right, TSD ACG)
+  discarded because a TEOS1 copy ends at 257444 and RelocaTE3's reference-edge
+  exclusion applied regardless of junction support. RelocaTE2 gates that rule on
+  an empty junction side (clean_false_positive.py:82); now so does RelocaTE3.
+
+### Residual: TSD lengths are over-estimated
+
+Of the 196 shared calls, **175 have an identical TSD string and 176 an identical
+span**. Where they differ, RelocaTE3's TSD is *longer*, with RelocaTE2's as a
+prefix:
+
+    Chr3:241071   R3 = GAAATTCAATATCTTCC     RT2 = GAA
+    Chr3:311458   R3 = ATTTCACATGGTATA       RT2 = ATT
+    Chr3:407787   R3 = ACGGAGATCGAG          RT2 = ACG
+
+The depth estimator is accepting too many positions. RelocaTE2 computes a
+*second* estimate alongside `tsd_finder` — `TSD_len_calculate`
+(relocaTE_insertionFinder.py:810, 852) — and reconciles the two; RelocaTE3
+implements only the first. That reconciliation is the likely fix, and it is the
+next thing to look at. It affects reported TSD sequence and call span, not
+detection.
+
 ## Incidental finding: the vendored RepeatMasker is synthetic
 
 `tests/data/sim_genome/MSU7.Chr3_2M.fa.RepeatMasker.out` is **not** RelocaTE2's
@@ -116,8 +161,8 @@ directly. Outputs and the R3 comparison run live alongside it under
 
 ## Next
 
-- The 5 sites RelocaTE3 misses entirely (not a second-junction problem) —
-  now the whole remaining detection gap.
+- TSD length over-estimation (21 of 196 calls): port RelocaTE2's second
+  estimate, `TSD_len_calculate`, and reconcile it with `tsd_finder`.
 - The 3 residual `UNK` calls, if they matter.
 - Replace or label the synthetic RepeatMasker fixture.
 - The 196/200 references in the acceptance test / PLAN / README can now cite

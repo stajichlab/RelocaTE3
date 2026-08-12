@@ -177,9 +177,9 @@ class InsertionFinder:
                         or ins.right_junction_reads == 0
                     ):
                         continue
-                    # Match the fixed-TSD path's reference-TE edge exclusion.
-                    edges = existing_te[cluster.chrom]
-                    if ins.end in edges["start"] or ins.start - 1 in edges["end"]:
+                    if _excluded_by_reference_edge(
+                        ins, existing_te[cluster.chrom]
+                    ):
                         continue
                     out.write(
                         f"{ins.te_name}\t{ins.tsd}\t{sample}\t{ins.chrom}\t"
@@ -800,6 +800,26 @@ def _pair_breakpoints(
             continue
         pairs.append((lp, rp))
     return pairs
+
+
+def _excluded_by_reference_edge(ins: Insertion, edges: dict) -> bool:
+    """True when a call should be dropped for abutting a reference TE boundary.
+
+    RelocaTE2 applies this only to calls with an empty junction side
+    (clean_false_positive.py:82, ``Right == 0 or Left == 0``): reads running off
+    an intact reference copy's edge mimic a novel junction. A call with junction
+    reads on *both* sides is real evidence and is kept even when it abuts a
+    reference copy -- transposons do insert next to transposons.
+
+    Gating on support was missing here, and it cost a genuine call: the mPing
+    insertion at Chr3:257446..257448 on the 2 Mb fixture has 3 left and 6 right
+    junction reads and the same TSD (ACG) RelocaTE2 reports, but a TEOS1 copy
+    ends at 257444 and the loader stores a window of end positions around it, so
+    every such call was discarded regardless of how well supported it was.
+    """
+    if ins.left_junction_reads and ins.right_junction_reads:
+        return False
+    return ins.end in edges["start"] or ins.start - 1 in edges["end"]
 
 
 def _resolve_tsd(

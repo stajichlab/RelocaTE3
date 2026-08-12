@@ -88,3 +88,53 @@ def test_splitting_does_not_invent_extra_calls():
     pairs = _pair_breakpoints({100: _obs(2)}, {120: _obs(2)})
     assert len(pairs) == 2
     assert all((p[0] is None) != (p[1] is None) for p in pairs)
+
+
+# ---------------------------------------------------------------------------
+# Reference-TE edge exclusion must not discard two-sided calls
+# ---------------------------------------------------------------------------
+#
+# RelocaTE2 only removes calls near a reference TE boundary when a junction side
+# is empty (clean_false_positive.py:82, `Right == 0 or Left == 0`). A call with
+# junction reads on both sides is real evidence and is kept even when it abuts a
+# reference copy -- transposons insert next to transposons.
+#
+# RelocaTE3 dropped any call whose edge coincided with a stored reference edge,
+# regardless of support. On the Chr3 2 Mb fixture that discarded the mPing
+# insertion at 257446..257448 -- 3 left and 6 right junction reads, TSD ACG,
+# exactly what RelocaTE2 reports -- because a TEOS1 copy ends at 257444 and the
+# loader stores a small window of end positions around it.
+
+from RelocaTE3.insertions import _excluded_by_reference_edge
+from RelocaTE3.models import Insertion
+
+
+def _ins(start, end, left, right):
+    return Insertion(
+        chrom="Chr3", start=start, end=end, te_name="mPing", strand="+", tsd="ACG",
+        left_junction_reads=left, right_junction_reads=right,
+    )
+
+
+EDGES = {"start": {}, "end": {257442: 1, 257443: 1, 257444: 1, 257445: 1}}
+
+
+def test_two_sided_call_at_a_reference_edge_is_kept():
+    """The Chr3:257448 regression: 3 left + 6 right reads, dropped for touching an edge."""
+    assert not _excluded_by_reference_edge(_ins(257446, 257448, 3, 6), EDGES)
+
+
+def test_one_sided_call_at_a_reference_edge_is_still_excluded():
+    """RelocaTE2 does remove these -- reads off an intact copy's edge."""
+    assert _excluded_by_reference_edge(_ins(257446, 257448, 0, 4), EDGES)
+    assert _excluded_by_reference_edge(_ins(257446, 257448, 4, 0), EDGES)
+
+
+def test_one_sided_call_away_from_any_edge_is_kept():
+    assert not _excluded_by_reference_edge(_ins(900000, 900002, 0, 4), EDGES)
+
+
+def test_start_edge_is_checked_too():
+    edges = {"start": {5000: 1}, "end": {}}
+    assert _excluded_by_reference_edge(_ins(4998, 5000, 0, 3), edges)
+    assert not _excluded_by_reference_edge(_ins(4998, 5000, 3, 3), edges)
