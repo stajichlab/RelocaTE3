@@ -62,3 +62,59 @@ def test_acceptance_full_library(tmp_path: Path):
     # RelocaTE2 reference: 196/200. RelocaTE3 (minimap2) target: >= 170/200 recall.
     assert recovered >= 170, f"recall regressed: {recovered}/200"
     assert precision >= 0.85, f"precision regressed: {precision:.2f}"
+
+
+RM_OUT = DATA / "sim_genome" / "MSU7.Chr3_2M.fa.RepeatMasker.out"
+
+
+@pytest.mark.skipif(not RICETE.exists(), reason="RiceTE.fa not vendored")
+def test_run_all_cli_end_to_end(tmp_path: Path):
+    """`relocaTE3 run-all` drives the whole pipeline from one command.
+
+    Exercises the real stages (not stubs) including the optional
+    find-reference and characterize branches, and asserts every artifact a
+    RelocaTE2 user expects is produced.
+    """
+    from RelocaTE3.cli import main
+
+    genome = tmp_path / "genome.fa"
+    genome.write_bytes(GENOME.read_bytes())  # copy: run-all indexes in place
+
+    rc = main(
+        [
+            "run-all",
+            "-1", str(R1),
+            "-2", str(R2),
+            "-T", str(RICETE),
+            "-g", str(genome),
+            "-n", "HEG4",
+            "-o", str(tmp_path / "out"),
+            "--threads", "4",
+            "--mismatch", "2",
+            "--tsd", "UNK",
+            "--te-name", "repeat",
+            "--require-both-junctions",
+            "--repeatmasker", str(RM_OUT),
+            "--genotype",
+        ]
+    )
+    assert rc == 0
+
+    results = tmp_path / "out" / "results"
+    nonref = results / "ALL.repeat.all_nonref_insert.txt"
+    assert nonref.is_file() and nonref.stat().st_size > 0
+
+    # steps 0/6 -- the RelocaTE2 output that was previously CLI-unreachable
+    assert (tmp_path / "out" / "existingTE.bed").is_file()
+    assert (results / "HEG4.all_ref_insert.gff").is_file()
+    assert (results / "HEG4.all_ref_insert.txt").is_file()
+
+    # step 7 -- genotyped calls
+    char = results / "ALL.repeat.all_nonref_insert.characTErized.txt"
+    assert char.is_file() and char.stat().st_size > 0
+
+    # the calls must be real: recover a decent share of the 200 simulated sites
+    calls = _load_intervals(results / "ALL.repeat.all_nonref_insert.characTErized.gff")
+    truth = _load_intervals(TRUTH)
+    recovered = sum(1 for t in truth if any(_overlaps(t, c, WINDOW) for c in calls))
+    assert recovered > 100, f"only recovered {recovered}/200 insertions"

@@ -32,8 +32,38 @@ pip install -e .
 
 ## Usage
 
-RelocaTE3 runs as a sequence of staged subcommands (so a workflow engine can
-scatter them). Note that `run` performs **TE-read identification and flank
+### Quick start: one command
+
+`run-all` executes the whole pipeline for a single sample:
+
+```bash
+relocaTE3 run-all \
+  -1 reads_1.fq.gz -2 reads_2.fq.gz \
+  -T RiceTE.fa \
+  -g reference.fa \
+  -n HEG4 -o HEG4_out \
+  --threads 8 --mismatch 2 --tsd UNK \
+  --repeatmasker reference.fa.RepeatMasker.out \
+  --genotype
+```
+
+That indexes the genome (if needed), finds and trims TE-containing reads, places
+the flanks, calls non-reference insertions, and — because `--repeatmasker` and
+`--genotype` were given — also emits reference/shared calls and genotypes every
+site.
+
+`run-all` dispatches the *same* handlers as the staged subcommands below, so its
+results match the staged workflow. Pick whichever fits: `run-all` for a laptop or
+a single HPC node, the staged commands when a workflow engine needs to scatter
+work across samples or chromosomes.
+
+To reproduce the configuration validated against RelocaTE2 on the rice benchmark,
+add `--te-aligner blat --genome-aligner bwaaln --min-mapq 1
+--require-both-junctions`.
+
+### Staged subcommands
+
+Note that `run` performs **TE-read identification and flank
 generation only** (map + trim, steps 2-3) — it is *not* the complete pipeline.
 A full single-sample analysis chains the stages:
 
@@ -73,11 +103,13 @@ relocaTE3 characterize \
 
 | Command | Step | Purpose |
 |---------|------|---------|
+| `run-all` | 0-7 | **Whole pipeline for one sample in one command** (dispatches the staged handlers below) |
 | `index-genome` | 1 | Index the reference genome (`samtools faidx` + minimap2) |
 | `map` | 2 | Align reads to the TE library (produces per-side BAMs) |
 | `trim` | 3 | Trim the TE portion from TE-library BAMs, emit flanking reads |
 | `run` | 2-3 | **Map + trim** in one step (TE-read identification + flank generation) — not the full pipeline |
-| `annotate-ref` | 0 | Annotate existing reference TE copies (minimap2 → `existingTE.bed`) |
+| `annotate-ref` | 0 | Annotate where reference TE copies *are* (minimap2 → `existingTE.bed`), to filter novel calls |
+| `find-reference` | 0/6 | Call reference TEs that are **also present in this sample** → `all_ref_insert.{gff,txt}` |
 | `align-genome` | 4 | Re-align flanking reads to the genome |
 | `find-insertions` | 5 | Cluster junction/supporting reads → non-reference insertions |
 | `characterize` | 7 | Genotype insertions (homozygous/heterozygous/somatic; `-x` for excision) |
@@ -116,7 +148,14 @@ te_portions/
 results/
   ALL.mping.all_nonref_insert.txt                        non-reference insertions (find-insertions)
   ALL.mping.all_nonref_insert.characTErized.gff / .txt   genotyped insertions (characterize)
+  HEG4.all_ref_insert.gff / .txt                         reference/shared insertions (find-reference)
+existingTE.bed                                           reference TE copies (find-reference/annotate-ref)
 ```
+
+> **Reproducibility note.** Reads that match several TE families equally well can
+> be assigned to different families on repeated runs, so a small number of calls
+> may change their `Name`/family label between otherwise identical runs. Positions
+> and read counts are stable. This affects the staged and `run-all` paths alike.
 
 The characterized GFF carries the RelocaTE2 attribute set: `TSD`, `Name` (TE
 family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
@@ -132,9 +171,11 @@ family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
 | `--mismatch` | `--mismatch` (default 0; use 2 to match the RelocaTE2 benchmark) |
 | `--aligner blat/bwa/bowtie2` | `run --te-aligner` and `align-genome --genome-aligner` (see below) |
 | `characterizer.pl` (Perl) | `characterize` |
+| whole pipeline in one command | `run-all` |
+| `all_ref_insert.gff/.txt` | `find-reference` (or `run-all --repeatmasker`) |
 
-RelocaTE3 has no single full-pipeline command; run the staged subcommands above
-(`index-genome` → `run` → `align-genome` → `find-insertions` → `characterize`).
+`run-all` is the closest equivalent to a single RelocaTE2 invocation. The staged
+subcommands remain available for workflow engines.
 
 ## Choosing an aligner
 
