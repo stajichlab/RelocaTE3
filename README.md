@@ -152,10 +152,13 @@ results/
 existingTE.bed                                           reference TE copies (find-reference/annotate-ref)
 ```
 
-> **Reproducibility note.** Reads that match several TE families equally well can
-> be assigned to different families on repeated runs, so a small number of calls
-> may change their `Name`/family label between otherwise identical runs. Positions
-> and read counts are stable. This affects the staged and `run-all` paths alike.
+> **Reproducibility.** The same inputs and the same version produce the same
+> result tables. Reads matching several TE families equally well, and tied
+> cluster-level family votes, are resolved by a fixed rank rather than by
+> whichever alignment the aligner emitted first, so results do not shift between
+> runs. Note that intermediate BAMs are written by multi-threaded aligners and
+> may still differ byte-for-byte between runs; the tables under `results/` are
+> the reproducible artifacts.
 
 The characterized GFF carries the RelocaTE2 attribute set: `TSD`, `Name` (TE
 family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
