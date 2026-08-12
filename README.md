@@ -195,7 +195,10 @@ te_containing/
 te_portions/
   HEG4.five_prime.fa / HEG4.three_prime.fa   TE-matching read portions
 results/
-  ALL.mping.all_nonref_insert.txt                        non-reference insertions (find-insertions)
+  ALL.mping.all_nonref_insert.txt                        non-reference insertions, every call (characterize input)
+  ALL.mping.all_nonref_insert.gff                        RelocaTE2's headline filtered set
+  ALL.mping.all_nonref_insert.all.txt / .gff             every call
+  ALL.mping.all_nonref_insert.high_conf.txt / .gff       two-sided junction calls only
   ALL.mping.all_nonref_insert.characTErized.gff / .txt   genotyped insertions (characterize)
   HEG4.all_ref_insert.gff / .txt                         reference/shared insertions (find-reference)
 existingTE.bed                                           reference TE copies (find-reference/annotate-ref)
@@ -229,6 +232,42 @@ family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
 
 `run-all` is the closest equivalent to a single RelocaTE2 invocation. The staged
 subcommands remain available for workflow engines.
+
+## Output tiers
+
+RelocaTE2 does not publish one call set, it publishes several
+(`clean_false_positive.py`), and its headline number comes from the *filtered*
+file. RelocaTE3 emits the same tiers so the two can be compared like for like:
+
+| file | contents |
+|---|---|
+| `.txt` | **every call** — the table, left unfiltered |
+| `.all.txt` / `.all.gff` | every call |
+| `.gff` | **headline** — minus `singleton`, `insufficient_data` and `supporting_reads` calls |
+| `.high_conf.txt` / `.high_conf.gff` | additionally minus one-sided (single-junction) calls |
+
+Each tier is a subset of the one above it. Note that the filtering applies to
+the **GFF**, not the table: RelocaTE2 cleans only its GFF and genotypes the
+unfiltered table, so `characterize` sees every call in both tools.
+
+On the rice Chr3 2 Mb fixture the tiers score:
+
+| tier | calls | recall | precision |
+|---|---|---|---|
+| `.all` / `.txt` | 215 | 194/200 (0.970) | 0.902 |
+| headline `.gff` | 215 | 194/200 (0.970) | 0.902 |
+| `.high_conf` | 178 | 178/200 (0.890) | **1.000** |
+
+(The headline tier removes nothing here because this run produced no
+`singleton`/`insufficient_data`/`supporting_reads` calls.)
+
+Every false positive on this dataset is a one-sided call, so `.high_conf` is the
+set to use when precision matters more than sensitivity. `--require-both-junctions`
+produces the same filtering during calling rather than afterwards.
+
+RelocaTE2 also writes a `.raw` tier (before its reference-TE proximity filter).
+RelocaTE3 applies that filter while calling rather than as a post-process, so
+`.all` is its widest tier.
 
 ## RelocaTE2 defaults
 

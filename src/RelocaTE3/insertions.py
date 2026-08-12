@@ -1224,3 +1224,132 @@ def write_insertions_txt(insertions: list[Insertion], path: str | Path) -> None:
                 )
                 + "\n"
             )
+
+
+# ---------------------------------------------------------------------------
+# Tiered output (RelocaTE2 clean_false_positive.py)
+# ---------------------------------------------------------------------------
+
+#: Call classes RelocaTE2 strips from its headline output. RelocaTE3 records the
+#: class in the TSD column, exactly where RelocaTE2 does.
+LOW_CONFIDENCE_CLASSES = frozenset(
+    {"singleton", "insufficient_data", "supporting_reads"}
+)
+
+
+def _table_stem(table: Path) -> str:
+    """``.../ALL.mping.all_nonref_insert.txt`` -> ``.../ALL.mping.all_nonref_insert``."""
+    return str(table)[: -len(table.suffix)] if table.suffix else str(table)
+
+
+def _row_class(fields: list[str]) -> str:
+    """The TSD column, which doubles as the call class for low-confidence calls."""
+    return fields[1] if len(fields) > 1 else ""
+
+
+def _is_one_sided(fields: list[str]) -> bool:
+    """True when the call has junction reads on only one side.
+
+    RelocaTE2 drops ``Right_junction_reads=1;Left_junction_reads=0`` and its
+    mirror from high_conf (clean_false_positive.py:108). Reading the counts is
+    equivalent and does not depend on the count being exactly 1.
+    """
+    if len(fields) < 9:
+        return False
+    right = fields[7].removeprefix("R:")
+    left = fields[8].removeprefix("L:")
+    try:
+        right_n, left_n = int(right), int(left)
+    except ValueError:
+        return False
+    return (right_n == 0) != (left_n == 0)
+
+
+def _row_to_gff(fields: list[str], sample: str, source: str = "RelocaTE3") -> str | None:
+    """Render one table row as GFF3 with RelocaTE2's attribute set."""
+    if len(fields) < 12:
+        return None
+    te_name, tsd, _exper, chrom, span, strand = fields[:6]
+    start, _, end = span.partition("..")
+    right_j = fields[7].removeprefix("R:")
+    left_j = fields[8].removeprefix("L:")
+    right_s = fields[10].removeprefix("SR:")
+    left_s = fields[11].removeprefix("SL:")
+    attrs = (
+        f"ID={chrom}.{start}.spanners;Name={te_name};TSD={tsd};"
+        f"Note=Non-reference, not found in reference;"
+        f"Right_junction_reads={right_j};Left_junction_reads={left_j};"
+        f"Right_support_reads={right_s};Left_support_reads={left_s};"
+    )
+    return f"{chrom}\t{source}\t{sample}\t{start}\t{end}\t.\t{strand}\t.\t{attrs}"
+
+
+def write_insertion_tiers(table: Path | str, sample: str) -> dict[str, Path]:
+    """Derive RelocaTE2's tiered call sets from a written all_nonref_insert table.
+
+    RelocaTE2 publishes several files, not one (``clean_false_positive.py``).
+    Users comparing RelocaTE3 against a RelocaTE2 run were comparing RelocaTE3's
+    unfiltered calls against RelocaTE2's filtered ones. This writes, alongside
+    the table already produced:
+
+    ``<stem>.gff``
+        RelocaTE2's headline set: minus ``singleton`` / ``insufficient_data`` /
+        ``supporting_reads`` (clean_false_positive.py:107).
+    ``<stem>.all.{txt,gff}``
+        Every call RelocaTE3 made.
+    ``<stem>.high_conf.{txt,gff}``
+        Additionally minus one-sided junction calls
+        (clean_false_positive.py:108).
+
+    **The plain ``<stem>.txt`` is left exactly as written.** RelocaTE2 runs
+    clean_false_positive.py on the GFF only (relocaTE2.py:704) and concatenates
+    the table unfiltered (:703), then genotypes that unfiltered table with
+    characterizer.pl (:707). Filtering the table here would quietly drop calls
+    from genotyping that RelocaTE2 genotypes.
+
+    RelocaTE2 also emits ``.raw`` (before the reference-TE proximity filter).
+    RelocaTE3 applies that filter while calling rather than afterwards, so there
+    is no separate pre-filter set to materialise; ``.all`` is the widest tier.
+
+    Returns:
+        Mapping of tier name (``all``/``final``/``high_conf``) to its GFF path.
+    """
+    table = Path(table)
+    stem = _table_stem(table)
+    rows = [
+        line.split("\t")
+        for line in table.read_text().splitlines()
+        if line.strip()
+    ]
+
+    every = rows
+    headline = [r for r in every if _row_class(r) not in LOW_CONFIDENCE_CLASSES]
+    high_conf = [r for r in headline if not _is_one_sided(r)]
+
+    written: dict[str, Path] = {}
+    for name, suffix, subset in (
+        ("all", ".all", every),
+        ("final", "", headline),
+        ("high_conf", ".high_conf", high_conf),
+    ):
+        gff_path = Path(f"{stem}{suffix}.gff")
+        with open(gff_path, "w") as fh:
+            for fields in subset:
+                line = _row_to_gff(fields, sample)
+                if line:
+                    fh.write(line + "\n")
+        written[name] = gff_path
+        # Companion tables for the suffixed tiers only. The plain <stem>.txt is
+        # the caller's own output and stays unfiltered (see the docstring).
+        if suffix:
+            with open(f"{stem}{suffix}.txt", "w") as fh:
+                for fields in subset:
+                    fh.write("\t".join(fields) + "\n")
+
+    logger.info(
+        "Insertion tiers: %d all, %d final, %d high_conf",
+        len(every),
+        len(headline),
+        len(high_conf),
+    )
+    return written

@@ -1204,7 +1204,7 @@ def cmd_align_genome(args: argparse.Namespace) -> int:
 
 def cmd_find_insertions(args: argparse.Namespace) -> int:
     """Find non-reference insertions from genome-aligned flanking reads (step 5)."""
-    from RelocaTE3.insertions import InsertionFinder
+    from RelocaTE3.insertions import InsertionFinder, write_insertion_tiers
 
     finder = InsertionFinder(
         mismatch_allow=args.mismatch_allow,
@@ -1222,7 +1222,11 @@ def cmd_find_insertions(args: argparse.Namespace) -> int:
         te_name=args.te_name,
         reference_ins=Path(args.reference_ins) if args.reference_ins else None,
     )
-    logger.info("Non-reference insertions written to %s", out_txt)
+    # RelocaTE2 publishes tiered call sets rather than one file
+    # (clean_false_positive.py); write the same tiers so a RelocaTE3 run can be
+    # compared against a RelocaTE2 run like for like.
+    write_insertion_tiers(out_txt, sample=args.name)
+    logger.info("Non-reference insertions written to %s (+ .all/.high_conf tiers)", out_txt)
     return 0
 
 
