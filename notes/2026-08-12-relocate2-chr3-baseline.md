@@ -70,10 +70,18 @@ makes **no call at all**; none is a one-sided call that could be rescued by
 recovering a second junction. So "second-junction recovery" was the wrong
 diagnosis.
 
-A separate, larger quality gap: of the 191 sites both callers find, **16 have
-RelocaTE2 resolving a concrete TSD where RelocaTE3 reports `UNK`**. That is
-about TSD inference, not detection, and it is the bigger lever on output
-quality.
+A separate, larger quality gap was TSD inference: 16 of the 191 shared sites had
+RelocaTE2 resolving a concrete TSD where RelocaTE3 reported `UNK`. **Fixed in
+50fcbc8** — the depth estimator was fed supporting mates instead of junction
+reads, so it returned 0 (see the commit). After the fix, `high_conf`:
+
+| | calls | recall | precision | F1 | UNK |
+|---|---|---|---|---|---|
+| RelocaTE3 before | 193 | 191/200 | 0.990 | 0.972 | 18 |
+| **RelocaTE3 after** | 193 | 193/200 | **1.000** | **0.982** | **3** |
+| RelocaTE2 | 196 | 196/200 | 1.000 | 0.990 | 0 |
+
+The F1 gap to RelocaTE2 is now 0.008, from 0.018.
 
 ## Incidental finding: the vendored RepeatMasker is synthetic
 
@@ -108,8 +116,9 @@ directly. Outputs and the R3 comparison run live alongside it under
 
 ## Next
 
-- The 5 sites RelocaTE3 misses entirely (not a second-junction problem).
-- TSD inference: 16 shared sites report `UNK` where RelocaTE2 resolves a TSD.
+- The 5 sites RelocaTE3 misses entirely (not a second-junction problem) —
+  now the whole remaining detection gap.
+- The 3 residual `UNK` calls, if they matter.
 - Replace or label the synthetic RepeatMasker fixture.
 - The 196/200 references in the acceptance test / PLAN / README can now cite
   this measurement rather than RelocaTE2's README.
