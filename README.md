@@ -197,7 +197,8 @@ te_portions/
 results/
   ALL.mping.all_nonref_insert.txt                        non-reference insertions, every call (characterize input)
   ALL.mping.all_nonref_insert.gff                        RelocaTE2's headline filtered set
-  ALL.mping.all_nonref_insert.all.txt / .gff             every call
+  ALL.mping.all_nonref_insert.raw.txt / .gff             every call
+  ALL.mping.all_nonref_insert.all.txt / .gff             minus one-sided calls at reference TE boundaries
   ALL.mping.all_nonref_insert.high_conf.txt / .gff       two-sided junction calls only
   ALL.mping.all_nonref_insert.characTErized.gff / .txt   genotyped insertions (characterize)
   HEG4.all_ref_insert.gff / .txt                         reference/shared insertions (find-reference)
@@ -242,7 +243,8 @@ file. RelocaTE3 emits the same tiers so the two can be compared like for like:
 | file | contents |
 |---|---|
 | `.txt` | **every call** — the table, left unfiltered |
-| `.all.txt` / `.all.gff` | every call |
+| `.raw.txt` / `.raw.gff` | every call |
+| `.all.txt` / `.all.gff` | minus one-sided calls sitting within `--distance` (3 bp) of a reference TE boundary |
 | `.gff` | **headline** — minus `singleton`, `insufficient_data` and `supporting_reads` calls |
 | `.high_conf.txt` / `.high_conf.gff` | additionally minus one-sided (single-junction) calls |
 
@@ -265,9 +267,16 @@ Every false positive on this dataset is a one-sided call, so `.high_conf` is the
 set to use when precision matters more than sensitivity. `--require-both-junctions`
 produces the same filtering during calling rather than afterwards.
 
-RelocaTE2 also writes a `.raw` tier (before its reference-TE proximity filter).
-RelocaTE3 applies that filter while calling rather than as a post-process, so
-`.all` is its widest tier.
+The `.raw` → `.all` step is RelocaTE2's reference-TE boundary filter: a call is
+dropped only if it is **one-sided** *and* one of its endpoints lies within
+`--distance` bp of a reference TE's start or end, on the reasoning that reads
+from an intact reference copy's edge mimic a novel junction. A two-sided call at
+a boundary is kept. It needs `--reference-ins` (or `run-all --repeatmasker`);
+without one, `.all` equals `.raw`.
+
+On the Chr3 2 Mb fixture this filter removes nothing — of 37 one-sided calls,
+none fall within even 50 bp of a reference TE boundary — so it is not what
+separates RelocaTE3's precision from RelocaTE2's there. `.high_conf` is.
 
 ## RelocaTE2 defaults
 

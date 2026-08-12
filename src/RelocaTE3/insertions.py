@@ -1265,6 +1265,41 @@ def _is_one_sided(fields: list[str]) -> bool:
     return (right_n == 0) != (left_n == 0)
 
 
+def _load_te_boundaries(reference_ins: Path | str) -> dict[str, set[int]]:
+    """``{chrom: {boundary positions}}`` from a RepeatMasker .out or BED."""
+    from RelocaTE3.reference_te import ReferenceTEAnnotator
+
+    table = ReferenceTEAnnotator.load_existing_te(reference_ins, "ALL")
+    return {
+        chrom: set(sides["start"]) | set(sides["end"])
+        for chrom, sides in table.items()
+    }
+
+
+def _at_te_boundary(
+    fields: list[str], boundaries: dict[str, set[int]], distance: int
+) -> bool:
+    """True when either endpoint sits within ``distance`` bp of a TE boundary.
+
+    RelocaTE2 compares the call's start and end against the reference copy's
+    start and end (clean_false_positive.py:84-91, four ``elif`` arms).
+    """
+    if len(fields) < 5:
+        return False
+    positions = boundaries.get(fields[3])
+    if not positions:
+        return False
+    span = fields[4]
+    start_s, _, end_s = span.partition("..")
+    try:
+        ends = (int(start_s), int(end_s or start_s))
+    except ValueError:
+        return False
+    return any(
+        abs(end - boundary) <= distance for end in ends for boundary in positions
+    )
+
+
 def _row_to_gff(fields: list[str], sample: str, source: str = "RelocaTE3") -> str | None:
     """Render one table row as GFF3 with RelocaTE2's attribute set."""
     if len(fields) < 12:
@@ -1284,7 +1319,12 @@ def _row_to_gff(fields: list[str], sample: str, source: str = "RelocaTE3") -> st
     return f"{chrom}\t{source}\t{sample}\t{start}\t{end}\t.\t{strand}\t.\t{attrs}"
 
 
-def write_insertion_tiers(table: Path | str, sample: str) -> dict[str, Path]:
+def write_insertion_tiers(
+    table: Path | str,
+    sample: str,
+    reference_ins: Path | str | None = None,
+    distance: int = 3,
+) -> dict[str, Path]:
     """Derive RelocaTE2's tiered call sets from a written all_nonref_insert table.
 
     RelocaTE2 publishes several files, not one (``clean_false_positive.py``).
@@ -1292,11 +1332,17 @@ def write_insertion_tiers(table: Path | str, sample: str) -> dict[str, Path]:
     unfiltered calls against RelocaTE2's filtered ones. This writes, alongside
     the table already produced:
 
+    ``<stem>.raw.{txt,gff}``
+        Every call RelocaTE3 made.
+    ``<stem>.all.{txt,gff}``
+        Minus one-sided calls whose breakpoint sits within ``distance`` bp of a
+        reference TE boundary (clean_false_positive.py:82-91). Reads from an
+        intact reference copy's edge mimic a novel junction; a *two-sided* call
+        at a boundary is genuine and is kept. Requires ``reference_ins``;
+        without it this tier equals ``.raw``.
     ``<stem>.gff``
         RelocaTE2's headline set: minus ``singleton`` / ``insufficient_data`` /
         ``supporting_reads`` (clean_false_positive.py:107).
-    ``<stem>.all.{txt,gff}``
-        Every call RelocaTE3 made.
     ``<stem>.high_conf.{txt,gff}``
         Additionally minus one-sided junction calls
         (clean_false_positive.py:108).
@@ -1307,12 +1353,18 @@ def write_insertion_tiers(table: Path | str, sample: str) -> dict[str, Path]:
     characterizer.pl (:707). Filtering the table here would quietly drop calls
     from genotyping that RelocaTE2 genotypes.
 
-    RelocaTE2 also emits ``.raw`` (before the reference-TE proximity filter).
-    RelocaTE3 applies that filter while calling rather than afterwards, so there
-    is no separate pre-filter set to materialise; ``.all`` is the widest tier.
+    Args:
+        table: the ``all_nonref_insert.txt`` just written.
+        sample: sample name, for the GFF's third column.
+        reference_ins: RepeatMasker ``.out`` or BED of reference TE copies. The
+            boundary filter is skipped when omitted, matching RelocaTE2, which
+            bails out when its overlap file comes back empty
+            (clean_false_positive.py:64).
+        distance: RelocaTE2's ``-d/--distance``, default 3.
 
     Returns:
-        Mapping of tier name (``all``/``final``/``high_conf``) to its GFF path.
+        Mapping of tier name (``raw``/``all``/``final``/``high_conf``) to its
+        GFF path.
     """
     table = Path(table)
     stem = _table_stem(table)
@@ -1322,12 +1374,22 @@ def write_insertion_tiers(table: Path | str, sample: str) -> dict[str, Path]:
         if line.strip()
     ]
 
-    every = rows
+    raw = rows
+    if reference_ins:
+        boundaries = _load_te_boundaries(reference_ins)
+        every = [
+            r
+            for r in raw
+            if not (_is_one_sided(r) and _at_te_boundary(r, boundaries, distance))
+        ]
+    else:
+        every = list(raw)
     headline = [r for r in every if _row_class(r) not in LOW_CONFIDENCE_CLASSES]
     high_conf = [r for r in headline if not _is_one_sided(r)]
 
     written: dict[str, Path] = {}
     for name, suffix, subset in (
+        ("raw", ".raw", raw),
         ("all", ".all", every),
         ("final", "", headline),
         ("high_conf", ".high_conf", high_conf),
@@ -1347,7 +1409,8 @@ def write_insertion_tiers(table: Path | str, sample: str) -> dict[str, Path]:
                     fh.write("\t".join(fields) + "\n")
 
     logger.info(
-        "Insertion tiers: %d all, %d final, %d high_conf",
+        "Insertion tiers: %d raw, %d all, %d final, %d high_conf",
+        len(raw),
         len(every),
         len(headline),
         len(high_conf),

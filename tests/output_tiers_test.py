@@ -147,3 +147,81 @@ def test_empty_input_still_writes_every_tier(tmp_path: Path):
     for suffix in (".gff", ".all.txt", ".all.gff", ".high_conf.txt", ".high_conf.gff"):
         assert _tier(table, suffix).is_file()
         assert _rows(_tier(table, suffix)) == []
+
+
+# ---------------------------------------------------------------------------
+# Reference-TE boundary filter (clean_false_positive.py:54-92)
+# ---------------------------------------------------------------------------
+#
+# RelocaTE2 removes a call only when BOTH hold:
+#   1. it is one-sided (Right_junction_reads == 0 or Left_junction_reads == 0)
+#   2. its start or end is within `distance` bp of a reference TE's start or end
+# The rationale is that reads from an intact reference TE's edge look like a
+# novel junction. A two-sided call at a boundary is left alone, and a one-sided
+# call away from any boundary is left alone.
+
+BOUNDARY_BED = "Chr3\t1000\t1500\tmping\nChr3\t8000\t8600\tRetro1\n"
+
+
+def _write_bed(tmp_path: Path) -> Path:
+    bed = tmp_path / "existingTE.bed"
+    bed.write_text(BOUNDARY_BED)
+    return bed
+
+
+def _tiers_with_bed(tmp_path: Path, rows: list[str], distance: int = 3) -> Path:
+    table = tmp_path / "ALL.mping.all_nonref_insert.txt"
+    table.write_text("\n".join(rows) + "\n")
+    write_insertion_tiers(
+        table, sample="HEG4", reference_ins=_write_bed(tmp_path), distance=distance
+    )
+    return table
+
+
+ONE_SIDED_AT_BOUNDARY = (
+    "mping\tUNK\tHEG4\tChr3\t1001..1001\t+\tT:1\tR:1\tL:0\tST:0\tSR:2\tSL:0"
+)
+ONE_SIDED_AWAY = (
+    "mping\tUNK\tHEG4\tChr3\t5000..5000\t+\tT:1\tR:1\tL:0\tST:0\tSR:2\tSL:0"
+)
+TWO_SIDED_AT_BOUNDARY = (
+    "mping\tTTA\tHEG4\tChr3\t1499..1501\t+\tT:8\tR:4\tL:4\tST:0\tSR:9\tSL:9"
+)
+
+
+def test_one_sided_call_at_a_reference_te_boundary_is_removed(tmp_path: Path):
+    table = _tiers_with_bed(tmp_path, [ONE_SIDED_AT_BOUNDARY, ONE_SIDED_AWAY])
+    assert _starts(_tier(table, ".raw.txt")) == {"1001..1001", "5000..5000"}
+    assert _starts(_tier(table, ".all.txt")) == {"5000..5000"}
+
+
+def test_two_sided_call_at_a_boundary_is_kept(tmp_path: Path):
+    """clean_false_positive.py:82 gates the whole rule on a zero-junction side."""
+    table = _tiers_with_bed(tmp_path, [TWO_SIDED_AT_BOUNDARY])
+    assert _starts(_tier(table, ".all.txt")) == {"1499..1501"}
+
+
+def test_distance_is_configurable(tmp_path: Path):
+    """RelocaTE2 exposes -d/--distance, default 3."""
+    row = "mping\tUNK\tHEG4\tChr3\t1008..1008\t+\tT:1\tR:1\tL:0\tST:0\tSR:2\tSL:0"
+    kept = _tiers_with_bed(tmp_path, [row], distance=3)
+    assert _starts(_tier(kept, ".all.txt")) == {"1008..1008"}, "8 bp away, d=3: kept"
+
+    other = tmp_path / "wider"
+    other.mkdir()
+    dropped = _tiers_with_bed(other, [row], distance=10)
+    assert _starts(_tier(dropped, ".all.txt")) == set(), "8 bp away, d=10: removed"
+
+
+def test_without_reference_annotation_all_equals_raw(tmp_path: Path):
+    table = tmp_path / "ALL.mping.all_nonref_insert.txt"
+    table.write_text("\n".join([ONE_SIDED_AT_BOUNDARY, ONE_SIDED_AWAY]) + "\n")
+    write_insertion_tiers(table, sample="HEG4")
+    assert _starts(_tier(table, ".all.txt")) == _starts(_tier(table, ".raw.txt"))
+
+
+def test_raw_tier_is_always_written(tmp_path: Path):
+    """RelocaTE2 always leaves .raw behind (clean_false_positive.py:95,105)."""
+    table = _tiers_with_bed(tmp_path, [ONE_SIDED_AT_BOUNDARY])
+    assert _tier(table, ".raw.txt").is_file()
+    assert _tier(table, ".raw.gff").is_file()

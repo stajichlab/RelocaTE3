@@ -665,6 +665,14 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         "(default: 2, matching RelocaTE2's --mismatch_junction)",
     )
     parser.add_argument(
+        "--distance",
+        type=int,
+        default=3,
+        dest="distance",
+        help="Reference-TE boundary window for dropping one-sided calls "
+        "(default: 3, matching RelocaTE2's clean_false_positive -d)",
+    )
+    parser.add_argument(
         "--min-mapq",
         type=int,
         default=1,
@@ -1225,7 +1233,12 @@ def cmd_find_insertions(args: argparse.Namespace) -> int:
     # RelocaTE2 publishes tiered call sets rather than one file
     # (clean_false_positive.py); write the same tiers so a RelocaTE3 run can be
     # compared against a RelocaTE2 run like for like.
-    write_insertion_tiers(out_txt, sample=args.name)
+    write_insertion_tiers(
+        out_txt,
+        sample=args.name,
+        reference_ins=args.reference_ins,
+        distance=getattr(args, "distance", 3),
+    )
     logger.info("Non-reference insertions written to %s (+ .all/.high_conf tiers)", out_txt)
     return 0
 
