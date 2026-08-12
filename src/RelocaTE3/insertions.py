@@ -803,6 +803,26 @@ def _resolve_tsd(
     return fetched or "UNK"
 
 
+def _majority_te_name(te_names: list[str]) -> str:
+    """Pick the TE family for a cluster by majority vote, breaking ties by name.
+
+    Reads tagged ``NA`` (no family assignment) do not vote; an empty vote yields
+    ``"NA"``.
+
+    The tie-break is load-bearing. This was previously
+    ``max(set(names), key=names.count)``, which returns whichever tied name the
+    set iterator happened to yield first -- and CPython randomises string
+    hashing per process, so the same cluster could be labelled ``RIRE3`` on one
+    run and ``mGing`` on the next, with byte-identical positions and read
+    counts. Ranking by (-count, name) makes the winner reproducible. Which name
+    wins among equals is arbitrary; that it is always the same one is the point.
+    """
+    votes = [name for name in te_names if name != "NA"]
+    if not votes:
+        return "NA"
+    return min(set(votes), key=lambda name: (-votes.count(name), name))
+
+
 def _make_insertion(
     chrom: str,
     left_reads: list[JunctionObservation],
@@ -819,8 +839,7 @@ def _make_insertion(
     back to the reference genome when no read sequence is available.
     """
     junctions = left_reads + right_reads
-    te_names = [j.te_name for j in junctions if j.te_name != "NA"]
-    te_name = max(set(te_names), key=te_names.count) if te_names else "NA"
+    te_name = _majority_te_name([j.te_name for j in junctions])
 
     orients = [j.te_orientation for j in junctions]
     strand = "+" if orients.count("+") >= orients.count("-") else "-"

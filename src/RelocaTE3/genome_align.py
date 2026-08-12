@@ -20,7 +20,7 @@ from pathlib import Path
 import pysam
 
 from RelocaTE3 import logger
-from RelocaTE3.aligners import get_aligner
+from RelocaTE3.aligners import canonical_name, get_aligner
 from RelocaTE3.ReadLibrary import ReadLibrary
 
 # matches the junction-tag suffixes appended during trimming
@@ -42,6 +42,8 @@ def split_mate(name: str) -> tuple[str, str]:
     if m:
         return m.group(1), m.group(2)
     return name, ""
+
+
 
 
 def read_read_repeat(path: Path) -> dict[str, tuple[str, str]]:
@@ -71,13 +73,16 @@ def _fetch_reads_by_name(
                 continue
             with pysam.FastxFile(file_for_end[end]) as fx:
                 for rec in fx:
-                    if rec.name in names:
+                    # `end` says which file this is, so it fixes the mate even
+                    # when the FASTQ name carries no /1,/2 of its own.
+                    name = canonical_name(rec.name, end)
+                    if name in names:
                         qual = (
                             rec.quality
                             if rec.quality is not None
                             else "I" * len(rec.sequence)
                         )
-                        out.write(f"@{rec.name}\n{rec.sequence}\n+\n{qual}\n")
+                        out.write(f"@{name}\n{rec.sequence}\n+\n{qual}\n")
                         written += 1
     return written
 
@@ -175,13 +180,14 @@ def build_flank_pairs(
             continue
         with pysam.FastxFile(file_for_end[end]) as fx:
             for rec in fx:
-                if rec.name in names:
+                name = canonical_name(rec.name, end)
+                if name in names:
                     qual = (
                         rec.quality
                         if rec.quality is not None
                         else "I" * len(rec.sequence)
                     )
-                    mate_seqs[rec.name] = (rec.sequence, qual)
+                    mate_seqs[name] = (rec.sequence, qual)
 
     n_pair = n_se = 0
     retag: dict[str, tuple[str, str]] = {}
