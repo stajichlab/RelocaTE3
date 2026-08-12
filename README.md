@@ -3,26 +3,42 @@
 RelocaTE3 identifies transposable element (TE) insertion polymorphisms from
 short-read resequencing data, at single-base resolution, by comparison to a
 reference genome. It is a modern, pure-Python reimplementation of
-[RelocaTE2](https://github.com/JinfengChen/RelocaTE2) built on `minimap2`
-(default) and `samtools` (plus `pysam`/`biopython`) — no seqtk or Perl. The
-aligner for each stage is selectable: `minimap2`, `bwa`, `bwa-mem2`, `bowtie2`,
-or `blat` (see "Choosing an aligner").
+[RelocaTE2](https://github.com/JinfengChen/RelocaTE2) built on `samtools`
+(plus `pysam`/`biopython`) — no seqtk or Perl. By default it uses the same
+aligner pair as RelocaTE2, `blat` for TE search and `bwa aln` for genome
+placement, but the aligner for each stage is selectable: `minimap2`, `bwa`,
+`bwa-mem2`, `bwa aln`, `bowtie2`, or `blat` (see "Choosing an aligner").
 
 > Status: reference implementation. The full pipeline (read trimming → genome
 > re-alignment → non-reference insertion calling → reference/shared insertions →
-> genotyping) runs end to end. On the rice Chr3 2 Mb benchmark it recovers
-> ~178/200 simulated insertions (~89% recall, ~90% precision); see
-> `tests/acceptance_test.py`. See `PLAN.md` for the roadmap (Rust acceleration and
+> genotyping) runs end to end. On the rice Chr3 2 Mb benchmark, at the shipped
+> defaults, it recovers 194/200 simulated insertions (97% recall, 90%
+> precision) — RelocaTE2's published figure on the same data is 196/200. See
+> `tests/acceptance_test.py`, which gates the minimap2 configuration
+> (~178/200) so it can run without blat. See `PLAN.md` for the roadmap (Rust acceleration and
 > Nextflow scatter are planned).
 
 ## Installation
 
-With [pixi](https://pixi.sh) (recommended — pins `minimap2`/`samtools`/`bedtools`):
+With [pixi](https://pixi.sh) (recommended — pins the aligners/`samtools`/`bedtools`):
 
 ```bash
 pixi install
 pixi run relocaTE3 --help
 ```
+
+The default TE aligner is `blat`, which cannot be installed alongside the
+plotting stack (its bioconda build hard-pins `zlib 1.2.11`, and it is linux-64
+only). It therefore lives in a separate pixi environment that also carries
+RelocaTE3 itself:
+
+```bash
+pixi run -e blat relocaTE3 --help     # linux-64; blat + RelocaTE3 together
+```
+
+Any `blat` on `PATH` works just as well — the backend simply shells out to it.
+Without one, pass `--te-aligner bowtie2` (the closest alternative on the rice
+benchmark); RelocaTE3 will say so if `blat` is missing.
 
 Or into an existing environment that already provides `minimap2` and `samtools`:
 
@@ -57,9 +73,9 @@ results match the staged workflow. Pick whichever fits: `run-all` for a laptop o
 a single HPC node, the staged commands when a workflow engine needs to scatter
 work across samples or chromosomes.
 
-To reproduce the configuration validated against RelocaTE2 on the rice benchmark,
-add `--te-aligner blat --genome-aligner bwaaln --min-mapq 1
---require-both-junctions`.
+The aligner defaults (`--te-aligner blat --genome-aligner bwaaln`) already match
+RelocaTE2. To reproduce the exact configuration validated against RelocaTE2 on
+the rice benchmark, add `--min-mapq 1 --require-both-junctions`.
 
 ### Many samples
 
@@ -116,7 +132,7 @@ relocaTE3 align-genome \
 
 # 5. cluster junction/supporting reads into non-reference insertions
 relocaTE3 find-insertions \
-  -b HEG4_out/HEG4.repeat.minimap.sorted.bam \
+  -b HEG4_out/HEG4.repeat.bwaaln.sorted.bam \
   --read-repeat HEG4_out/te_containing/HEG4.read_repeat_name.txt \
   --tsd TTA --target ALL --name HEG4 --outdir HEG4_out --te-name mping \
   --reference-ins reference.fa.RepeatMasker.out \
@@ -170,7 +186,8 @@ Under `--outdir` (example for `--name HEG4`, and `find-insertions --te-name mpin
 
 ```
 HEG4.left.bam / HEG4.right.bam            reads aligned to the TE library (map)
-HEG4.repeat.minimap.sorted.bam           flanking reads aligned to the genome (align-genome)
+HEG4.repeat.bwaaln.sorted.bam            flanking reads aligned to the genome (align-genome;
+                                          named for the aligner, minimap2 abbreviates to "minimap")
 flanking/
   HEG4.left.flankingReads.fq             trimmed flanking reads (5'/3')
   HEG4.right.flankingReads.fq
@@ -206,7 +223,7 @@ family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
 | `--genome_fasta` | `-g/--genome-fasta` |
 | `--reference_ins` | `find-insertions --reference-ins` |
 | `--mismatch` | `--mismatch` (default 0; use 2 to match the RelocaTE2 benchmark) |
-| `--aligner blat/bwa/bowtie2` | `run --te-aligner` and `align-genome --genome-aligner` (see below) |
+| `--aligner blat/bwa/bowtie2` | `run --te-aligner` and `align-genome --genome-aligner` — the defaults (`blat`, `bwa aln`) already match RelocaTE2 |
 | `characterizer.pl` (Perl) | `characterize` |
 | `--mate_1_id` / `--mate_2_id` / `--unpaired_id` | not needed — the mate is taken from which file the read came from |
 | whole pipeline in one command | `run-all` |
@@ -219,19 +236,34 @@ subcommands remain available for workflow engines.
 
 The aligner is selectable per stage:
 
-- **TE-library search** (`map` / `run`): `--te-aligner {minimap2,bwa,bwamem2,bowtie2,blat}`
-  (default `minimap2`). `--aligner` is a deprecated alias.
-- **Genome re-alignment** (`align-genome`): `--genome-aligner {minimap2,bwa,bwamem2,bowtie2}`
-  (default `minimap2`). `blat` is TE-search only and is rejected here.
+- **TE-library search** (`map` / `run`): `--te-aligner {minimap2,bwa,bwamem2,bwaaln,bowtie2,blat}`
+  (default `blat`, matching RelocaTE2). `--aligner` is a deprecated alias.
+- **Genome re-alignment** (`align-genome`): `--genome-aligner {minimap2,bwa,bwamem2,bwaaln,bowtie2}`
+  (default `bwaaln`, matching RelocaTE2). `blat` is TE-search only and is
+  rejected here.
+
+Measured on the riceTElib benchmark (9 samples x 3 coverages), matched true
+calls and precision at 30x:
+
+| TE search / genome | matched 5x | 15x | 30x | precision 30x |
+|---|---|---|---|---|
+| `blat` / `bwaaln` (default) | 455 | 781 | 962 | 0.845 |
+| `bowtie2` / `bwa` | 428 | 761 | 946 | 0.848 |
+| `minimap2` / `minimap2` | 346 | 632 | 798 | 0.827 |
+| RelocaTE2 | 449 | 739 | 897 | 0.834 |
+
+`bowtie2` is the best option when `blat` is unavailable — it costs ~2% of the
+matched calls and needs no extra environment.
 
 ```bash
 relocaTE3 run --left r1.fq --right r2.fq -T RiceTE.fa -n HEG4 -o HEG4_out --te-aligner bwa
 relocaTE3 align-genome -g reference.fa -f HEG4_out/flanking/*.flankingReads.fq -n HEG4 -o HEG4_out --genome-aligner bwa
 ```
 
-`bwa`, `bwa-mem2`, and `bowtie2` are pinned by pixi. `blat` is optional — provide it
-on `PATH` (its bioconda build conflicts with the pinned plotting stack). Non-minimap2
-genome BAMs are named `{name}.repeat.{aligner}.sorted.bam`.
+`minimap2`, `bwa`, `bwa-mem2`, and `bowtie2` are pinned in the default pixi
+environment; `blat` is in the separate `blat` environment (see Installation).
+Non-minimap2 genome BAMs are named `{name}.repeat.{aligner}.sorted.bam` — with
+the default `bwaaln` that is `{name}.repeat.bwaaln.sorted.bam`.
 
 ## Development
 

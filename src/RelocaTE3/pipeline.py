@@ -76,6 +76,8 @@ def run_sample(
     len_cut_trim: int = 10,
     mismatch_allowance: int = 0,
     required_junction_reads: int = 1,
+    te_aligner: str = "blat",
+    genome_aligner: str = "bwaaln",
     verbose: int = 0,
 ) -> Path:
     """Run the full pipeline for a single sample.
@@ -110,13 +112,16 @@ def run_sample(
         reads,
         outdir,
         TE_library=te_library,
+        te_aligner=te_aligner,
         len_cut_match=len_cut_match,
         len_cut_trim=len_cut_trim,
         mismatch_allowance=mismatch_allowance,
     )
 
     logger.info("Step 4: re-aligning flanking reads to the genome for %s", reads.name)
-    genome_bam, fullreads_bam = align_to_genome(reads, genome, outdir, threads=threads)
+    genome_bam, fullreads_bam = align_to_genome(
+        reads, genome, outdir, threads=threads, genome_aligner=genome_aligner
+    )
 
     logger.info("Step 5: clustering reads and calling insertions for %s", reads.name)
     rr_path = outdir / "te_containing" / f"{reads.name}.read_repeat_name.txt"

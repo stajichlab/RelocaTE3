@@ -66,7 +66,7 @@ class RelocaTE:
         seqreads: ReadLibrary,
         outdir: Path,
         TE_library: str = "",
-        te_aligner: str = "minimap2",
+        te_aligner: str = "blat",
         search_tool: str | None = None,
         minimum_match_length: int = 10,
         minimum_trimmed_length: int = 10,

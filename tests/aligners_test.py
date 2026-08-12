@@ -415,5 +415,37 @@ class TestBlatCommand(unittest.TestCase):
         self.assertLess(cmd.index("-minScore=10"), cmd.index("aln.psl"))
 
 
+class TestBlatMissingBinary(unittest.TestCase):
+    """blat is the default TE aligner but is not pinned by pixi.
+
+    A user who never passes --te-aligner will hit this path, so the failure has
+    to name the missing program and the two ways out. Before the preflight it
+    surfaced as a bare FileNotFoundError from subprocess, which reads like a
+    RelocaTE3 bug rather than a missing dependency.
+    """
+
+    def test_error_names_blat_and_the_alternatives(self):
+        import RelocaTE3.aligners as aligners_mod
+        from RelocaTE3.aligners import BlatBackend
+        from RelocaTE3.ReadLibrary import ReadLibrary
+
+        real_which = shutil.which
+        aligners_mod.shutil.which = lambda prog, *a, **k: (
+            None if prog == "blat" else real_which(prog, *a, **k)
+        )
+        try:
+            with self.assertRaises(RuntimeError) as ctx:
+                BlatBackend().map_te_library(
+                    ReadLibrary(["r1.fq"], "S"), "te.fa", "out"
+                )
+        finally:
+            aligners_mod.shutil.which = real_which
+
+        msg = str(ctx.exception)
+        self.assertIn("blat", msg)
+        self.assertIn("--te-aligner", msg, "must say how to pick another aligner")
+        self.assertIn("pixi", msg, "must say how to install it")
+
+
 if __name__ == "__main__":
     unittest.main()

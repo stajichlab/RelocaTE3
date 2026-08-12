@@ -97,9 +97,10 @@ def _menu_map(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--te-aligner",
         "--aligner",
         dest="te_aligner",
-        default="minimap2",
+        default="blat",
         choices=list(TE_ALIGNERS),
-        help="Aligner for TE-library search (--aligner is a deprecated alias)",
+        help="Aligner for TE-library search (default: blat, matching RelocaTE2; "
+        "--aligner is a deprecated alias)",
     )
     parser.add_argument(
         "--te-opts",
@@ -192,9 +193,10 @@ def _menu_run(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--te-aligner",
         "--aligner",
         dest="te_aligner",
-        default="minimap2",
+        default="blat",
         choices=list(TE_ALIGNERS),
-        help="Aligner for TE-library search (--aligner is a deprecated alias)",
+        help="Aligner for TE-library search (default: blat, matching RelocaTE2; "
+        "--aligner is a deprecated alias)",
     )
     parser.add_argument(
         "--te-opts",
@@ -330,9 +332,9 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
     """
     te = parser.add_argument_group("TE-library search (steps 2-3)")
     te.add_argument(
-        "--te-aligner", dest="te_aligner", default="minimap2",
+        "--te-aligner", dest="te_aligner", default="blat",
         choices=["minimap2", "bwa", "bwamem2", "bwaaln", "bowtie2", "blat"],
-        help="Aligner for TE-library search",
+        help="Aligner for TE-library search (default: blat, matching RelocaTE2)",
     )
     te.add_argument(
         "--te-opts", dest="te_opts", default="",
@@ -354,9 +356,10 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
 
     gen = parser.add_argument_group("Genome placement (step 4)")
     gen.add_argument(
-        "--genome-aligner", dest="genome_aligner", default="minimap2",
+        "--genome-aligner", dest="genome_aligner", default="bwaaln",
         choices=["minimap2", "bwa", "bwamem2", "bwaaln", "bowtie2"],
-        help="Aligner for genome re-alignment (blat is not supported here)",
+        help="Aligner for genome re-alignment (default: bwaaln, matching "
+        "RelocaTE2; blat is not supported here)",
     )
     gen.add_argument(
         "--genome-opts", dest="genome_opts", default="",
@@ -588,9 +591,10 @@ def _menu_align_genome(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     parser.add_argument(
         "--genome-aligner",
         dest="genome_aligner",
-        default="minimap2",
+        default="bwaaln",
         choices=list(GENOME_ALIGNERS),
-        help="Aligner for genome re-alignment (blat is not supported here)",
+        help="Aligner for genome re-alignment (default: bwaaln, matching "
+        "RelocaTE2; blat is not supported here)",
     )
     parser.add_argument(
         "--genome-opts",

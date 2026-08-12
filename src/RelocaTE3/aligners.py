@@ -590,6 +590,29 @@ class BlatBackend(AlignerBackend):
     def index(self, reference, *, force: bool = False) -> None:
         """BLAT indexes at run time; nothing to pre-build."""
 
+    @staticmethod
+    def _require_blat() -> None:
+        """Fail early, and usefully, when ``blat`` is not installed.
+
+        blat is the default TE aligner (matching RelocaTE2) but cannot be pinned
+        in the main pixi environment -- the bioconda build hard-pins
+        zlib 1.2.11 and ships linux-64 only. So the common first-run failure is
+        a missing binary, and without this it surfaced as a bare
+        FileNotFoundError from subprocess deep inside the trim step, which reads
+        like a RelocaTE3 bug rather than a missing dependency.
+        """
+        if shutil.which("blat") is None:
+            raise RuntimeError(
+                "blat is not on PATH. It is the default TE aligner (matching "
+                "RelocaTE2) but is not part of the default pixi environment "
+                "because its bioconda build conflicts with the plotting stack "
+                "and is linux-64 only.\n"
+                "  Install it:  pixi run -e blat true   (then use `pixi run -e "
+                "blat relocaTE3 ...`)\n"
+                "  Or pick another aligner:  --te-aligner bowtie2   "
+                "(closest accuracy to blat on the rice benchmark)"
+            )
+
     def _blat_cmd(self, te_library, query_fa, psl):
         # Runs BLAT at its defaults (minScore=30, tileSize=11). We briefly
         # hardcoded RelocaTE2's -minScore=10 -tileSize=7 here (relocaTE2.py:545)
@@ -651,6 +674,7 @@ class BlatBackend(AlignerBackend):
         self, reads, te_library, outdir, *, threads=None, tmpdir=None
     ) -> list[Path]:
         """Map each read side to the TE library via BLAT (PSL -> SAM)."""
+        self._require_blat()
         threads = self._threads(threads)
         read_set = {"left": reads.left()}
         if reads.is_paired:

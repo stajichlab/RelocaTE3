@@ -4,15 +4,15 @@ description = "Tool for identifying transposable element transposition from rese
 channels = ["conda-forge", "bioconda"]
 platforms = ["linux-64", "osx-64", "osx-arm64"]
 
+# Core runtime. Deliberately free of the plotting stack: that is only used by
+# validation/real_rice/, and keeping it out of the core lets the `blat`
+# environment below co-solve (see the note there).
 [dependencies]
 python = ">=3.10"
 minimap2 = ">=2.24"
 bwa = ">=0.7.17"
 bwa-mem2 = ">=2.2"
 bowtie2 = ">=2.5"
-# NOTE: blat is intentionally NOT pinned here -- the bioconda `blat` build pins an
-# old zlib that conflicts with matplotlib and is unavailable on osx-arm64. The
-# blat backend is optional: provide `blat` on PATH to use it (tests skip when absent).
 samtools = ">=1.17"
 bedtools = ">=2.30"
 pysam = ">=0.20"
@@ -20,15 +20,40 @@ biopython = ">=1.81"
 pybedtools = "*"
 pip = ">=26.1.2,<27"
 pytest = ">=7"
-seaborn = ">=0.13.2,<0.14"
-pandas = ">=3.0.3,<4"
-matplotlib = ">=3.11.0,<4"
-matplotlib-venn = ">=1.1"
 
 [pypi-dependencies]
 RelocaTE3 = { path = ".", editable = true }
 sphinx = ">=7.0"
 pytest = ">=9.0.3,<10"
+
+# Plotting, used only by the real-rice validation scripts. Split out of the core
+# so it does not have to co-solve with blat.
+[feature.plot.dependencies]
+seaborn = ">=0.13.2,<0.14"
+pandas = ">=3.0.3,<4"
+matplotlib = ">=3.11.0,<4"
+matplotlib-venn = ">=1.1"
+
+# blat is the DEFAULT TE aligner (matching RelocaTE2), but it cannot live in the
+# same environment as the plotting stack: the bioconda `blat` build hard-pins
+# zlib 1.2.11, which matplotlib will not solve against. It is also linux-64 only.
+# Hence its own environment, which carries the core runtime (so `relocaTE3`
+# itself is present) but not the plots:
+#
+#   pixi run -e blat relocaTE3 run-all ...
+#
+# Any other blat on PATH works too -- the backend just shells out to it.
+[feature.blat]
+platforms = ["linux-64"]
+
+[feature.blat.dependencies]
+blat = "*"
+
+[environments]
+# `default` keeps the historical contents (core + plotting), so `pixi run test`
+# and `pixi run validate-rice` are unchanged.
+default = { features = ["plot"] }
+blat = { features = ["blat"] }
 
 [tasks]
 test = "pytest -ra -q"

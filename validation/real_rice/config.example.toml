@@ -45,9 +45,10 @@ r2_suffix = "_trim_R2.fastq.gz"
 
 [relocate3]
 # Parameters chosen to track the RelocaTE2 run in example_relocate2_pipeline/.
-# RelocaTE2 used: --mismatch 2 --size 250 --aligner blat. RelocaTE3 uses
-# minimap2 internally; the closest analogs are kept here.
-aligner       = "minimap2"        # minimap2 | bwa
+# RelocaTE2 used: --mismatch 2 --size 250 --aligner blat. RelocaTE3 now defaults
+# to the same aligner pair, so these mirror the shipped defaults.
+aligner        = "blat"           # TE search: blat | minimap2 | bwa | bwaaln | bowtie2
+genome_aligner = "bwaaln"         # genome placement: bwaaln | minimap2 | bwa | bowtie2
 mismatch      = 2
 min_match     = 10                # RelocaTE3 --min-match
 min_trimmed   = 10                # RelocaTE3 --min-trimmed

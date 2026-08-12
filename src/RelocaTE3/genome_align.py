@@ -325,7 +325,7 @@ def align_to_genome(
     genome: str,
     outdir: str | Path,
     threads: int = 1,
-    genome_aligner: str = "minimap2",
+    genome_aligner: str = "bwaaln",
     genome_opts=(),
 ) -> tuple[Path, Path | None]:
     """Map trimmed flanking reads + supporting mates to ``genome``.
