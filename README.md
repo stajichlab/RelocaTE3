@@ -61,6 +61,36 @@ To reproduce the configuration validated against RelocaTE2 on the rice benchmark
 add `--te-aligner blat --genome-aligner bwaaln --min-mapq 1
 --require-both-junctions`.
 
+### Many samples
+
+`run-batch` runs the same pipeline across a cohort, one `run-all` per sample into
+`<outdir>/<sample>`:
+
+```bash
+# a directory of paired FASTQs (RelocaTE2's --fq_dir)
+relocaTE3 run-batch --fq-dir reads/ -T RiceTE.fa -g reference.fa \
+  -o results --threads 8 --jobs 4 --repeatmasker reference.fa.RepeatMasker.out
+
+# or an explicit sample sheet
+relocaTE3 run-batch --samples samples.csv -T RiceTE.fa -g reference.fa -o results
+```
+
+`--fq-dir` pairs `<sample>_R1`/`_R2` and `<sample>_1`/`_2`. The sheet is CSV or
+TSV with `sample_id,r1_fq[,r2_fq]`, plus optional per-row `te_library`,
+`reference_genome` and `repeatmasker` columns that override the global flags:
+
+```csv
+sample_id,r1_fq,r2_fq
+HEG4,reads/HEG4_R1.fq.gz,reads/HEG4_R2.fq.gz
+A123,reads/A123_R1.fq.gz,reads/A123_R2.fq.gz
+```
+
+`--jobs` sets how many samples run at once (each still uses `--threads`).
+Batches are **resumable**: a sample that already has a results table is skipped
+unless `--force`. By default the batch stops at the first failing sample; pass
+`--keep-going` to run the rest and get a summary at the end (the exit code is
+non-zero either way if anything failed).
+
 ### Staged subcommands
 
 Note that `run` performs **TE-read identification and flank
@@ -104,6 +134,7 @@ relocaTE3 characterize \
 | Command | Step | Purpose |
 |---------|------|---------|
 | `run-all` | 0-7 | **Whole pipeline for one sample in one command** (dispatches the staged handlers below) |
+| `run-batch` | 0-7 | **Whole pipeline for many samples** from a sample sheet or FASTQ directory |
 | `index-genome` | 1 | Index the reference genome (`samtools faidx` + minimap2) |
 | `map` | 2 | Align reads to the TE library (produces per-side BAMs) |
 | `trim` | 3 | Trim the TE portion from TE-library BAMs, emit flanking reads |
@@ -170,7 +201,7 @@ family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
 
 | RelocaTE2 | RelocaTE3 |
 |-----------|-----------|
-| `--fq_dir` (directory) | `--left` / `--right` (explicit files) |
+| `--fq_dir` (directory) | `run-batch --fq-dir`, or `--left`/`--right` for one sample |
 | `--te_fasta` | `-T/--te-library` |
 | `--genome_fasta` | `-g/--genome-fasta` |
 | `--reference_ins` | `find-insertions --reference-ins` |
