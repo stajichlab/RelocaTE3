@@ -1,8 +1,9 @@
 """Acceptance gate: full 14-family run vs the simulation truth.
 
-RelocaTE2's published benchmark on this exact rice Chr3 2 Mb dataset recovered
-196 of the 200 simulated insertions (`bedtools window -w 10` against
-``MSU7.Chr3_2M.ALL.gff``). This test runs RelocaTE3 with the same full
+RelocaTE2 recovers 196 of the 200 simulated insertions on this exact rice
+Chr3 2 Mb dataset (`bedtools window -w 10` against ``MSU7.Chr3_2M.ALL.gff``),
+at precision 1.000. Measured 2026-08-12 by running RelocaTE2 itself, not quoted
+from its README -- see ``notes/2026-08-12-relocate2-chr3-baseline.md``. This test runs RelocaTE3 with the same full
 ``RiceTE.fa`` library and asserts comparable recovery, so regressions in
 sensitivity are caught.
 
@@ -66,7 +67,8 @@ def test_acceptance_full_library(tmp_path: Path):
     true_calls = sum(1 for c in calls if any(_overlaps(c, t, WINDOW) for t in truth))
     precision = true_calls / len(calls) if calls else 0.0
 
-    # RelocaTE2 reference: 196/200. RelocaTE3 (minimap2) target: >= 170/200 recall.
+    # RelocaTE2 measured: 196/200 at precision 1.000 (see notes/2026-08-12-*).
+    # RelocaTE3 (minimap2) target: >= 170/200 recall.
     assert recovered >= 170, f"recall regressed: {recovered}/200"
     assert precision >= 0.85, f"precision regressed: {precision:.2f}"
 

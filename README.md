@@ -13,7 +13,9 @@ placement, but the aligner for each stage is selectable: `minimap2`, `bwa`,
 > re-alignment → non-reference insertion calling → reference/shared insertions →
 > genotyping) runs end to end. On the rice Chr3 2 Mb benchmark, at the shipped
 > defaults, it recovers 194/200 simulated insertions (97% recall, 90%
-> precision) — RelocaTE2's published figure on the same data is 196/200. See
+> precision). RelocaTE2 on the same data, measured: 196/200 at precision 1.000
+> (`notes/2026-08-12-relocate2-chr3-baseline.md`) — it still leads on this
+> fixture, by resolving a second junction where RelocaTE3 sees only one. See
 > `tests/acceptance_test.py`, which gates the minimap2 configuration
 > (~178/200) so it can run without blat. See `PLAN.md` for the roadmap (Rust acceleration and
 > Nextflow scatter are planned).

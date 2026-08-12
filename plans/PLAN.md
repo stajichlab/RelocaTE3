@@ -198,8 +198,11 @@ src/RelocaTE3/
 > `pipeline.py`, and a pixi env; `relocaTE3 trim | align-genome | find-insertions |
 > find-reference | characterize | run` work end-to-end on the rice test data. 35
 > tests pass. **Acceptance gate met**: full 14-family `RiceTE.fa` run recovers
-> 178/200 simulated insertions (~89% recall, ~90% precision) vs RelocaTE2's 196/200
-> — see `tests/acceptance_test.py`. Reference/shared calling + FP filtering via
+> 178/200 simulated insertions (~89% recall, ~90% precision) at the minimap2
+> settings that gate is pinned to, vs RelocaTE2's 196/200 at precision 1.000
+> (measured 2026-08-12, `notes/2026-08-12-relocate2-chr3-baseline.md`). At the
+> shipped blat/bwaaln defaults RelocaTE3 reaches 193/200 on the same inputs.
+> See `tests/acceptance_test.py`. Reference/shared calling + FP filtering via
 > RepeatMasker and genotyping (homo/heterozygous/somatic) are in place. Pure Python,
 > only minimap2 + samtools. Next: Phase 6 (docs/provenance polish), then 7–8
 > (Rust/Nextflow).
