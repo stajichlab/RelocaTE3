@@ -725,6 +725,8 @@ def _stream_clusters(
                         _te_family(read_repeat, name),
                         te_end,
                         seq,
+                        gstart,
+                        gend,
                     )
                 )
             else:
@@ -856,7 +858,16 @@ def _make_insertion(
     orients = [j.te_orientation for j in junctions]
     strand = "+" if orients.count("+") >= orients.count("-") else "-"
 
-    spans = [(s, e) for _n, s, e, _strand, _seq in cluster.support]
+    # RelocaTE2 estimates TSD length from a depth pileup over the *junction*
+    # reads of the cluster, dividing by their count
+    # (relocaTE_insertionFinder.py:1069-1076 feeding tsd_finder at :843).
+    # Junction reads all abut the same breakpoint, so the TSD is the run of
+    # positions nearly all of them cover. Supporting mates are spread across the
+    # library insert and never reach the cutoff -- using them returned 0 for 15
+    # of the 16 Chr3 sites where RelocaTE2 resolves a TSD and we reported UNK.
+    spans = [(j.gstart, j.gend) for j in cluster.junctions if j.gend >= j.gstart > 0]
+    if not spans:  # support-only clusters keep the previous behaviour
+        spans = [(s, e) for _n, s, e, _strand, _seq in cluster.support]
 
     if left_reads and right_reads:
         i_end = left_reads[0].position  # right edge of TSD
@@ -930,9 +941,14 @@ def _estimate_tsd_length_from_depth(
 
     Port of RelocaTE2 ``tsd_finder`` (relocaTE_insertionFinder.py:843). Builds a
     per-base depth pileup from ``spans`` (1-based inclusive ``(start, end)``
-    tuples), then for each fractional threshold (in order) counts contiguous
-    positions whose depth >= ``threshold * len(spans)``. Returns the first
-    non-zero length, or 0 if none qualify.
+    tuples), then for each fractional threshold (in order) counts the positions
+    whose depth >= ``threshold * len(spans)``. Returns the first non-zero
+    length, or 0 if none qualify. Positions need not be contiguous, matching
+    ``tsd_finder``; and because the first non-zero result wins, a single base
+    covered by every read yields 1 rather than falling to a looser threshold.
+
+    ``spans`` must be the cluster's *junction*-read spans -- see the call site
+    in ``_make_insertion``.
 
     The ``breakpoint`` argument is reserved for future locality refinement; the
     R2 reference implementation also passes a candidate position but does not

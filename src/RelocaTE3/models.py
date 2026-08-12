@@ -99,6 +99,13 @@ class JunctionObservation:
     te_name: str
     te_end: str = ""  # '5' or '3': which end of the TE this read spans
     seq: str = ""  # genomic-strand read sequence, for read-derived TSD capture
+    # Aligned span on the genome (1-based inclusive). Needed to rebuild
+    # RelocaTE2's junction-read depth pileup for TSD-length estimation
+    # (relocaTE_insertionFinder.py:1069-1076); without it the estimator has to
+    # fall back to supporting mates, which are far too spread out to resolve a
+    # TSD.
+    gstart: int = 0
+    gend: int = 0
 
     @property
     def te_orientation(self) -> str:
