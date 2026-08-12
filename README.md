@@ -200,6 +200,7 @@ results/
   ALL.mping.all_nonref_insert.raw.txt / .gff             every call
   ALL.mping.all_nonref_insert.all.txt / .gff             minus one-sided calls at reference TE boundaries
   ALL.mping.all_nonref_insert.high_conf.txt / .gff       two-sided junction calls only
+  ALL.mping.all_nonref_supporting.txt / .gff             sites supported by mate pairs alone (no junction read)
   ALL.mping.all_nonref_insert.characTErized.gff / .txt   genotyped insertions (characterize)
   HEG4.all_ref_insert.gff / .txt                         reference/shared insertions (find-reference)
 existingTE.bed                                           reference TE copies (find-reference/annotate-ref)
@@ -277,6 +278,25 @@ without one, `.all` equals `.raw`.
 On the Chr3 2 Mb fixture this filter removes nothing — of 37 one-sided calls,
 none fall within even 50 bp of a reference TE boundary — so it is not what
 separates RelocaTE3's precision from RelocaTE2's there. `.high_conf` is.
+
+## Mate-pair-only insertions
+
+When a cluster has supporting mates but no junction read mapped, RelocaTE2 still
+calls a site and writes it to `all_nonref_supporting.{txt,gff}` — kept out of
+`all_nonref_insert` because, with `T:0 R:0 L:0`, it is much weaker evidence.
+RelocaTE3 does the same. Three cases, following RelocaTE2:
+
+- **both strands** — the site lies in the gap between the innermost mates
+- **forward only** — spans one library insert onwards from the rightmost mate
+- **reverse only** — the mirror image
+
+`-s/--size` (default 500) is the library insert size used for the one-sided
+spans; RelocaTE2 widens it by 20% for library spread.
+
+Treat these as leads, not calls. On the Chr3 2 Mb fixture the path produces 6
+sites and **none** of them correspond to a true insertion — each rests on a
+single read per strand. They are reported because RelocaTE2 reports them, and
+they are filed separately for the same reason RelocaTE2 files them separately.
 
 ## RelocaTE2 defaults
 

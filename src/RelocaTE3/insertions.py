@@ -33,6 +33,7 @@ class InsertionFinder:
         min_mapq: int = 1,
         verbose: int = 0,
         require_both_junctions: bool = False,
+        insert_size: int = 500,
     ):
         """Initialize the finder.
 
@@ -50,6 +51,7 @@ class InsertionFinder:
         self.min_mapq = min_mapq
         self.verbose = verbose
         self.require_both_junctions = require_both_junctions
+        self.insert_size = insert_size
 
     # ------------------------------------------------------------------
     # public API
@@ -159,12 +161,14 @@ class InsertionFinder:
         result_dir = Path(outdir) / "results"
         result_dir.mkdir(parents=True, exist_ok=True)
         out_txt = result_dir / f"{target}.{te_name}.all_nonref_insert.txt"
+        support_only: list[Insertion] = []
         with open(out_txt, "w") as out:
             for cluster in _stream_clusters(
                 str(bam_file), read_repeat, quality_filter=self._passes_quality
             ):
                 if target != "ALL" and cluster.chrom != target:
                     continue
+                wrote_any = False
                 for ins in _call_insertions(cluster, genome=None):
                     # RelocaTE2 parity: drop single-sided (one-junction) calls,
                     # which cannot resolve a TSD and dominate the false positives.
@@ -184,7 +188,15 @@ class InsertionFinder:
                         f"R:{ins.right_junction_reads}\tL:{ins.left_junction_reads}\t"
                         f"ST:0\tSR:{ins.right_support_reads}\tSL:{ins.left_support_reads}\n"
                     )
+                    wrote_any = True
+                # RelocaTE2 calls a site from mates alone only when no junction
+                # read produced one, and files it separately (NONSUP).
+                if not wrote_any:
+                    call = call_support_only(cluster, insert_size=self.insert_size)
+                    if call is not None:
+                        support_only.append(call)
         logger.info("Wrote variable-length TSD insertions table %s", out_txt)
+        write_supporting_reads(result_dir, target, te_name, sample, support_only)
         return out_txt
 
     # ------------------------------------------------------------------
@@ -967,6 +979,72 @@ def _count_support(ins: Insertion, cluster: _Cluster) -> None:
     ins.right_support_reads = right
 
 
+#: RelocaTE2's -s/--size: sequencing library insert size (relocaTE2.py:198).
+DEFAULT_INSERT_SIZE = 500
+
+#: RelocaTE2 extends a one-sided supporting cluster by insert size * (1 + 0.2),
+#: its comment reading "insertion size of library * (1 + sd of library)"
+#: (relocaTE_insertionFinder.py:446).
+_INSERT_SD_FACTOR = 1.2
+
+
+def call_support_only(
+    cluster: _Cluster, insert_size: int = DEFAULT_INSERT_SIZE
+) -> Insertion | None:
+    """Call an insertion from supporting (mate) reads alone -- RelocaTE2's NONSUP.
+
+    RelocaTE2 writes these to a separate ``all_nonref_supporting`` file rather
+    than into ``all_nonref_insert`` (relocaTE_insertionFinder.py:431-459): they
+    carry no junction reads at all (T:0 R:0 L:0), so they are much weaker
+    evidence and are kept apart from the main call set. RelocaTE3 follows that
+    split exactly -- these never enter the insertion tiers.
+
+    Three cases, matching RelocaTE2:
+
+    * **both strands** -- forward mates bracket the site on the left, reverse
+      mates on the right; the insertion lies in the gap between the innermost
+      reads. Overlapping brackets are ambiguous and rejected (:440).
+    * **forward only** -- the site starts at the rightmost forward end and runs
+      one library insert onwards (:446).
+    * **reverse only** -- the mirror image (:455).
+
+    Unlike :func:`_call_support_only`, no minimum read count is imposed, because
+    RelocaTE2 imposes none; the separate output file is what marks these as
+    provisional.
+    """
+    plus_ends = [gend for _n, _s, gend, strand, _q in cluster.support if strand == "+"]
+    minus_starts = [
+        gstart for _n, gstart, _e, strand, _q in cluster.support if strand == "-"
+    ]
+    if not plus_ends and not minus_starts:
+        return None
+
+    span = int(float(insert_size) * _INSERT_SD_FACTOR)
+    if plus_ends and minus_starts:
+        ins_start = max(plus_ends)
+        ins_end = min(minus_starts)
+        if ins_start > ins_end:
+            return None  # mates overlap: cannot bracket a gap
+    elif plus_ends:
+        ins_start = max(plus_ends)
+        ins_end = ins_start + span
+    else:
+        ins_end = min(minus_starts)
+        ins_start = max(1, ins_end - span)  # stay on the contig
+
+    return Insertion(
+        chrom=cluster.chrom,
+        start=ins_start,
+        end=ins_end,
+        te_name="NA",
+        strand="+",
+        tsd="supporting_reads",
+        left_support_reads=len(plus_ends),
+        right_support_reads=len(minus_starts),
+        note="Non-reference, supporting reads only",
+    )
+
+
 def _call_support_only(
     cluster: _Cluster, min_support: int = MIN_SUPPORT_ONLY
 ) -> Insertion | None:
@@ -1224,6 +1302,40 @@ def write_insertions_txt(insertions: list[Insertion], path: str | Path) -> None:
                 )
                 + "\n"
             )
+
+
+def write_supporting_reads(
+    result_dir: Path | str,
+    target: str,
+    te_name: str,
+    sample: str,
+    insertions: list[Insertion],
+) -> Path:
+    """Write ``<target>.<TE>.all_nonref_supporting.{txt,gff}`` (RelocaTE2 NONSUP).
+
+    Always written, even when empty, so downstream steps never have to test for
+    the file's existence -- RelocaTE2 opens it unconditionally too
+    (relocaTE_insertionFinder.py:151).
+    """
+    result_dir = Path(result_dir)
+    result_dir.mkdir(parents=True, exist_ok=True)
+    txt_path = result_dir / f"{target}.{te_name}.all_nonref_supporting.txt"
+    gff_path = result_dir / f"{target}.{te_name}.all_nonref_supporting.gff"
+    with open(txt_path, "w") as txt:
+        for ins in insertions:
+            txt.write(
+                f"{ins.te_name}\t{ins.tsd}\t{sample}\t{ins.chrom}\t"
+                f"{ins.start}..{ins.end}\t{ins.strand}\tT:0\tR:0\tL:0\t"
+                f"ST:{ins.left_support_reads + ins.right_support_reads}\t"
+                f"SR:{ins.right_support_reads}\tSL:{ins.left_support_reads}\n"
+            )
+    write_insertions_gff(insertions, gff_path, sample)
+    logger.info(
+        "Wrote %d supporting-reads-only insertions to %s",
+        len(insertions),
+        txt_path,
+    )
+    return txt_path
 
 
 # ---------------------------------------------------------------------------

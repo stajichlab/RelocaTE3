@@ -381,6 +381,16 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
         help="TE label used in output filenames",
     )
     call.add_argument(
+        "-s", "--size", type=int, default=500, dest="insert_size",
+        help="Library insert size for mate-pair-only insertions "
+        "(default: 500, matching RelocaTE2)",
+    )
+    call.add_argument(
+        "--distance", type=int, default=3, dest="distance",
+        help="Reference-TE boundary window for dropping one-sided calls "
+        "(default: 3, matching RelocaTE2)",
+    )
+    call.add_argument(
         "--min-mapq", type=int, default=1, dest="min_mapq",
         help="Minimum MAPQ for a uniquely-mapped read",
     )
@@ -665,6 +675,15 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         "(default: 2, matching RelocaTE2's --mismatch_junction)",
     )
     parser.add_argument(
+        "-s",
+        "--size",
+        type=int,
+        default=500,
+        dest="insert_size",
+        help="Sequencing library insert size, used to span insertions supported "
+        "by mate pairs alone (default: 500, matching RelocaTE2's -s/--size)",
+    )
+    parser.add_argument(
         "--distance",
         type=int,
         default=3,
@@ -915,6 +934,8 @@ def cmd_run_all(args: argparse.Namespace) -> int:
         mismatch_allow=args.mismatch_allowance,
         min_mapq=args.min_mapq,
         require_both_junctions=args.require_both_junctions,
+        insert_size=args.insert_size,
+        distance=args.distance,
     )
 
     # Steps 0/6 -- reference/shared calls (RelocaTE2's all_ref_insert.*).
@@ -1219,6 +1240,7 @@ def cmd_find_insertions(args: argparse.Namespace) -> int:
         min_mapq=args.min_mapq,
         verbose=int(args.verbose),
         require_both_junctions=getattr(args, "require_both_junctions", False),
+        insert_size=getattr(args, "insert_size", 500),
     )
     out_txt = finder.find_insertions(
         bam_file=Path(args.bam),
