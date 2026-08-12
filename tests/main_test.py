@@ -4,6 +4,7 @@ import logging
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from typing import Generator
 
 import pytest
@@ -359,3 +360,151 @@ def test_run_all_skips_optional_stages_when_not_requested(monkeypatch, tmp_path)
     assert "find-reference" not in calls
     assert "characterize" not in calls
     assert calls == ["index-genome", "run", "align-genome", "find-insertions"]
+
+
+# ---------------------------------------------------------------------------
+# run-batch: many samples from a sheet or a directory
+# ---------------------------------------------------------------------------
+
+
+def _sheet(tmp_path, n=2):
+    """A sample sheet with n samples whose read files exist."""
+    rows = ["sample_id,r1_fq,r2_fq"]
+    for i in range(n):
+        r1 = tmp_path / f"S{i}_R1.fq"
+        r2 = tmp_path / f"S{i}_R2.fq"
+        for f in (r1, r2):
+            f.write_text("@r\nACGT\n+\nIIII\n")
+        rows.append(f"S{i},{r1},{r2}")
+    sheet = tmp_path / "samples.csv"
+    sheet.write_text("\n".join(rows) + "\n")
+    return sheet
+
+
+def test_main_run_batch_parses_args(monkeypatch: Generator, tmp_path):
+    monkeypatch.setattr(cli, "cmd_run_batch", mockreturn)
+    sheet = _sheet(tmp_path)
+    assert main(["run-batch", "--samples", str(sheet), "-T", "te.fa",
+                 "-g", "ref.fa", "-o", str(tmp_path / "out")]) == 0
+    assert mockreturn.args.samples == str(sheet)
+    assert mockreturn.args.te_library == "te.fa"
+
+
+def test_run_batch_runs_each_sample_in_its_own_subdir(monkeypatch, tmp_path):
+    """One run-all per sample, isolated outputs, shared settings."""
+    seen = []
+
+    def fake_run_all(args):
+        seen.append(args)
+        Path(args.outdir, "results").mkdir(parents=True, exist_ok=True)
+        Path(args.outdir, "results", "ALL.repeat.all_nonref_insert.txt").write_text("x\n")
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_run_all", fake_run_all)
+    sheet = _sheet(tmp_path, n=3)
+    out = tmp_path / "out"
+
+    rc = main(["run-batch", "--samples", str(sheet), "-T", "te.fa", "-g", "ref.fa",
+               "-o", str(out), "--threads", "4", "--te-aligner", "blat",
+               "--require-both-junctions"])
+    assert rc == 0
+    assert [a.name for a in seen] == ["S0", "S1", "S2"]
+    assert [Path(a.outdir).name for a in seen] == ["S0", "S1", "S2"]
+    # shared settings reach every sample
+    assert all(a.te_aligner == "blat" for a in seen)
+    assert all(a.require_both_junctions is True for a in seen)
+    assert all(a.threads == 4 for a in seen)
+
+
+def test_run_batch_per_row_overrides_beat_the_global_flags(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(cli, "cmd_run_all", lambda a: (seen.append(a), 0)[1])
+
+    te = tmp_path / "special_TE.fa"
+    te.write_text(">te\nACGT\n")
+    r1 = tmp_path / "X_R1.fq"
+    r1.write_text("@r\nACGT\n+\nIIII\n")
+    sheet = tmp_path / "s.csv"
+    sheet.write_text(f"sample_id,r1_fq,te_library\nX,{r1},{te}\n")
+
+    main(["run-batch", "--samples", str(sheet), "-T", "global_TE.fa",
+          "-g", "ref.fa", "-o", str(tmp_path / "out")])
+    assert seen[0].te_library == str(te)
+
+
+def test_run_batch_skips_completed_samples_and_force_reruns(monkeypatch, tmp_path):
+    """Resumable: a finished sample is not redone unless --force."""
+    calls = []
+    monkeypatch.setattr(cli, "cmd_run_all", lambda a: (calls.append(a.name), 0)[1])
+
+    sheet = _sheet(tmp_path, n=2)
+    out = tmp_path / "out"
+    done = out / "S0" / "results"
+    done.mkdir(parents=True)
+    (done / "ALL.repeat.all_nonref_insert.txt").write_text("already done\n")
+
+    main(["run-batch", "--samples", str(sheet), "-T", "te.fa", "-g", "ref.fa",
+          "-o", str(out)])
+    assert calls == ["S1"], "completed sample should be skipped"
+
+    calls.clear()
+    main(["run-batch", "--samples", str(sheet), "-T", "te.fa", "-g", "ref.fa",
+          "-o", str(out), "--force"])
+    assert calls == ["S0", "S1"], "--force should redo everything"
+
+
+def test_run_batch_reports_failures_and_exits_nonzero(monkeypatch, tmp_path):
+    """A failing sample must not be silently swallowed."""
+    attempted = []
+
+    def flaky(args):
+        attempted.append(args.name)
+        if args.name == "S0":
+            raise RuntimeError("boom")
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_run_all", flaky)
+    sheet = _sheet(tmp_path, n=3)
+    rc = main(["run-batch", "--samples", str(sheet), "-T", "te.fa", "-g", "ref.fa",
+               "-o", str(tmp_path / "out"), "--keep-going"])
+    assert rc != 0, "batch with a failed sample must exit non-zero"
+    assert attempted == ["S0", "S1", "S2"], (
+        "--keep-going must carry on past the failure, not stop at it"
+    )
+
+
+def test_run_batch_stops_at_first_failure_by_default(monkeypatch, tmp_path):
+    attempted = []
+
+    def flaky(args):
+        attempted.append(args.name)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cli, "cmd_run_all", flaky)
+    sheet = _sheet(tmp_path, n=3)
+    rc = main(["run-batch", "--samples", str(sheet), "-T", "te.fa", "-g", "ref.fa",
+               "-o", str(tmp_path / "out")])
+    assert rc != 0
+    assert attempted == ["S0"], "should stop rather than burn the whole cohort"
+
+
+def test_run_batch_accepts_a_fastq_directory(monkeypatch, tmp_path):
+    """RelocaTE2's --fq_dir equivalent."""
+    seen = []
+    monkeypatch.setattr(cli, "cmd_run_all", lambda a: (seen.append(a.name), 0)[1])
+
+    fq = tmp_path / "fq"
+    fq.mkdir()
+    for base in ("alpha", "beta"):
+        for mate in ("R1", "R2"):
+            (fq / f"{base}_{mate}.fastq.gz").write_text("@r\nACGT\n+\nIIII\n")
+
+    rc = main(["run-batch", "--fq-dir", str(fq), "-T", "te.fa", "-g", "ref.fa",
+               "-o", str(tmp_path / "out")])
+    assert rc == 0
+    assert seen == ["alpha", "beta"]
+
+
+def test_run_batch_requires_exactly_one_input_source(tmp_path):
+    rc = main(["run-batch", "-T", "te.fa", "-g", "ref.fa", "-o", str(tmp_path)])
+    assert rc != 0, "neither --samples nor --fq-dir should be an error"

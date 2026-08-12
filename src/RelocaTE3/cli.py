@@ -321,30 +321,13 @@ def _menu_annotate_ref(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     return parser
 
 
-def _menu_run_all(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    """Arguments for the 'run-all' subcommand (whole pipeline, one command)."""
-    parser.add_argument(
-        "-1", "--left", "--r1", required=True, dest="left", metavar="R1",
-        help="Left/R1 read file (FASTQ, may be gzipped)",
-    )
-    parser.add_argument(
-        "-2", "--right", "--r2", dest="right", metavar="R2",
-        help="Right/R2 read file for paired-end (FASTQ, may be gzipped)",
-    )
-    parser.add_argument(
-        "-T", "--te-library", required=True, dest="te_library", metavar="FASTA",
-        help="Transposon library FASTA file",
-    )
-    parser.add_argument(
-        "-g", "--genome-fasta", required=True, dest="genome_fasta", metavar="FASTA",
-        help="Reference genome FASTA file (indexed automatically if needed)",
-    )
-    parser.add_argument("-n", "--name", required=True, help="Sample/individual name")
-    parser.add_argument("-o", "--outdir", default=".", help="Output directory")
-    parser.add_argument(
-        "--threads", type=int, default=1, help="CPU threads for alignment"
-    )
+def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
+    """Per-stage tuning flags shared by ``run-all`` and ``run-batch``.
 
+    Kept in one place so a batch run cannot drift from a single-sample run:
+    the two commands must expose exactly the same knobs, or "reproduce this
+    with run-all" stops being true.
+    """
     te = parser.add_argument_group("TE-library search (steps 2-3)")
     te.add_argument(
         "--te-aligner", dest="te_aligner", default="minimap2",
@@ -429,8 +412,80 @@ def _menu_run_all(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--bcftools", default="bcftools", help="Path to bcftools executable"
     )
 
+
+def _menu_run_all(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Arguments for the 'run-all' subcommand (whole pipeline, one command)."""
+    parser.add_argument(
+        "-1", "--left", "--r1", required=True, dest="left", metavar="R1",
+        help="Left/R1 read file (FASTQ, may be gzipped)",
+    )
+    parser.add_argument(
+        "-2", "--right", "--r2", dest="right", metavar="R2",
+        help="Right/R2 read file for paired-end (FASTQ, may be gzipped)",
+    )
+    parser.add_argument(
+        "-T", "--te-library", required=True, dest="te_library", metavar="FASTA",
+        help="Transposon library FASTA file",
+    )
+    parser.add_argument(
+        "-g", "--genome-fasta", required=True, dest="genome_fasta", metavar="FASTA",
+        help="Reference genome FASTA file (indexed automatically if needed)",
+    )
+    parser.add_argument("-n", "--name", required=True, help="Sample/individual name")
+    parser.add_argument("-o", "--outdir", default=".", help="Output directory")
+    parser.add_argument(
+        "--threads", type=int, default=1, help="CPU threads for alignment"
+    )
+
+    _add_pipeline_tuning_args(parser)
     _add_common_args(parser)
     parser.set_defaults(func=cmd_run_all)
+    return parser
+
+
+def _menu_run_batch(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Arguments for the 'run-batch' subcommand (many samples, one command)."""
+    source = parser.add_argument_group("Sample source (give exactly one)")
+    source.add_argument(
+        "--samples", metavar="SHEET",
+        help="CSV/TSV sample sheet with columns sample_id,r1_fq[,r2_fq] and "
+        "optional per-row te_library / reference_genome / repeatmasker overrides",
+    )
+    source.add_argument(
+        "--fq-dir", dest="fq_dir", metavar="DIR",
+        help="Directory of paired FASTQs to discover (RelocaTE2's --fq_dir). "
+        "Pairs <sample>_R1/_R2 and <sample>_1/_2",
+    )
+    parser.add_argument(
+        "-T", "--te-library", required=True, dest="te_library", metavar="FASTA",
+        help="Transposon library FASTA (per-row te_library in the sheet wins)",
+    )
+    parser.add_argument(
+        "-g", "--genome-fasta", required=True, dest="genome_fasta", metavar="FASTA",
+        help="Reference genome FASTA (per-row reference_genome in the sheet wins)",
+    )
+    parser.add_argument(
+        "-o", "--outdir", default=".",
+        help="Root output directory; each sample writes to <outdir>/<sample>",
+    )
+    parser.add_argument(
+        "--threads", type=int, default=1, help="CPU threads per sample"
+    )
+    parser.add_argument(
+        "--jobs", type=int, default=1,
+        help="Samples to process concurrently (each still uses --threads)",
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Re-run samples that already have a results table",
+    )
+    parser.add_argument(
+        "--keep-going", action="store_true", dest="keep_going",
+        help="Continue after a sample fails instead of stopping at the first one",
+    )
+    _add_pipeline_tuning_args(parser)
+    _add_common_args(parser)
+    parser.set_defaults(func=cmd_run_batch)
     return parser
 
 
@@ -895,6 +950,105 @@ def cmd_run_all(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run_batch(args: argparse.Namespace) -> int:
+    """Run the pipeline for every sample in a sheet or a FASTQ directory.
+
+    Each sample goes through :func:`cmd_run_all` into its own ``<outdir>/<name>``
+    subdirectory, so a batch is exactly N single-sample runs and reproducing one
+    of them by hand is a matter of copying the logged command.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from RelocaTE3.samples import discover_fastq_dir, read_sample_sheet
+
+    if bool(args.samples) == bool(args.fq_dir):
+        raise ValueError("give exactly one of --samples or --fq-dir")
+
+    samples = (
+        read_sample_sheet(args.samples)
+        if args.samples
+        else discover_fastq_dir(args.fq_dir)
+    )
+    root = Path(args.outdir)
+    root.mkdir(parents=True, exist_ok=True)
+    logger.info("run-batch: %d sample(s)", len(samples))
+
+    def _plan(sample):
+        """Per-sample Namespace: sheet overrides win over the global flags."""
+        values = vars(args).copy()
+        for key in ("samples", "fq_dir", "jobs", "force", "keep_going"):
+            values.pop(key, None)
+        values.update(
+            name=sample.name,
+            left=sample.r1,
+            right=sample.r2,
+            outdir=str(root / sample.name),
+            te_library=sample.te_library or args.te_library,
+            genome_fasta=sample.genome or args.genome_fasta,
+            repeatmasker=sample.repeatmasker or args.repeatmasker,
+        )
+        return argparse.Namespace(**values)
+
+    def _already_done(sample) -> bool:
+        table = (
+            root
+            / sample.name
+            / "results"
+            / f"{args.target}.{args.te_name}.all_nonref_insert.txt"
+        )
+        return table.is_file() and table.stat().st_size > 0
+
+    pending = []
+    for sample in samples:
+        if not args.force and _already_done(sample):
+            logger.info("run-batch: %s already complete, skipping", sample.name)
+            continue
+        pending.append(sample)
+
+    if not pending:
+        logger.info("run-batch: nothing to do (use --force to re-run)")
+        return 0
+
+    failures: list[tuple[str, str]] = []
+
+    def _one(sample) -> None:
+        logger.info("run-batch: starting %s", sample.name)
+        rc = cmd_run_all(_plan(sample))
+        if rc != 0:
+            raise RuntimeError(f"run-all exited {rc}")
+
+    if args.jobs > 1:
+        with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            futures = {pool.submit(_one, s): s for s in pending}
+            for future, sample in futures.items():
+                try:
+                    future.result()
+                except Exception as err:  # noqa: BLE001 - reported per sample
+                    failures.append((sample.name, str(err)))
+                    logger.error("run-batch: %s failed: %s", sample.name, err)
+                    if not args.keep_going:
+                        for other in futures:
+                            other.cancel()
+                        break
+    else:
+        for sample in pending:
+            try:
+                _one(sample)
+            except Exception as err:  # noqa: BLE001 - reported per sample
+                failures.append((sample.name, str(err)))
+                logger.error("run-batch: %s failed: %s", sample.name, err)
+                if not args.keep_going:
+                    break
+
+    done = len(pending) - len(failures)
+    logger.info("run-batch: %d succeeded, %d failed", done, len(failures))
+    if failures:
+        for name, err in failures:
+            logger.error("  failed: %s (%s)", name, err)
+        return 1
+    return 0
+
+
 def _find_genome_bam(outdir: Path, sample: str) -> Path:
     """Locate the genome BAM written by align-genome.
 
@@ -1146,6 +1300,17 @@ def build_parser() -> argparse.ArgumentParser:
             "when --repeatmasker is given and characterize when --genotype is. "
             "Dispatches the same handlers as the staged subcommands, so results "
             "match the staged workflow exactly.",
+        )
+    )
+    _menu_run_batch(
+        subparsers.add_parser(
+            "run-batch",
+            formatter_class=CustomHelpFormatter,
+            help="Run the whole pipeline for many samples (sample sheet or FASTQ dir)",
+            description="Run the full pipeline for every sample in a CSV/TSV sample "
+            "sheet or a directory of paired FASTQs, one 'run-all' per sample into "
+            "<outdir>/<sample>. Resumable: samples with a results table are skipped "
+            "unless --force.",
         )
     )
     _menu_find_reference(
