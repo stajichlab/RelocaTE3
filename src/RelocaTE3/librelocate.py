@@ -346,13 +346,40 @@ class RelocaTE:
         return trimlib
 
     @staticmethod
+    def _match_rank(rec: dict) -> tuple:
+        """Sort key for choosing a read's best TE match; lower is better.
+
+        The first two components are the real ranking signals (more boundary
+        contact, then longer match), negated so that "higher is better" becomes
+        "lower sorts first".
+
+        The rest exist purely to make ties deterministic. Without them, an exact
+        tie fell through to "keep whichever alignment arrived first", and that
+        order comes from the aligner, which is not stable across threads for
+        multi-mapping reads. The same read could then be assigned to a different
+        TE family on a rerun -- observed on the Chr3 2 Mb fixture as RIRE3 vs
+        mGing at Chr3:672695 with byte-identical positions and read counts.
+        Ranking equal-scoring hits by TE name and then by coordinates picks the
+        same winner every time. The choice is arbitrary but stable, which is the
+        property that matters.
+        """
+        return (
+            -int(rec["boundary"]),
+            -int(rec["match"]),
+            str(rec.get("tName", "")),
+            int(rec.get("tStart", 0)),
+            int(rec.get("start", 0)),
+            int(rec.get("end", 0)),
+        )
+
+    @staticmethod
     def _is_better(new_rec: dict, old_rec: dict) -> bool:
-        """Best-match preference: more boundary contact, then longer match."""
-        if int(new_rec["boundary"]) > int(old_rec["boundary"]):
-            return True
-        if int(new_rec["boundary"]) == int(old_rec["boundary"]):
-            return int(new_rec["match"]) > int(old_rec["match"])
-        return False
+        """True when ``new_rec`` is a strictly better TE match than ``old_rec``.
+
+        A strict total order (see :meth:`_match_rank`), so the selected match
+        does not depend on the order alignments are visited in.
+        """
+        return RelocaTE._match_rank(new_rec) < RelocaTE._match_rank(old_rec)
 
     def _parse_te_bam(self, bam: Path, mismatch_allowance: int = 0) -> dict:
         """Parse one TE-library BAM into ``{read_name: best-match record}``.
