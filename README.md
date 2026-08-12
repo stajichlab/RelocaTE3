@@ -119,7 +119,10 @@ Run `relocaTE3 <command> --help` for the full flag list.
 ## Inputs
 
 - **Reads** (`-l/--left/--r1`, `-r/--right/--r2`): one (single-end) or two
-  (paired-end) FASTQ files (`.fq`/`.fq.gz`).
+  (paired-end) FASTQ files (`.fq`/`.fq.gz`). Any read-name convention works --
+  `/1`-`/2` suffixes, modern Illumina (`@A00519:... 1:N:0:INDEX`, where the name
+  is identical in both files), or SRA/ENA dumps with no mate marker. Which file
+  a read came from determines its mate, so the name does not have to say.
 - **TE library** (`-T/--te-library`): FASTA of TE/repeat consensus sequences.
 - **Genome** (`-g/--genome-fasta`): reference genome FASTA.
 - **Existing-TE annotation** (`find-insertions --reference-ins`, optional): a
@@ -174,6 +177,7 @@ family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
 | `--mismatch` | `--mismatch` (default 0; use 2 to match the RelocaTE2 benchmark) |
 | `--aligner blat/bwa/bowtie2` | `run --te-aligner` and `align-genome --genome-aligner` (see below) |
 | `characterizer.pl` (Perl) | `characterize` |
+| `--mate_1_id` / `--mate_2_id` / `--unpaired_id` | not needed — the mate is taken from which file the read came from |
 | whole pipeline in one command | `run-all` |
 | `all_ref_insert.gff/.txt` | `find-reference` (or `run-all --repeatmasker`) |
 

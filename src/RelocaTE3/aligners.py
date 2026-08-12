@@ -16,6 +16,7 @@ behavior is preserved exactly.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -68,26 +69,63 @@ def _concat(fastqs, dest: str) -> str:
     return dest
 
 
-def _restore_mate_suffix(bam, mate: str) -> None:
-    """Append ``/{mate}`` to read names that lack a trailing ``/1``/``/2``.
+_MATE_SUFFIX_RE = re.compile(r"^(.*)/([12])$")
 
-    bwa mem strips a trailing mate suffix from read names; because the TE stage
-    maps each side (R1/R2) to a separate BAM, the side unambiguously fixes the
-    mate. Restoring it lets downstream flank-pairing find each junction flank's
-    genomic mate. Rewrites ``bam`` in place (coordinate order is unchanged) and
-    re-indexes. No-op for reads that already carry a mate suffix.
+
+def canonical_name(raw_name: str, mate: str) -> str:
+    """Return ``<base>/<mate>``, whatever convention the FASTQ used.
+
+    RelocaTE3 identifies mates by a trailing ``/1``/``/2``. Plenty of real data
+    does not use that: reads off a modern Illumina instrument carry the mate in
+    a separate field (``@A00519:... 1:N:0:ATCACG``), so the *name* is identical
+    in R1 and R2; SRA/ENA dumps often carry no mate marker at all. Matching such
+    names against ``<base>/2`` silently found nothing, so no genomic mates were
+    recovered and no junction flank was mate-anchored -- with no error, just
+    quietly worse calls.
+
+    Which file a read came from settles the question, so ``mate`` ('1' or '2')
+    is authoritative: any comment field and any existing suffix are stripped
+    before it is applied. An empty ``mate`` just normalises the base name.
+    """
+    base = raw_name.split(None, 1)[0] if raw_name else raw_name
+    m = _MATE_SUFFIX_RE.match(base)
+    if m:
+        base = m.group(1)
+    return f"{base}/{mate}" if mate else base
+
+
+def _restore_mate_suffix(bam, mate: str) -> None:
+    """Rewrite read names in ``bam`` to the canonical ``<base>/{mate}`` form.
+
+    The TE stage maps each side (R1/R2) to its own BAM, so the side fixes the
+    mate. Some aligners strip a trailing mate suffix (bwa mem) and some inputs
+    never had one (Illumina, SRA), so the name alone cannot be trusted --
+    without this, downstream flank-pairing finds no genomic mate for any read.
+    Rewrites in place (coordinate order unchanged) and re-indexes.
     """
     bam = Path(bam)
     tmp = bam.with_suffix(".matefix.bam")
     with pysam.AlignmentFile(str(bam), "rb") as inp:
         with pysam.AlignmentFile(str(tmp), "wb", template=inp) as out:
             for rec in inp.fetch(until_eof=True):
-                name = rec.query_name
-                if not (name.endswith("/1") or name.endswith("/2")):
-                    rec.query_name = f"{name}/{mate}"
+                rec.query_name = canonical_name(rec.query_name, mate)
                 out.write(rec)
     tmp.replace(bam)
     pysam.index(str(bam))
+
+
+def canonicalize_te_bams(bams: list, reads) -> list:
+    """Stamp the mate onto every TE-library BAM name, per side.
+
+    ``bams`` are the per-side BAMs in ``[left, right]`` order as returned by the
+    backends' ``map_te_library``. Single-end libraries are left alone: there is
+    no mate to recover, and adding ``/1`` would only churn names.
+    """
+    if not getattr(reads, "is_paired", False):
+        return bams
+    for index, bam in enumerate(bams[:2]):
+        _restore_mate_suffix(bam, "1" if index == 0 else "2")
+    return bams
 
 
 class AlignerBackend(ABC):
@@ -161,7 +199,7 @@ class MinimapBackend(AlignerBackend):
         self, reads, te_library, outdir, *, threads=None, tmpdir=None
     ) -> list[Path]:
         """Delegate to ``Aligner.map_minimap_library`` (per-side BAMs)."""
-        return self._aln.map_minimap_library(
+        bams = self._aln.map_minimap_library(
             reads,
             str(outdir),
             str(te_library),
@@ -169,6 +207,7 @@ class MinimapBackend(AlignerBackend):
             cpu_threads=self._threads(threads),
             extra_opts=self._stage_opts("te"),
         )
+        return canonicalize_te_bams(bams, reads)
 
     def map_genome(
         self,
@@ -261,11 +300,8 @@ class BwaBackend(AlignerBackend):
             for side, read_file in read_set.items():
                 out_bam = Path(outdir) / f"{reads.name}.{side}.bam"
                 self._mem(te_library, [read_file], out_bam, threads, td, extra=["-a"])
-                # bwa mem strips trailing /1,/2; restore it per side so junction
-                # flanks can later be paired with their genomic mate.
-                _restore_mate_suffix(out_bam, "1" if side == "left" else "2")
                 bams.append(out_bam)
-        return bams
+        return canonicalize_te_bams(bams, reads)
 
     def map_genome(
         self,
@@ -450,7 +486,7 @@ class Bowtie2Backend(AlignerBackend):
                     td,
                 )
                 bams.append(out_bam)
-        return bams
+        return canonicalize_te_bams(bams, reads)
 
     def map_genome(
         self,
@@ -625,7 +661,7 @@ class BlatBackend(AlignerBackend):
                 out_bam = Path(outdir) / f"{reads.name}.{side}.bam"
                 self._blat_side(te_library, read_file, out_bam, threads, td)
                 bams.append(out_bam)
-        return bams
+        return canonicalize_te_bams(bams, reads)
 
     def map_genome(self, *args, **kwargs) -> Path:
         """Not supported -- BLAT is TE-search only."""
