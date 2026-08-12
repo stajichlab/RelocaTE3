@@ -760,6 +760,11 @@ def _pair_breakpoints(
     ``(left_position, right_position)``; either may be ``None`` for a one-sided
     sub-cluster.
 
+    A group whose dominant breakpoints are ordered ``left < right`` cannot be one
+    insertion (the TSD geometry requires ``left >= right``); it is two adjacent
+    insertions caught in the same group, and is split back into two one-sided
+    sub-insertions rather than merged into a call at neither position.
+
     This replaces greedy nearest-neighbour pairing within a 100 bp window, which
     paired a lone left with a distant lone right and reported the ~100 bp gap as a
     (runaway) TSD -- the dominant source of RelocaTE3's false positives.
@@ -782,6 +787,17 @@ def _pair_breakpoints(
         # sensible small TSD span.
         lp = max(lpos, key=lambda p: (len(left[p]), p)) if lpos else None
         rp = max(rpos, key=lambda p: (len(right[p]), -p)) if rpos else None
+        if lp is not None and rp is not None and lp < rp:
+            # Geometrically impossible as a single insertion: a left-junction
+            # read marks the TSD's right edge and a right-junction read its left
+            # edge (see _make_insertion), so a genuine pair has lp >= rp. lp < rp
+            # means the group swept up two adjacent insertions whose *inner*
+            # breakpoints happen to sit within SUBCLUSTER_GAP; pairing them
+            # yields a call at neither site and loses both. Emit each breakpoint
+            # as its own sub-insertion instead.
+            pairs.append((lp, None))
+            pairs.append((None, rp))
+            continue
         pairs.append((lp, rp))
     return pairs
 
