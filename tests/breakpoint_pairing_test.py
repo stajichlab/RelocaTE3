@@ -138,3 +138,51 @@ def test_start_edge_is_checked_too():
     edges = {"start": {5000: 1}, "end": {}}
     assert _excluded_by_reference_edge(_ins(4998, 5000, 0, 3), edges)
     assert not _excluded_by_reference_edge(_ins(4998, 5000, 3, 3), edges)
+
+
+# ---------------------------------------------------------------------------
+# Splitting needs a real separation, not merely a negative overlap
+# ---------------------------------------------------------------------------
+#
+# Splitting on *any* `left < right` was too aggressive. On the Chr3 fixture the
+# two genuine cases were separated by 22 and 25 bp, but at riceTElib's TE density
+# and low coverage a real single insertion routinely shows 1-3 bp of breakpoint
+# jitter in the same direction. Those were being split into two half-calls that
+# both then missed, costing recall AND precision: mean F1 fell 0.444 -> 0.409 at
+# 5x, 0.647 -> 0.593 at 15x and 0.731 -> 0.670 at 30x, 9 of 9 samples worse.
+#
+# So a split now requires the breakpoints to be separated by more than
+# SPLIT_MIN_SEPARATION, comfortably above jitter and comfortably below the
+# genuine Chr3 cases.
+
+from RelocaTE3.insertions import SPLIT_MIN_SEPARATION
+
+
+def test_small_negative_overlap_is_jitter_and_still_pairs():
+    """1-3 bp the 'wrong' way is alignment noise on one insertion, not two."""
+    for gap in (1, 2, 3):
+        pairs = _pair_breakpoints({1000: _obs(3)}, {1000 + gap: _obs(4)})
+        assert pairs == [(1000, 1000 + gap)], f"gap {gap} should still pair"
+
+
+def test_wide_separation_still_splits():
+    """The genuine Chr3 cases were 22 and 25 bp apart."""
+    for gap in (22, 25):
+        pairs = _pair_breakpoints({1000: _obs(3)}, {1000 + gap: _obs(4)})
+        assert (1000, 1000 + gap) not in pairs, f"gap {gap} must split"
+        assert len(pairs) == 2
+
+
+def test_threshold_boundary_is_exclusive():
+    """At exactly SPLIT_MIN_SEPARATION we still pair; one beyond, we split."""
+    g = SPLIT_MIN_SEPARATION
+    assert _pair_breakpoints({500: _obs(2)}, {500 + g: _obs(2)}) == [(500, 500 + g)]
+    assert len(_pair_breakpoints({500: _obs(2)}, {500 + g + 1: _obs(2)})) == 2
+
+
+def test_threshold_sits_below_subcluster_gap():
+    """Beyond SUBCLUSTER_GAP the grouping already separates them, so the
+    split threshold only has meaning below it."""
+    from RelocaTE3.insertions import SUBCLUSTER_GAP
+
+    assert 0 < SPLIT_MIN_SEPARATION < SUBCLUSTER_GAP

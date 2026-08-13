@@ -622,6 +622,14 @@ RANGE_ALLOWANCE = 1000
 # jitter), below the spacing between distinct insertions, so nearby breakpoints
 # group into one sub-insertion while distinct sites stay separate.
 SUBCLUSTER_GAP = 25
+# Minimum separation (bp) before `left < right` is read as two distinct
+# insertions rather than breakpoint jitter on one. A left-junction read marks the
+# TSD's right edge and a right-junction read its left, so left < right is
+# geometrically impossible for a single insertion -- but at low coverage a real
+# site shows 1-3 bp of jitter in that direction, and splitting those cost 9 of 9
+# riceTElib samples (mean F1 -0.036/-0.053/-0.061 at 5x/15x/30x). The genuine
+# Chr3 cases were 22 and 25 bp apart, so this sits well clear of both.
+SPLIT_MIN_SEPARATION = 10
 # a full read extending this far past a breakpoint indicates no insertion
 FULLREAD_EXTEND = 10
 # minimum bracketing reads per strand for a support-only (no junction) call
@@ -760,10 +768,11 @@ def _pair_breakpoints(
     ``(left_position, right_position)``; either may be ``None`` for a one-sided
     sub-cluster.
 
-    A group whose dominant breakpoints are ordered ``left < right`` cannot be one
-    insertion (the TSD geometry requires ``left >= right``); it is two adjacent
-    insertions caught in the same group, and is split back into two one-sided
-    sub-insertions rather than merged into a call at neither position.
+    A group whose dominant breakpoints are ordered ``left < right`` by more than
+    ``SPLIT_MIN_SEPARATION`` is two adjacent insertions caught in the same group,
+    and is split back into two one-sided sub-insertions rather than merged into a
+    call at neither position. A smaller inversion is breakpoint jitter on a
+    single insertion and is left paired.
 
     This replaces greedy nearest-neighbour pairing within a 100 bp window, which
     paired a lone left with a distant lone right and reported the ~100 bp gap as a
@@ -787,14 +796,20 @@ def _pair_breakpoints(
         # sensible small TSD span.
         lp = max(lpos, key=lambda p: (len(left[p]), p)) if lpos else None
         rp = max(rpos, key=lambda p: (len(right[p]), -p)) if rpos else None
-        if lp is not None and rp is not None and lp < rp:
-            # Geometrically impossible as a single insertion: a left-junction
-            # read marks the TSD's right edge and a right-junction read its left
-            # edge (see _make_insertion), so a genuine pair has lp >= rp. lp < rp
-            # means the group swept up two adjacent insertions whose *inner*
-            # breakpoints happen to sit within SUBCLUSTER_GAP; pairing them
-            # yields a call at neither site and loses both. Emit each breakpoint
-            # as its own sub-insertion instead.
+        if (
+            lp is not None
+            and rp is not None
+            and rp - lp > SPLIT_MIN_SEPARATION
+        ):
+            # Two adjacent insertions swept into one group: their *inner*
+            # breakpoints sit within SUBCLUSTER_GAP, so the dominant pair becomes
+            # insertion A's left with insertion B's right, giving a call at
+            # neither site and losing both. Emit each breakpoint separately.
+            #
+            # Requires a separation beyond SPLIT_MIN_SEPARATION. lp < rp is
+            # geometrically impossible for one insertion (see _make_insertion),
+            # but a few bp of it is ordinary jitter at low coverage, and
+            # splitting on that is far more costly than tolerating it.
             pairs.append((lp, None))
             pairs.append((None, rp))
             continue
