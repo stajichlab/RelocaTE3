@@ -630,6 +630,14 @@ SUBCLUSTER_GAP = 25
 # riceTElib samples (mean F1 -0.036/-0.053/-0.061 at 5x/15x/30x). The genuine
 # Chr3 cases were 22 and 25 bp apart, so this sits well clear of both.
 SPLIT_MIN_SEPARATION = 10
+# Longest inferred TSD still treated as a real duplication. Target-site
+# duplications are short -- a few bp for most elements, 20 bp for the longest in
+# the riceTElib truth set. A larger inferred span is not measuring a duplication,
+# and reporting the genomic sequence across it invents a TSD that does not exist.
+# Measured there: every RelocaTE3 TSD over this length was on an element whose
+# truth TSD is NONE (114 of 140 fabrications), while all 1972 calls on genuine
+# TSD sites came in at <= 12 bp -- so the cap costs nothing correct.
+MAX_PLAUSIBLE_TSD = 20
 # a full read extending this far past a breakpoint indicates no insertion
 FULLREAD_EXTEND = 10
 # minimum bracketing reads per strand for a support-only (no junction) call
@@ -851,8 +859,14 @@ def _resolve_tsd(
     Mirrors RelocaTE2's read-derived TSD reporting (TSD_check_cluster). The
     genome fetch is only used when no read has the bases (e.g. supporting-only
     insertions).
+
+    Returns ``"UNK"`` when ``tsd_len`` is non-positive or exceeds
+    ``MAX_PLAUSIBLE_TSD``. The insertion is still called either way; only the
+    TSD field changes.
     """
-    if tsd_len <= 0:
+    if tsd_len <= 0 or tsd_len > MAX_PLAUSIBLE_TSD:
+        # Too long to be a duplication: say so rather than reporting the
+        # intervening genome as a TSD (see MAX_PLAUSIBLE_TSD).
         return "UNK"
     for obs in right_reads:
         captured = _capture_tsd_from_read(obs.seq, "right", tsd_len)
