@@ -32,7 +32,7 @@ class InsertionFinder:
         mismatch_allow: int = 0,
         min_mapq: int = 1,
         verbose: int = 0,
-        require_both_junctions: bool = False,
+        require_both_junctions: bool = True,
         insert_size: int = 500,
     ):
         """Initialize the finder.
@@ -41,11 +41,22 @@ class InsertionFinder:
             mismatch_allow: maximum read/genome mismatches (excluding indels).
             min_mapq: minimum MAPQ for a read to be considered uniquely mapped.
             verbose: verbosity level.
-            require_both_junctions: when True, emit only insertions supported by
-                both a left and a right junction read (drop single-sided calls),
-                matching RelocaTE2, which drops one-sided ``insufficient_data``/
-                ``singleton`` sites. Single-sided calls cannot resolve a TSD (they
-                report ``UNK``) and are the bulk of RelocaTE3's false positives.
+            require_both_junctions: when True (the default), emit only insertions
+                supported by both a left and a right junction read.
+
+                This deliberately diverges from RelocaTE2, which keeps one-sided
+                calls (``l_count >= 1 OR r_count >= 1``,
+                relocaTE_insertionFinder.py:365). RelocaTE2 can afford to: on
+                mPing all 53 of its one-sided calls are correct. RelocaTE3's are
+                not -- 86 one-sided calls, 33 correct (38%) -- so matching the
+                policy without matching the candidate quality is much worse than
+                diverging. On the riceTElib 500-family panel, allowing one-sided
+                calls drops F1 from 0.448/0.643/0.722 to 0.170/0.155/0.144 at
+                5x/15x/30x, i.e. it degrades *with* coverage.
+
+                Set False (``--no-require-both-junctions``) for single-element
+                studies, where one-sided calls are mostly genuine and the extra
+                sensitivity is worth a few points of precision.
         """
         self.mismatch_allow = mismatch_allow
         self.min_mapq = min_mapq

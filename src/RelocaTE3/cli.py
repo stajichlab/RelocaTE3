@@ -395,9 +395,9 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
         help="Minimum MAPQ for a uniquely-mapped read",
     )
     call.add_argument(
-        "--require-both-junctions", action="store_true", dest="require_both_junctions",
-        help="Emit only insertions with both a left and right junction read "
-        "(RelocaTE2 parity, fewer false positives)",
+        "--require-both-junctions", action=argparse.BooleanOptionalAction,
+        default=True, dest="require_both_junctions",
+        help="Require junction reads on BOTH sides of an insertion (default: on). Use --no-require-both-junctions to also emit single-sided calls, which raises sensitivity but costs precision sharply on multi-family TE libraries",
     )
 
     ref = parser.add_argument_group("Reference TEs (steps 0/6)")
@@ -700,10 +700,10 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     parser.add_argument(
         "--require-both-junctions",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         dest="require_both_junctions",
-        help="Emit only insertions with both a left and right junction read "
-        "(drop single-sided calls; RelocaTE2 parity, fewer false positives)",
+        help="Require junction reads on BOTH sides of an insertion (default: on). Use --no-require-both-junctions to also emit single-sided calls, which raises sensitivity but costs precision sharply on multi-family TE libraries",
     )
     _add_common_args(parser)
     parser.set_defaults(func=cmd_find_insertions)

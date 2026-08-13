@@ -67,14 +67,41 @@ def test_tsd_defaults_to_unk():
     assert _defaults(REQUIRED_FIND)["tsd"] == "UNK"
 
 
-def test_both_junctions_are_not_required():
-    """relocaTE_insertionFinder.py:365 keeps a site on `l_count >= 1 OR r_count >= 1`.
+def test_both_junctions_are_required_by_default():
+    """Deliberate divergence from RelocaTE2, justified by measurement.
 
-    RelocaTE2 emits single-junction insertions, so requiring both would silently
-    drop calls RelocaTE2 reports. --require-both-junctions must stay opt-in.
+    RelocaTE2 keeps a site on `l_count >= 1 OR r_count >= 1`
+    (relocaTE_insertionFinder.py:365) and its one-sided calls are reliable --
+    on mPing all 53 of them are true. RelocaTE3's are not: 86 one-sided calls,
+    only 33 true (38%). Matching RelocaTE2's *policy* without matching its
+    candidate quality is far worse than diverging from it:
+
+        riceTElib F1   5x     15x    30x
+          one-sided allowed   0.170  0.155  0.144
+          both required       0.448  0.643  0.722
+          RelocaTE2           0.439  0.622  0.701
+
+    Allowing one-sided calls degrades *with* coverage on a multi-family library
+    (more depth, more noise), so the failure is worst exactly where users have
+    the best data. Requiring both junctions is what makes RelocaTE3 beat
+    RelocaTE2 on whole-library runs; opt out with --no-require-both-junctions
+    when sensitivity matters more than precision (single-element studies).
     """
-    assert _defaults(REQUIRED_RUN_ALL)["require_both_junctions"] is False
-    assert _defaults(REQUIRED_FIND)["require_both_junctions"] is False
+    assert _defaults(REQUIRED_RUN_ALL)["require_both_junctions"] is True
+    assert _defaults(REQUIRED_FIND)["require_both_junctions"] is True
+
+
+def test_one_sided_calls_can_be_re_enabled():
+    """The RelocaTE2-equivalent policy stays reachable, for single-element work."""
+    ns = _defaults(REQUIRED_RUN_ALL + ["--no-require-both-junctions"])
+    assert ns["require_both_junctions"] is False
+    ns = _defaults(REQUIRED_FIND + ["--no-require-both-junctions"])
+    assert ns["require_both_junctions"] is False
+
+
+def test_explicit_flag_still_works():
+    """Existing scripts passing --require-both-junctions must not break."""
+    assert _defaults(REQUIRED_FIND + ["--require-both-junctions"])["require_both_junctions"] is True
 
 
 def test_required_junction_reads_defaults_to_one():

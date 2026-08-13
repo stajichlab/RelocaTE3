@@ -309,12 +309,18 @@ class TestInsertionFinder(unittest.TestCase):
                 )
                 return [ln for ln in out.read_text().splitlines() if ln.strip()]
 
+            # Permissive policy must be asked for explicitly: requiring both
+            # junctions is the default (see the flag's docstring for why).
+            permissive_rows = _run(InsertionFinder(
+                mismatch_allow=0, min_mapq=1, require_both_junctions=False))
+            self.assertEqual(len(permissive_rows), 2)  # two-sided + single-sided
+
             default_rows = _run(InsertionFinder(mismatch_allow=0, min_mapq=1))
-            self.assertEqual(len(default_rows), 2)  # two-sided + single-sided
+            self.assertEqual(len(default_rows), 1)  # single-sided dropped by default
 
             both_rows = _run(InsertionFinder(
                 mismatch_allow=0, min_mapq=1, require_both_junctions=True))
-            self.assertEqual(len(both_rows), 1)  # single-sided dropped
+            self.assertEqual(both_rows, default_rows)  # explicit == default
             cols = both_rows[0].split("\t")
             self.assertNotEqual(cols[7], "R:0")  # kept call has a right junction
             self.assertNotEqual(cols[8], "L:0")  # ...and a left junction
