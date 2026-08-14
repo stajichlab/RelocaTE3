@@ -268,8 +268,8 @@ RelocaTE2 on the same inputs scores 196 calls, 196/200, precision 1.000
 
 `.high_conf` is the set to use when precision matters more than sensitivity.
 Note it is *not* "two-sided calls only" — RelocaTE2 removes only the single-read
-one-sided case, and so does this. `--require-both-junctions` is the stricter
-option, filtering every one-sided call during calling.
+one-sided case, and so does this. `--require-both-junctions` (on by default) is
+stricter still, filtering every one-sided call during calling.
 
 The `.raw` → `.all` step is RelocaTE2's reference-TE boundary filter: a call is
 dropped only if it is **one-sided** *and* one of its endpoints lies within
@@ -315,7 +315,7 @@ behaviour. Values below are cited from RelocaTE2's source.
 | Match-length cutoff | `--len_cut_match 10` | `--min-match 10` | `relocaTE2.py:205` |
 | Trimmed-length cutoff | `--len_cut_trim 10` | `--min-trimmed 10` | `relocaTE2.py:206` |
 | TSD | `UNK` (hardcoded) | `--tsd UNK` | `relocaTE2.py:346` |
-| Junction reads required | `left >= 1` **or** `right >= 1` | same; `--require-both-junctions` is opt-in | `relocaTE_insertionFinder.py:365,1732-4` |
+| Junction reads required | `left >= 1` **or** `right >= 1` | **both** by default — a deliberate divergence, see below | `relocaTE_insertionFinder.py:365,1732-4` |
 | Threads | `--cpu 1` | `--threads 1` | `relocaTE2.py:199` |
 
 Two RelocaTE2 options have no RelocaTE3 equivalent because they are no longer
@@ -329,6 +329,32 @@ RelocaTE3 does not yet emit as a separate output.
 `--min-mapq` (default 1) has no RelocaTE2 counterpart — RelocaTE2 instead
 classifies reads below MAPQ 29 as low-quality using bwa's `XM`/`X1`/`XO` tags
 (`relocaTE_insertionFinder.py:1523`).
+
+## One-sided calls and `--require-both-junctions`
+
+**Default: on.** RelocaTE3 reports an insertion only when junction reads support
+it on *both* sides. This is the one place RelocaTE3 deliberately diverges from
+RelocaTE2, and it is measured rather than assumed.
+
+RelocaTE2 keeps one-sided calls (`left >= 1` *or* `right >= 1`,
+`relocaTE_insertionFinder.py:365`) and can afford to — on the mPing benchmark all
+53 of its one-sided calls are correct. RelocaTE3's are not: 86 one-sided calls,
+33 correct (38%). Matching RelocaTE2's policy without matching its candidate
+quality is much worse than diverging from it. On a 500-family library:
+
+| riceTElib F1 | 5x | 15x | 30x |
+|---|---|---|---|
+| one-sided allowed | 0.170 | 0.155 | 0.144 |
+| **both required (default)** | **0.448** | **0.643** | **0.722** |
+| RelocaTE2 | 0.439 | 0.622 | 0.701 |
+
+Allowing one-sided calls gets *worse* with coverage — more depth means more
+one-sided noise — so the failure is worst exactly where the data is best.
+
+**Use `--no-require-both-junctions`** for single-element studies, where one-sided
+calls are mostly genuine and the extra sensitivity is worth a little precision.
+On the single-family mPing benchmark that setting scores F1 0.583 / 0.781 / 0.886
+at 5x/15x/30x against RelocaTE2's 0.578 / 0.794 / 0.897.
 
 ## Choosing an aligner
 

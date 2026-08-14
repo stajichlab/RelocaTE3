@@ -395,9 +395,9 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
         help="Minimum MAPQ for a uniquely-mapped read",
     )
     call.add_argument(
-        "--require-both-junctions", action="store_true", dest="require_both_junctions",
-        help="Emit only insertions with both a left and right junction read "
-        "(RelocaTE2 parity, fewer false positives)",
+        "--require-both-junctions", action=argparse.BooleanOptionalAction,
+        default=True, dest="require_both_junctions",
+        help="Require junction reads on BOTH sides of an insertion (default: on). Use --no-require-both-junctions to also emit single-sided calls, which raises sensitivity but costs precision sharply on multi-family TE libraries",
     )
 
     ref = parser.add_argument_group("Reference TEs (steps 0/6)")
@@ -684,6 +684,15 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         "by mate pairs alone (default: 500, matching RelocaTE2's -s/--size)",
     )
     parser.add_argument(
+        "--fullreads-bam",
+        dest="fullreads_bam",
+        default=None,
+        metavar="BAM",
+        help="BAM of the original untrimmed reads aligned to the genome. Enables "
+        "RelocaTE2's false-junction filter: a call whose junction reads map "
+        "straight through the breakpoint is dropped",
+    )
+    parser.add_argument(
         "--distance",
         type=int,
         default=3,
@@ -700,10 +709,10 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     parser.add_argument(
         "--require-both-junctions",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         dest="require_both_junctions",
-        help="Emit only insertions with both a left and right junction read "
-        "(drop single-sided calls; RelocaTE2 parity, fewer false positives)",
+        help="Require junction reads on BOTH sides of an insertion (default: on). Use --no-require-both-junctions to also emit single-sided calls, which raises sensitivity but costs precision sharply on multi-family TE libraries",
     )
     _add_common_args(parser)
     parser.set_defaults(func=cmd_find_insertions)
@@ -931,6 +940,10 @@ def cmd_run_all(args: argparse.Namespace) -> int:
         outdir=str(outdir),
         te_name=args.te_name,
         reference_ins=args.repeatmasker,
+        # The genotyping BAM *is* the original reads aligned to the genome, so
+        # when the user supplies one it can also drive the false-junction filter.
+        # run-all otherwise builds it after calling, too late to use here.
+        fullreads_bam=getattr(args, "genotype_bam", None),
         mismatch_allow=args.mismatch_allowance,
         min_mapq=args.min_mapq,
         require_both_junctions=args.require_both_junctions,
@@ -1251,6 +1264,9 @@ def cmd_find_insertions(args: argparse.Namespace) -> int:
         outdir=Path(args.outdir),
         te_name=args.te_name,
         reference_ins=Path(args.reference_ins) if args.reference_ins else None,
+        fullreads_bam=(
+            Path(args.fullreads_bam) if getattr(args, "fullreads_bam", None) else None
+        ),
     )
     # RelocaTE2 publishes tiered call sets rather than one file
     # (clean_false_positive.py); write the same tiers so a RelocaTE3 run can be

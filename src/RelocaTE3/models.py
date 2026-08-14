@@ -106,6 +106,10 @@ class JunctionObservation:
     # TSD.
     gstart: int = 0
     gend: int = 0
+    #: True when RelocaTE2 would class this alignment "low quality" and refuse
+    #: to let it validate an insertion on its own
+    #: (relocaTE_insertionFinder.py:1523,1539).
+    low_quality: bool = False
 
     @property
     def te_orientation(self) -> str:

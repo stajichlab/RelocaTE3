@@ -32,7 +32,7 @@ class InsertionFinder:
         mismatch_allow: int = 0,
         min_mapq: int = 1,
         verbose: int = 0,
-        require_both_junctions: bool = False,
+        require_both_junctions: bool = True,
         insert_size: int = 500,
     ):
         """Initialize the finder.
@@ -41,11 +41,22 @@ class InsertionFinder:
             mismatch_allow: maximum read/genome mismatches (excluding indels).
             min_mapq: minimum MAPQ for a read to be considered uniquely mapped.
             verbose: verbosity level.
-            require_both_junctions: when True, emit only insertions supported by
-                both a left and a right junction read (drop single-sided calls),
-                matching RelocaTE2, which drops one-sided ``insufficient_data``/
-                ``singleton`` sites. Single-sided calls cannot resolve a TSD (they
-                report ``UNK``) and are the bulk of RelocaTE3's false positives.
+            require_both_junctions: when True (the default), emit only insertions
+                supported by both a left and a right junction read.
+
+                This deliberately diverges from RelocaTE2, which keeps one-sided
+                calls (``l_count >= 1 OR r_count >= 1``,
+                relocaTE_insertionFinder.py:365). RelocaTE2 can afford to: on
+                mPing all 53 of its one-sided calls are correct. RelocaTE3's are
+                not -- 86 one-sided calls, 33 correct (38%) -- so matching the
+                policy without matching the candidate quality is much worse than
+                diverging. On the riceTElib 500-family panel, allowing one-sided
+                calls drops F1 from 0.448/0.643/0.722 to 0.170/0.155/0.144 at
+                5x/15x/30x, i.e. it degrades *with* coverage.
+
+                Set False (``--no-require-both-junctions``) for single-element
+                studies, where one-sided calls are mostly genuine and the extra
+                sensitivity is worth a few points of precision.
         """
         self.mismatch_allow = mismatch_allow
         self.min_mapq = min_mapq
@@ -66,6 +77,7 @@ class InsertionFinder:
         outdir: Path,
         te_name: str = "repeat",
         reference_ins: Path | None = None,
+        fullreads_bam: Path | None = None,
     ) -> Path:
         """Find non-reference insertions and write the ``all_nonref_insert`` table.
 
@@ -78,6 +90,10 @@ class InsertionFinder:
             outdir: directory for the ``results/`` output.
             te_name: TE label used in output filenames.
             reference_ins: optional RepeatMasker ``.out``/BED of existing copies to skip.
+            fullreads_bam: optional BAM of the original untrimmed reads aligned
+                to the genome. When given, RelocaTE2's false-junction filter is
+                applied: a call whose junction reads map straight through the
+                breakpoint is dropped (see ``_fullread_false_junction``).
 
         Returns:
             Path to the written ``*.all_nonref_insert.txt`` file.
@@ -85,7 +101,7 @@ class InsertionFinder:
         if re.search(r"UNK|UKN|unknown", tsd, re.IGNORECASE):
             return self._find_insertions_unknown_tsd(
                 bam_file, read_repeat_file, target, sample, outdir, te_name,
-                reference_ins,
+                reference_ins, fullreads_bam=fullreads_bam,
             )
 
         read_repeat = self._load_read_repeat(read_repeat_file)
@@ -143,6 +159,7 @@ class InsertionFinder:
         outdir: Path,
         te_name: str,
         reference_ins: Path | None,
+        fullreads_bam: Path | None = None,
     ) -> Path:
         """Call variable-length TSDs using the RelocaTE2 ``UNK`` strategy.
 
@@ -162,6 +179,10 @@ class InsertionFinder:
         result_dir.mkdir(parents=True, exist_ok=True)
         out_txt = result_dir / f"{target}.{te_name}.all_nonref_insert.txt"
         support_only: list[Insertion] = []
+        full_bam = None
+        if fullreads_bam and Path(fullreads_bam).exists():
+            full_bam = pysam.AlignmentFile(str(fullreads_bam), "rb")
+            logger.info("False-junction filtering against %s", fullreads_bam)
         with open(out_txt, "w") as out:
             for cluster in _stream_clusters(
                 str(bam_file), read_repeat, quality_filter=self._passes_quality
@@ -181,6 +202,15 @@ class InsertionFinder:
                         ins, existing_te[cluster.chrom]
                     ):
                         continue
+                    if _fullread_false_junction(full_bam, ins):
+                        continue
+                    if not _call_validated_by_high_quality(
+                        [j for j in cluster.junctions if j.side == "left"
+                         and j.position == ins.end],
+                        [j for j in cluster.junctions if j.side == "right"
+                         and j.position == ins.start],
+                    ):
+                        continue
                     out.write(
                         f"{ins.te_name}\t{ins.tsd}\t{sample}\t{ins.chrom}\t"
                         f"{ins.start}..{ins.end}\t{ins.strand}\t"
@@ -195,6 +225,8 @@ class InsertionFinder:
                     call = call_support_only(cluster, insert_size=self.insert_size)
                     if call is not None:
                         support_only.append(call)
+        if full_bam is not None:
+            full_bam.close()
         logger.info("Wrote variable-length TSD insertions table %s", out_txt)
         write_supporting_reads(result_dir, target, te_name, sample, support_only)
         return out_txt
@@ -285,12 +317,72 @@ class InsertionFinder:
         finally:
             bam.close()
 
+    #: Max suboptimal-hit count (BWA ``X1``) for a read that is not properly
+    #: paired, per RelocaTE2 (relocaTE_insertionFinder.py:1553).
+    MAX_SUBOPTIMAL_HITS = 3
+    #: Max gap openings (BWA ``XO``) for a junction read in a proper pair
+    #: (relocaTE_insertionFinder.py:1531).
+    MAX_JUNCTION_GAPS = 1
+
+    #: MAPQ below which RelocaTE2 records an alignment as low quality
+    #: (relocaTE_insertionFinder.py:1523).
+    LOW_QUALITY_MAPQ = 29
+
+    @classmethod
+    def _is_low_quality(cls, record) -> bool:
+        """RelocaTE2's "low quality" test (relocaTE_insertionFinder.py:1523,1539).
+
+        Such a read may still be *used*, but cannot on its own validate an
+        insertion -- RelocaTE2 deletes a call whose junction reads are all low
+        quality. A properly paired read is low quality below
+        ``LOW_QUALITY_MAPQ``; a read that is paired but NOT properly paired is
+        low quality regardless of its MAPQ.
+        """
+        if record.mapping_quality < cls.LOW_QUALITY_MAPQ:
+            return True
+        return bool(getattr(record, "is_paired", False)) and not record.is_proper_pair
+
     def _passes_quality(self, record) -> bool:
-        """Minimap2-adapted quality filter (replaces BWA XT/X1/XM/XO logic)."""
+        """Decide whether an alignment may be used as evidence.
+
+        Ports RelocaTE2's admission gate (relocaTE_insertionFinder.py:1521-1558)
+        on top of RelocaTE3's own MAPQ/mismatch checks:
+
+        * **properly paired** — a junction read must also have at most
+          ``MAX_JUNCTION_GAPS`` gap openings; supporting reads are unconstrained
+          beyond mismatches.
+        * **not properly paired** — the read must be *uniquely* mapped
+          (``XT:A:U``) and have at most ``MAX_SUBOPTIMAL_HITS`` suboptimal hits.
+
+        The uniqueness requirement is the substantive one. This filter
+        previously carried the note "Minimap2-adapted ... (replaces BWA
+        XT/X1/XM/XO logic)", written when RelocaTE3 targeted minimap2, which
+        emits none of those tags. RelocaTE3 now defaults to ``bwa aln`` for
+        genome placement, so the tags are present on every record and were being
+        ignored -- admitting multi-mapping unpaired reads that RelocaTE2 refuses.
+
+        Each BWA gate applies only when its tag exists, so minimap2 and bowtie2
+        runs behave exactly as before.
+        """
         if record.mapping_quality < self.min_mapq:
             return False
         mismatch = self._mismatch_count(record)
-        return mismatch is None or mismatch <= self.mismatch_allow
+        if mismatch is not None and mismatch > self.mismatch_allow:
+            return False
+
+        if record.is_proper_pair:
+            if _JUNCTION_RE.search(record.query_name) and record.has_tag("XO"):
+                if int(record.get_tag("XO")) > self.MAX_JUNCTION_GAPS:
+                    return False
+            return True
+
+        # Not properly paired: RelocaTE2 demands a unique placement.
+        if record.has_tag("XT") and str(record.get_tag("XT")) != "U":
+            return False
+        if record.has_tag("X1"):
+            if int(record.get_tag("X1")) > self.MAX_SUBOPTIMAL_HITS:
+                return False
+        return True
 
     @staticmethod
     def _mismatch_count(record):
@@ -743,6 +835,7 @@ def _stream_clusters(
                         seq,
                         gstart,
                         gend,
+                        InsertionFinder._is_low_quality(rec),
                     )
                 )
             else:
@@ -823,6 +916,27 @@ def _pair_breakpoints(
             continue
         pairs.append((lp, rp))
     return pairs
+
+
+def _call_validated_by_high_quality(left_reads: list, right_reads: list) -> bool:
+    """False when an insertion rests only on low-quality junction reads.
+
+    Ports RelocaTE2's deletion rule (relocaTE_insertionFinder.py:226-241): a
+    candidate is discarded when a lone junction read is low quality, or when
+    neither side has a single high-quality junction read. A low-quality read may
+    still contribute to a call -- it just cannot be the only thing holding it up.
+
+    Clusters with no junction reads at all are left alone; they are handled by
+    the supporting-reads path.
+    """
+    junctions = list(left_reads) + list(right_reads)
+    if not junctions:
+        return True
+    valid_left = sum(1 for j in left_reads if not j.low_quality)
+    valid_right = sum(1 for j in right_reads if not j.low_quality)
+    if len(junctions) == 1 and valid_left + valid_right == 0:
+        return False  # singleton junction, and it is low quality
+    return (valid_left + valid_right) > 0
 
 
 def _excluded_by_reference_edge(ins: Insertion, edges: dict) -> bool:
@@ -1185,6 +1299,23 @@ def _strip_junction_tag(name: str) -> str:
     return _JUNCTION_RE.sub("", name)
 
 
+#: Trailing mate marker on a flank read's name (``/1`` or ``/2``).
+_MATE_SUFFIX_RE = re.compile(r"/[12]$")
+
+
+def _fullread_key(name: str) -> str:
+    """Normalise a read name for matching against the untrimmed-reads BAM.
+
+    Flank reads carry both a junction tag and a mate suffix
+    (``...:Chr1-639640/2:start:5``) because RelocaTE3 stamps the mate on during
+    TE-library mapping. The original reads keep the mate in the SAM flag and
+    their names carry no suffix at all -- 0 of 20,000 sampled names in a
+    benchmark run had one. Stripping only the junction tag therefore never
+    matched, and the false-junction filter silently did nothing.
+    """
+    return _MATE_SUFFIX_RE.sub("", _JUNCTION_RE.sub("", name))
+
+
 def _is_false_junction(
     ins: Insertion, fullread_spans: dict[str, list[tuple[str, int, int]]]
 ) -> bool:
@@ -1233,6 +1364,65 @@ def _maps_through(
         ):
             return True
     return False
+
+
+#: Window (bp) either side of a candidate searched for the untrimmed reads.
+#: Wide enough to catch a full read spanning the breakpoint, narrow enough that
+#: one fetch per candidate stays cheap.
+FULLREAD_WINDOW = 500
+
+
+def _fullread_false_junction(fullreads_bam, ins: Insertion) -> bool:
+    """True when the untrimmed reads map straight through the breakpoint.
+
+    RelocaTE2's rule (relocaTE_insertionFinder.py:212-221): if at least 30% of a
+    side's junction reads have a *full* (untrimmed) alignment spanning the
+    breakpoint, the read never crossed a junction and the site is a reference
+    locus, not an insertion.
+
+    Two differences from the older ``_is_false_junction``:
+
+    * **One-sided calls are not exempt.** That helper returned early whenever a
+      side had no reads, skipping exactly the least reliable population.
+      RelocaTE2 has no exemption -- with a side empty ``0 >= 0.3*0`` holds, so
+      the test reduces to the populated side.
+    * **The lookup is region-scoped.** ``_load_fullread_spans`` builds a dict of
+      every read name in the BAM, which is 74.6M entries for the shipped
+      ``original_reads`` BAM and never completes. One bounded fetch per
+      candidate answers the same question.
+    """
+    if fullreads_bam is None:
+        return False
+    left_total = ins.left_junction_reads
+    right_total = ins.right_junction_reads
+    if left_total + right_total == 0:
+        return False
+
+    lo = max(0, min(ins.start, ins.end) - FULLREAD_WINDOW)
+    hi = max(ins.start, ins.end) + FULLREAD_WINDOW
+    spans: dict[str, list[tuple[str, int, int]]] = {}
+    try:
+        records = fullreads_bam.fetch(ins.chrom, lo, hi)
+    except (ValueError, KeyError):  # contig absent from the full-reads BAM
+        return False
+    for rec in records:
+        if getattr(rec, "is_unmapped", False):
+            continue
+        spans.setdefault(_fullread_key(rec.query_name), []).append(
+            (ins.chrom, rec.reference_start + 1, rec.reference_end)
+        )
+
+    left_names = ins.read_names[:left_total]
+    right_names = ins.read_names[left_total:]
+    left_full = sum(
+        1 for t in left_names
+        if _maps_through(spans.get(_fullread_key(t)), ins.chrom, ins.end)
+    )
+    right_full = sum(
+        1 for t in right_names
+        if _maps_through(spans.get(_fullread_key(t)), ins.chrom, ins.start)
+    )
+    return left_full >= 0.3 * left_total and right_full >= 0.3 * right_total
 
 
 def find_insertions(
