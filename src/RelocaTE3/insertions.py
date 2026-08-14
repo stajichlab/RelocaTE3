@@ -192,6 +192,13 @@ class InsertionFinder:
                         ins, existing_te[cluster.chrom]
                     ):
                         continue
+                    if not _call_validated_by_high_quality(
+                        [j for j in cluster.junctions if j.side == "left"
+                         and j.position == ins.end],
+                        [j for j in cluster.junctions if j.side == "right"
+                         and j.position == ins.start],
+                    ):
+                        continue
                     out.write(
                         f"{ins.te_name}\t{ins.tsd}\t{sample}\t{ins.chrom}\t"
                         f"{ins.start}..{ins.end}\t{ins.strand}\t"
@@ -296,12 +303,72 @@ class InsertionFinder:
         finally:
             bam.close()
 
+    #: Max suboptimal-hit count (BWA ``X1``) for a read that is not properly
+    #: paired, per RelocaTE2 (relocaTE_insertionFinder.py:1553).
+    MAX_SUBOPTIMAL_HITS = 3
+    #: Max gap openings (BWA ``XO``) for a junction read in a proper pair
+    #: (relocaTE_insertionFinder.py:1531).
+    MAX_JUNCTION_GAPS = 1
+
+    #: MAPQ below which RelocaTE2 records an alignment as low quality
+    #: (relocaTE_insertionFinder.py:1523).
+    LOW_QUALITY_MAPQ = 29
+
+    @classmethod
+    def _is_low_quality(cls, record) -> bool:
+        """RelocaTE2's "low quality" test (relocaTE_insertionFinder.py:1523,1539).
+
+        Such a read may still be *used*, but cannot on its own validate an
+        insertion -- RelocaTE2 deletes a call whose junction reads are all low
+        quality. A properly paired read is low quality below
+        ``LOW_QUALITY_MAPQ``; a read that is paired but NOT properly paired is
+        low quality regardless of its MAPQ.
+        """
+        if record.mapping_quality < cls.LOW_QUALITY_MAPQ:
+            return True
+        return bool(getattr(record, "is_paired", False)) and not record.is_proper_pair
+
     def _passes_quality(self, record) -> bool:
-        """Minimap2-adapted quality filter (replaces BWA XT/X1/XM/XO logic)."""
+        """Decide whether an alignment may be used as evidence.
+
+        Ports RelocaTE2's admission gate (relocaTE_insertionFinder.py:1521-1558)
+        on top of RelocaTE3's own MAPQ/mismatch checks:
+
+        * **properly paired** — a junction read must also have at most
+          ``MAX_JUNCTION_GAPS`` gap openings; supporting reads are unconstrained
+          beyond mismatches.
+        * **not properly paired** — the read must be *uniquely* mapped
+          (``XT:A:U``) and have at most ``MAX_SUBOPTIMAL_HITS`` suboptimal hits.
+
+        The uniqueness requirement is the substantive one. This filter
+        previously carried the note "Minimap2-adapted ... (replaces BWA
+        XT/X1/XM/XO logic)", written when RelocaTE3 targeted minimap2, which
+        emits none of those tags. RelocaTE3 now defaults to ``bwa aln`` for
+        genome placement, so the tags are present on every record and were being
+        ignored -- admitting multi-mapping unpaired reads that RelocaTE2 refuses.
+
+        Each BWA gate applies only when its tag exists, so minimap2 and bowtie2
+        runs behave exactly as before.
+        """
         if record.mapping_quality < self.min_mapq:
             return False
         mismatch = self._mismatch_count(record)
-        return mismatch is None or mismatch <= self.mismatch_allow
+        if mismatch is not None and mismatch > self.mismatch_allow:
+            return False
+
+        if record.is_proper_pair:
+            if _JUNCTION_RE.search(record.query_name) and record.has_tag("XO"):
+                if int(record.get_tag("XO")) > self.MAX_JUNCTION_GAPS:
+                    return False
+            return True
+
+        # Not properly paired: RelocaTE2 demands a unique placement.
+        if record.has_tag("XT") and str(record.get_tag("XT")) != "U":
+            return False
+        if record.has_tag("X1"):
+            if int(record.get_tag("X1")) > self.MAX_SUBOPTIMAL_HITS:
+                return False
+        return True
 
     @staticmethod
     def _mismatch_count(record):
@@ -754,6 +821,7 @@ def _stream_clusters(
                         seq,
                         gstart,
                         gend,
+                        InsertionFinder._is_low_quality(rec),
                     )
                 )
             else:
@@ -834,6 +902,27 @@ def _pair_breakpoints(
             continue
         pairs.append((lp, rp))
     return pairs
+
+
+def _call_validated_by_high_quality(left_reads: list, right_reads: list) -> bool:
+    """False when an insertion rests only on low-quality junction reads.
+
+    Ports RelocaTE2's deletion rule (relocaTE_insertionFinder.py:226-241): a
+    candidate is discarded when a lone junction read is low quality, or when
+    neither side has a single high-quality junction read. A low-quality read may
+    still contribute to a call -- it just cannot be the only thing holding it up.
+
+    Clusters with no junction reads at all are left alone; they are handled by
+    the supporting-reads path.
+    """
+    junctions = list(left_reads) + list(right_reads)
+    if not junctions:
+        return True
+    valid_left = sum(1 for j in left_reads if not j.low_quality)
+    valid_right = sum(1 for j in right_reads if not j.low_quality)
+    if len(junctions) == 1 and valid_left + valid_right == 0:
+        return False  # singleton junction, and it is low quality
+    return (valid_left + valid_right) > 0
 
 
 def _excluded_by_reference_edge(ins: Insertion, edges: dict) -> bool:
