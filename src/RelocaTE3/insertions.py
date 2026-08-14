@@ -77,6 +77,7 @@ class InsertionFinder:
         outdir: Path,
         te_name: str = "repeat",
         reference_ins: Path | None = None,
+        fullreads_bam: Path | None = None,
     ) -> Path:
         """Find non-reference insertions and write the ``all_nonref_insert`` table.
 
@@ -89,6 +90,10 @@ class InsertionFinder:
             outdir: directory for the ``results/`` output.
             te_name: TE label used in output filenames.
             reference_ins: optional RepeatMasker ``.out``/BED of existing copies to skip.
+            fullreads_bam: optional BAM of the original untrimmed reads aligned
+                to the genome. When given, RelocaTE2's false-junction filter is
+                applied: a call whose junction reads map straight through the
+                breakpoint is dropped (see ``_fullread_false_junction``).
 
         Returns:
             Path to the written ``*.all_nonref_insert.txt`` file.
@@ -96,7 +101,7 @@ class InsertionFinder:
         if re.search(r"UNK|UKN|unknown", tsd, re.IGNORECASE):
             return self._find_insertions_unknown_tsd(
                 bam_file, read_repeat_file, target, sample, outdir, te_name,
-                reference_ins,
+                reference_ins, fullreads_bam=fullreads_bam,
             )
 
         read_repeat = self._load_read_repeat(read_repeat_file)
@@ -154,6 +159,7 @@ class InsertionFinder:
         outdir: Path,
         te_name: str,
         reference_ins: Path | None,
+        fullreads_bam: Path | None = None,
     ) -> Path:
         """Call variable-length TSDs using the RelocaTE2 ``UNK`` strategy.
 
@@ -173,6 +179,10 @@ class InsertionFinder:
         result_dir.mkdir(parents=True, exist_ok=True)
         out_txt = result_dir / f"{target}.{te_name}.all_nonref_insert.txt"
         support_only: list[Insertion] = []
+        full_bam = None
+        if fullreads_bam and Path(fullreads_bam).exists():
+            full_bam = pysam.AlignmentFile(str(fullreads_bam), "rb")
+            logger.info("False-junction filtering against %s", fullreads_bam)
         with open(out_txt, "w") as out:
             for cluster in _stream_clusters(
                 str(bam_file), read_repeat, quality_filter=self._passes_quality
@@ -191,6 +201,8 @@ class InsertionFinder:
                     if _excluded_by_reference_edge(
                         ins, existing_te[cluster.chrom]
                     ):
+                        continue
+                    if _fullread_false_junction(full_bam, ins):
                         continue
                     if not _call_validated_by_high_quality(
                         [j for j in cluster.junctions if j.side == "left"
@@ -213,6 +225,8 @@ class InsertionFinder:
                     call = call_support_only(cluster, insert_size=self.insert_size)
                     if call is not None:
                         support_only.append(call)
+        if full_bam is not None:
+            full_bam.close()
         logger.info("Wrote variable-length TSD insertions table %s", out_txt)
         write_supporting_reads(result_dir, target, te_name, sample, support_only)
         return out_txt
@@ -1285,6 +1299,23 @@ def _strip_junction_tag(name: str) -> str:
     return _JUNCTION_RE.sub("", name)
 
 
+#: Trailing mate marker on a flank read's name (``/1`` or ``/2``).
+_MATE_SUFFIX_RE = re.compile(r"/[12]$")
+
+
+def _fullread_key(name: str) -> str:
+    """Normalise a read name for matching against the untrimmed-reads BAM.
+
+    Flank reads carry both a junction tag and a mate suffix
+    (``...:Chr1-639640/2:start:5``) because RelocaTE3 stamps the mate on during
+    TE-library mapping. The original reads keep the mate in the SAM flag and
+    their names carry no suffix at all -- 0 of 20,000 sampled names in a
+    benchmark run had one. Stripping only the junction tag therefore never
+    matched, and the false-junction filter silently did nothing.
+    """
+    return _MATE_SUFFIX_RE.sub("", _JUNCTION_RE.sub("", name))
+
+
 def _is_false_junction(
     ins: Insertion, fullread_spans: dict[str, list[tuple[str, int, int]]]
 ) -> bool:
@@ -1333,6 +1364,65 @@ def _maps_through(
         ):
             return True
     return False
+
+
+#: Window (bp) either side of a candidate searched for the untrimmed reads.
+#: Wide enough to catch a full read spanning the breakpoint, narrow enough that
+#: one fetch per candidate stays cheap.
+FULLREAD_WINDOW = 500
+
+
+def _fullread_false_junction(fullreads_bam, ins: Insertion) -> bool:
+    """True when the untrimmed reads map straight through the breakpoint.
+
+    RelocaTE2's rule (relocaTE_insertionFinder.py:212-221): if at least 30% of a
+    side's junction reads have a *full* (untrimmed) alignment spanning the
+    breakpoint, the read never crossed a junction and the site is a reference
+    locus, not an insertion.
+
+    Two differences from the older ``_is_false_junction``:
+
+    * **One-sided calls are not exempt.** That helper returned early whenever a
+      side had no reads, skipping exactly the least reliable population.
+      RelocaTE2 has no exemption -- with a side empty ``0 >= 0.3*0`` holds, so
+      the test reduces to the populated side.
+    * **The lookup is region-scoped.** ``_load_fullread_spans`` builds a dict of
+      every read name in the BAM, which is 74.6M entries for the shipped
+      ``original_reads`` BAM and never completes. One bounded fetch per
+      candidate answers the same question.
+    """
+    if fullreads_bam is None:
+        return False
+    left_total = ins.left_junction_reads
+    right_total = ins.right_junction_reads
+    if left_total + right_total == 0:
+        return False
+
+    lo = max(0, min(ins.start, ins.end) - FULLREAD_WINDOW)
+    hi = max(ins.start, ins.end) + FULLREAD_WINDOW
+    spans: dict[str, list[tuple[str, int, int]]] = {}
+    try:
+        records = fullreads_bam.fetch(ins.chrom, lo, hi)
+    except (ValueError, KeyError):  # contig absent from the full-reads BAM
+        return False
+    for rec in records:
+        if getattr(rec, "is_unmapped", False):
+            continue
+        spans.setdefault(_fullread_key(rec.query_name), []).append(
+            (ins.chrom, rec.reference_start + 1, rec.reference_end)
+        )
+
+    left_names = ins.read_names[:left_total]
+    right_names = ins.read_names[left_total:]
+    left_full = sum(
+        1 for t in left_names
+        if _maps_through(spans.get(_fullread_key(t)), ins.chrom, ins.end)
+    )
+    right_full = sum(
+        1 for t in right_names
+        if _maps_through(spans.get(_fullread_key(t)), ins.chrom, ins.start)
+    )
+    return left_full >= 0.3 * left_total and right_full >= 0.3 * right_total
 
 
 def find_insertions(
