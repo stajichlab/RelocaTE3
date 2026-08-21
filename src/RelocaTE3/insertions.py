@@ -196,8 +196,28 @@ class InsertionFinder:
             ):
                 if target != "ALL" and cluster.chrom != target:
                     continue
-                wrote_any = False
+                # RelocaTE2 collects every surviving candidate start for the
+                # cluster first (write_output:246 `start_collection.append`) and
+                # only then decides which to keep. The per-candidate filters
+                # below are its :212-241 pair (full-read false junctions, and
+                # calls resting only on low-quality reads).
+                candidates: list[Insertion] = []
                 for ins in _call_insertions(cluster, genome=None):
+                    if _fullread_false_junction(full_bam, ins):
+                        continue
+                    if not _call_validated_by_high_quality(
+                        [j for j in cluster.junctions if j.side == "left"
+                         and j.position == ins.end],
+                        [j for j in cluster.junctions if j.side == "right"
+                         and j.position == ins.start],
+                    ):
+                        continue
+                    candidates.append(ins)
+
+                wrote_any = False
+                for ins in _arbitrate_cluster(
+                    candidates, existing_te[cluster.chrom]
+                ):
                     # RelocaTE2 parity: drop single-sided (one-junction) calls,
                     # which cannot resolve a TSD and dominate the false
                     # positives. RelocaTE2 keeps one narrow one-sided class --
@@ -216,19 +236,6 @@ class InsertionFinder:
                     if self.require_both_junctions and (
                         ins.left_junction_reads == 0
                         or ins.right_junction_reads == 0
-                    ):
-                        continue
-                    if _excluded_by_reference_edge(
-                        ins, existing_te[cluster.chrom]
-                    ):
-                        continue
-                    if _fullread_false_junction(full_bam, ins):
-                        continue
-                    if not _call_validated_by_high_quality(
-                        [j for j in cluster.junctions if j.side == "left"
-                         and j.position == ins.end],
-                        [j for j in cluster.junctions if j.side == "right"
-                         and j.position == ins.start],
                     ):
                         continue
                     out.write(
@@ -730,18 +737,11 @@ from RelocaTE3.models import Insertion, JunctionObservation
 _JUNCTION_RE = re.compile(r":(start|end):([53])$")
 # how far apart (bp) reads may be and still belong to one insertion cluster
 RANGE_ALLOWANCE = 1000
-# max gap (bp) between breakpoints of the SAME insertion. Above a TSD (+ read
-# jitter), below the spacing between distinct insertions, so nearby breakpoints
-# group into one sub-insertion while distinct sites stay separate.
-SUBCLUSTER_GAP = 25
-# Minimum separation (bp) before `left < right` is read as two distinct
-# insertions rather than breakpoint jitter on one. A left-junction read marks the
-# TSD's right edge and a right-junction read its left, so left < right is
-# geometrically impossible for a single insertion -- but at low coverage a real
-# site shows 1-3 bp of jitter in that direction, and splitting those cost 9 of 9
-# riceTElib samples (mean F1 -0.036/-0.053/-0.061 at 5x/15x/30x). The genuine
-# Chr3 cases were 22 and 25 bp apart, so this sits well clear of both.
-SPLIT_MIN_SEPARATION = 10
+# Max distance (bp) between a left and a right breakpoint that RelocaTE2 will
+# pair into one insertion (relocaTE_insertionFinder.py:643 `if min_dist <= 100`).
+# Also the threshold at which a lone left/right pair is split into two separate
+# one-sided sub-insertions (:719).
+PAIR_MAX_DISTANCE = 100
 # Longest inferred TSD still treated as a real duplication. Target-site
 # duplications are short -- a few bp for most elements, 20 bp for the longest in
 # the riceTElib truth set. A larger inferred span is not measuring a duplication,
@@ -877,44 +877,89 @@ def _group_by_position(
 def _pair_breakpoints(
     left: dict[int, list], right: dict[int, list]
 ) -> list[tuple[int | None, int | None]]:
-    """Pair left/right breakpoints into sub-insertions (RelocaTE2-style).
+    """Pair left/right breakpoints into sub-insertions.
 
-    ``left``/``right`` map each breakpoint position to its supporting junction
-    reads (so ``len`` is the read support). Breakpoints are grouped into
-    sub-insertions by proximity (one insertion's TSD-adjacent breakpoints fall
-    within ``SUBCLUSTER_GAP``; distinct insertions are farther apart), then within
-    each sub-cluster the **most-supported** (dominant) left and right breakpoint is
-    selected -- mirroring RelocaTE2, which keys reads by breakpoint and resolves
-    the TSD from the dominant boundary. Each returned tuple is
-    ``(left_position, right_position)``; either may be ``None`` for a one-sided
-    sub-cluster.
+    Direct port of RelocaTE2's ``TSD_from_read_depth`` sub-clustering
+    (relocaTE_insertionFinder.py:603-770). ``left``/``right`` map each breakpoint
+    position to its supporting junction reads, exactly like RelocaTE2's
+    ``left_reads``/``right_reads`` dicts, so ``len`` is that position's depth.
+    Each returned tuple is ``(left_position, right_position)``; either may be
+    ``None`` for a one-sided sub-insertion (RelocaTE2's ``sub_type == 1``).
 
-    A group whose dominant breakpoints are ordered ``left < right`` by more than
-    ``SPLIT_MIN_SEPARATION`` is two adjacent insertions caught in the same group,
-    and is split back into two one-sided sub-insertions rather than merged into a
-    call at neither position. A smaller inversion is breakpoint jitter on a
-    single insertion and is left paired.
+    RelocaTE2's branches, in its own order:
+
+    * **many** -- more than one position on at least one side (:603). Walk left
+      positions in ascending order and pair each with its *nearest* right
+      position. Pair only if that nearest is within ``PAIR_MAX_DISTANCE``;
+      otherwise the left stands alone. Right positions never claimed by any left
+      are then emitted one-sided (:678).
+    * **several left only** / **several right only** (:687, :697) -- every
+      position becomes its own one-sided sub-insertion.
+    * **one and one** (:706) -- pair them, unless they are more than
+      ``PAIR_MAX_DISTANCE`` apart, which RelocaTE2 reads as "one end from two
+      insertions" and splits (:709).
+    * **one side only** (:753) -- a single one-sided sub-insertion.
+
+    This replaces a RelocaTE3-specific scheme (chain positions into groups by a
+    25 bp gap, then take the most-supported position per side, with a
+    jitter-tolerant split). That scheme was not RelocaTE2's, and a chain of
+    <=25 bp steps could span far more than 25 bp, pairing a dominant left with a
+    distant dominant right.
     """
     if not left and not right:
         return []
-    marks = sorted([(p, "L") for p in left] + [(p, "R") for p in right])
-    groups: list[list[tuple[int, str]]] = [[]]
-    for pos, side in marks:
-        if groups[-1] and pos - groups[-1][-1][0] > SUBCLUSTER_GAP:
-            groups.append([])
-        groups[-1].append((pos, side))
 
     pairs: list[tuple[int | None, int | None]] = []
-    for group in groups:
-        lpos = [p for p, s in group if s == "L"]
-        rpos = [p for p, s in group if s == "R"]
-        lp = max(lpos, key=lambda p: (len(left[p]), p)) if lpos else None
-        rp = max(rpos, key=lambda p: (len(right[p]), -p)) if rpos else None
-        if lp is not None and rp is not None and rp - lp > SPLIT_MIN_SEPARATION:
-            pairs.append((lp, None))
-            pairs.append((None, rp))
-            continue
-        pairs.append((lp, rp))
+    lpos = sorted(left)
+    rpos = sorted(right)
+
+    if (len(lpos) > 1 and len(rpos) >= 1) or (len(lpos) >= 1 and len(rpos) > 1):
+        claimed: set[int] = set()
+        for start1 in lpos:
+            # RelocaTE2's nearest-right scan (:610-642). Ties and near-ties are
+            # broken toward the deeper right position, but only when the
+            # candidate lies to the *left* of start1 and the incumbent is
+            # already within PAIR_MAX_DISTANCE -- its "20160212" amendment for
+            # close insertions vs. falsely mapped reads.
+            min_dist = -1
+            min_pair: int | None = None
+            for start2 in rpos:
+                dist = abs(start2 - start1)
+                if min_dist < 0:
+                    min_dist, min_pair = dist, start2
+                elif min_dist > dist:
+                    if min_dist <= PAIR_MAX_DISTANCE and start2 < start1:
+                        deep_both = (
+                            len(right[start2]) >= 2 and len(right[min_pair]) >= 2
+                        )
+                        if deep_both or len(right[start2]) > len(right[min_pair]):
+                            min_dist, min_pair = dist, start2
+                    else:
+                        min_dist, min_pair = dist, start2
+            if min_pair is not None and min_dist <= PAIR_MAX_DISTANCE:
+                claimed.add(min_pair)
+                pairs.append((start1, min_pair))
+            else:
+                pairs.append((start1, None))
+        for start2 in rpos:
+            if start2 not in claimed:
+                pairs.append((None, start2))
+    elif len(lpos) > 1:
+        pairs.extend((p, None) for p in lpos)
+    elif len(rpos) > 1:
+        pairs.extend((None, p) for p in rpos)
+    elif len(lpos) == 1 and len(rpos) == 1:
+        if abs(lpos[0] - rpos[0]) > PAIR_MAX_DISTANCE:
+            # "two junctions are far from each other, might be one end from two
+            # insertion" (:709)
+            pairs.append((lpos[0], None))
+            pairs.append((None, rpos[0]))
+        else:
+            pairs.append((lpos[0], rpos[0]))
+    elif lpos:
+        pairs.append((lpos[0], None))
+    else:
+        pairs.append((None, rpos[0]))
     return pairs
 
 
@@ -937,6 +982,83 @@ def _call_validated_by_high_quality(left_reads: list, right_reads: list) -> bool
     if len(junctions) == 1 and valid_left + valid_right == 0:
         return False  # singleton junction, and it is low quality
     return (valid_left + valid_right) > 0
+
+
+#: Junction reads a one-sided candidate needs to survive cluster arbitration when
+#: better-supported candidates exist in the same cluster
+#: (relocaTE_insertionFinder.py:277, :305).
+MIN_ONE_SIDED_JUNCTIONS = 3
+
+
+def _arbitrate_cluster(
+    candidates: list[Insertion], edges: dict
+) -> list[Insertion]:
+    """Choose which of a cluster's candidate insertions to report.
+
+    Port of RelocaTE2's cluster-level arbitration (write_output:257-330).
+    RelocaTE2 deliberately generates many candidate starts per cluster -- one per
+    left breakpoint, see :func:`_pair_breakpoints` -- and then weighs them
+    *against each other* before reporting:
+
+    * **one candidate** (:311) -- report it if two-sided; if one-sided, report it
+      only when it does not abut a reference TE boundary.
+    * **all candidates two-sided** (:259) -- report all of them.
+    * **some two-sided** (:271) -- report the two-sided ones, plus any one-sided
+      candidate carrying at least ``MIN_ONE_SIDED_JUNCTIONS`` reads on a side.
+      Everything else is dropped, on RelocaTE2's reasoning that "due to the local
+      coverage, if we found both junction for one insertion we should find both
+      junction for others too".
+    * **none two-sided** (:289) -- report only candidates that avoid a reference
+      TE boundary *and* carry at least ``MIN_ONE_SIDED_JUNCTIONS`` junction reads
+      in total.
+
+    RelocaTE3 previously reported every candidate independently. That was
+    survivable while its own 25 bp chaining produced few candidates per cluster,
+    but once :func:`_pair_breakpoints` was made RelocaTE2-faithful it generated
+    RelocaTE2's candidate volume without RelocaTE2's filter, and false positives
+    rose while recall did not move (mPing precision 1.000 -> 0.976; riceTElib 5x
+    F1 0.409 -> 0.360). Pairing and arbitration are one mechanism.
+
+    Args:
+        candidates: the cluster's candidates, already past the per-candidate
+            full-read and low-quality filters.
+        edges: reference-TE boundary table for this contig.
+
+    Returns:
+        The subset to report, in input order.
+    """
+    if not candidates:
+        return []
+
+    def two_sided(ins: Insertion) -> bool:
+        return ins.left_junction_reads > 0 and ins.right_junction_reads > 0
+
+    if len(candidates) == 1:
+        ins = candidates[0]
+        if two_sided(ins):
+            return [ins]
+        return [] if _excluded_by_reference_edge(ins, edges) else [ins]
+
+    both = [ins for ins in candidates if two_sided(ins)]
+    if len(both) == len(candidates):
+        return list(candidates)
+
+    if both:
+        return [
+            ins
+            for ins in candidates
+            if two_sided(ins)
+            or ins.left_junction_reads >= MIN_ONE_SIDED_JUNCTIONS
+            or ins.right_junction_reads >= MIN_ONE_SIDED_JUNCTIONS
+        ]
+
+    return [
+        ins
+        for ins in candidates
+        if not _excluded_by_reference_edge(ins, edges)
+        and ins.left_junction_reads + ins.right_junction_reads
+        >= MIN_ONE_SIDED_JUNCTIONS
+    ]
 
 
 def _excluded_by_reference_edge(ins: Insertion, edges: dict) -> bool:
