@@ -145,6 +145,10 @@ def build_flank_pairs(
     ``retag`` map. Returns ``(n_paired, n_single_end, retag)`` where ``retag`` maps
     each pair's base to ``(flank_tagged_name, genomic_mate_name)`` (read1 = flank,
     read2 = mate).
+
+    ``:middle`` records (read entirely inside the TE) are **skipped** -- see the
+    inline note; RelocaTE2 excludes them too, keeping only their genomic mates,
+    which :func:`recover_support_mates` supplies.
     """
     # (base, mate-end) pairs that matched a TE
     te_ends: set[tuple[str, str]] = set()
@@ -155,9 +159,34 @@ def build_flank_pairs(
     # read every flank record and resolve its genomic-mate name (if any)
     flank_records: list[tuple[str, str, str, str | None]] = []
     needed: dict[str, set[str]] = {"1": set(), "2": set()}
+    n_middle = 0
     for fq in flanking_files:
         with pysam.FastxFile(fq) as fx:
             for rec in fx:
+                if not _JUNCTION_TAG_RE.search(rec.name):
+                    # ``:middle`` -- the read lies entirely inside the TE, so it
+                    # carries no flank and cannot mark a breakpoint. RelocaTE2
+                    # excludes these from genome alignment and keeps only their
+                    # genomic mates (clean_pairs_memory.py: "...the mate pairs of
+                    # reads that matched to middle of repeat only if the mate pair
+                    # is not repeat, but not reads themselve as they are part of
+                    # repeat"). Their mates are recovered by
+                    # recover_support_mates(), which reads the same read_repeat
+                    # table, so nothing is lost by skipping them here.
+                    #
+                    # Aligning them is actively harmful: they are pure transposon
+                    # sequence and map to every reference copy of their family. In
+                    # _stream_clusters each mapped record extends its cluster
+                    # (chaining across RANGE_ALLOWANCE) and, lacking a junction
+                    # tag, is counted as a supporting read -- so they glue
+                    # unrelated breakpoints together and inflate support at every
+                    # reference copy. Measured on riceTElib cov30x_rep1 before
+                    # this filter: 2,546,333 of 3,942,639 genome-BAM records
+                    # (64.6%) were :middle, RelocaTE2's equivalent inputs held 0,
+                    # and 66% of RelocaTE3's false positives sat within 100bp of a
+                    # reference TE copy.
+                    n_middle += 1
+                    continue
                 base, mate = split_mate(strip_tag(rec.name))
                 mate_name: str | None = None
                 if mate in ("1", "2"):
@@ -209,6 +238,12 @@ def build_flank_pairs(
             else:
                 se.write(f"@{name}\n{seq}\n+\n{qual}\n")
                 n_se += 1
+    if n_middle:
+        logger.info(
+            "Skipped %d TE-internal (:middle) reads before genome alignment "
+            "(RelocaTE2 parity); their genomic mates are recovered as support",
+            n_middle,
+        )
     return n_pair, n_se, retag
 
 

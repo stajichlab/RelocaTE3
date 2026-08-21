@@ -382,37 +382,152 @@ class TestExtraOptionPassthrough(unittest.TestCase):
 class TestBlatCommand(unittest.TestCase):
     """BLAT command line shape (no binary needed)."""
 
-    def test_does_not_hardcode_sensitivity_params(self):
+    def test_uses_relocate2_sensitivity_params(self):
         from RelocaTE3.aligners import BlatBackend
 
         cmd = BlatBackend()._blat_cmd("te.fa", "query.fa", "aln.psl")
-        # RelocaTE2's -minScore=10 -tileSize=7 was hardcoded here for parity, but
-        # benchmarking on riceTElib showed it collapses precision as coverage
-        # rises (0.635/0.406/0.231 at 5x/15x/30x) by admitting short-TSD
-        # LINE/SINE junctions that RelocaTE2 filters downstream and RelocaTE3
-        # does not. BLAT's defaults scored better than RelocaTE2 at every
-        # coverage, so we run at defaults and leave the sensitized values to
-        # --te-opts. See docs 2026-08-10-ricetelib-parity-results.md.
-        self.assertNotIn("-minScore=10", cmd)
-        self.assertNotIn("-tileSize=7", cmd)
+        # RelocaTE2 runs `blat -minScore=10 -tileSize=7` (relocaTE2.py:545).
+        # BLAT's own defaults (minScore=30, tileSize=11) miss a large share of
+        # the junction reads RelocaTE2 finds: on mPing cov30x_rep1, over the 19
+        # junction reads RelocaTE2 used at sites RelocaTE3 missed outright,
+        # BLAT defaults hit 0 of 19 and these settings hit 19 of 19.
+        #
+        # This was reverted once (02e68eb) because it collapsed precision on
+        # riceTElib. That collapse was one-sided calls flooding through
+        # characterize.py, which had ported RelocaTE2's gate
+        # (characterizer.pl:91) with `or` instead of `and`. With the gate
+        # corrected, these settings and the gate must be re-measured together
+        # if either changes.
+        self.assertIn("-minScore=10", cmd)
+        self.assertIn("-tileSize=7", cmd)
         # database (TE library) precedes the query, and PSL output is preserved.
         self.assertEqual(cmd[0], "blat")
         self.assertLess(cmd.index("te.fa"), cmd.index("query.fa"))
         self.assertIn("-out=psl", cmd)
         self.assertIn("-noHead", cmd)
 
-    def test_sensitivity_params_still_reachable_via_te_opts(self):
+    def test_query_is_chunked_and_searched_concurrently(self):
+        """BLAT is single-threaded, so chunking is how RelocaTE3 uses the CPUs.
+
+        RelocaTE2 splits the FASTQ into 200k-read chunks and runs a process pool
+        over them (relocaTE2.py:91,110). With RelocaTE2's sensitivity settings a
+        single unchunked BLAT over one mPing 5x side ran past 13 minutes, while
+        RelocaTE2 finishes the whole sample in about that, so this is required
+        for the sensitised defaults to be usable at all.
+        """
+        import types
+        from unittest import mock
+
         from RelocaTE3.aligners import BlatBackend
 
-        # Reverting the default must not remove the ability to opt back in; the
-        # RelocaTE2 values have to remain expressible for sweeps.
+        backend = BlatBackend()
+        backend.BLAT_CHUNK_SEQS = 2  # 5 reads -> 3 chunks
+
+        with tempfile.TemporaryDirectory() as tmp:
+            reads = Path(tmp) / "reads.fa"
+            reads.write_text("".join(f">r{i}\nACGTACGTAC\n" for i in range(5)))
+
+            calls = []
+
+            def fake_run(cmd, **kwargs):
+                calls.append(cmd)
+                # BLAT writes its PSL to the last argument.
+                Path(cmd[-1]).write_text(f"psl-for {Path(cmd[2]).name}\n")
+                return types.SimpleNamespace(returncode=0)
+
+            # Force the pure-Python conversion so the only subprocess calls are
+            # BLAT; the seqtk path is covered separately below.
+            # Stop after the BLAT stage; PSL->BAM conversion needs a real library.
+            with mock.patch("RelocaTE3.aligners.shutil.which", return_value=None), \
+                 mock.patch("RelocaTE3.aligners.subprocess.run", fake_run), \
+                 mock.patch("RelocaTE3.aligners.pysam.FastaFile",
+                            side_effect=RuntimeError("stop after blat")):
+                with self.assertRaises(RuntimeError):
+                    backend._blat_side("te.fa", reads, "out.left.bam", 4, tmp)
+
+            self.assertEqual(len(calls), 3, "one BLAT invocation per chunk")
+            # every chunk carried RelocaTE2's sensitivity settings
+            for cmd in calls:
+                self.assertIn("-minScore=10", cmd)
+            # the per-chunk PSLs are concatenated into the single merged PSL
+            merged = Path(tmp, "aln.psl").read_text()
+            self.assertEqual(len(merged.strip().splitlines()), 3, merged)
+
+    @unittest.skipUnless(shutil.which("seqtk"), "seqtk not available")
+    def test_seqtk_conversion_matches_the_python_fallback(self):
+        """seqtk and the Python fallback must produce the same chunked query.
+
+        RelocaTE2 converts FASTQ->FASTA with seqtk; doing it in Python dominates
+        the TE-search stage (~4M reads / 35 min, hours for one 30x side before
+        BLAT starts). ``seqtk seq -A -l 0`` writes two lines per record, so
+        ``split -l`` cuts on record boundaries -- this pins that assumption.
+        """
+        from unittest import mock
+
+        from RelocaTE3.aligners import BlatBackend
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fq = Path(tmp) / "reads.fq"
+            fq.write_text(
+                "".join(
+                    f"@read{i}/1\nACGTACGTAC\n+\nIIIIIIIIII\n" for i in range(7)
+                )
+            )
+
+            def chunks_for(use_seqtk):
+                sub = Path(tmp, "seqtk" if use_seqtk else "py")
+                sub.mkdir()
+                backend = BlatBackend()
+                backend.BLAT_CHUNK_SEQS = 3  # 7 records -> 3 chunks
+                whole = str(sub / "query.fa")
+                ctx = (
+                    mock.patch("RelocaTE3.aligners.shutil.which", return_value=None)
+                    if not use_seqtk
+                    else mock.patch.object(BlatBackend, "name", "blat")
+                )
+                with ctx:
+                    parts = backend._write_query_chunks(fq, whole, str(sub), "s")
+                return [Path(p).read_text() for p in parts], Path(whole).read_text()
+
+            seqtk_chunks, seqtk_whole = chunks_for(True)
+            py_chunks, py_whole = chunks_for(False)
+
+            self.assertEqual(len(seqtk_chunks), 3)
+            self.assertEqual(seqtk_chunks, py_chunks)
+            self.assertEqual(seqtk_whole, py_whole)
+            # mate suffixes survive the conversion -- downstream pairing needs them
+            self.assertIn(">read0/1", seqtk_whole)
+            # every chunk starts on a record boundary
+            for chunk in seqtk_chunks:
+                self.assertTrue(chunk.startswith(">"), chunk[:20])
+
+    @unittest.skipUnless(shutil.which("seqtk"), "seqtk not available")
+    def test_query_sequences_loads_only_matched_reads(self):
+        """Only reads BLAT matched are needed to fill SAM SEQ, so only those load."""
+        from RelocaTE3.aligners import BlatBackend
+
+        with tempfile.TemporaryDirectory() as tmp:
+            query = Path(tmp) / "query.fa"
+            query.write_text(">a/1\nAAAA\n>b/1\nCCCC\n>c/1\nGGGG\n")
+            psl = Path(tmp) / "aln.psl"
+            # PSL column 10 (index 9) is qName.
+            psl.write_text("\t".join(["0"] * 9 + ["b/1"] + ["0"] * 11) + "\n")
+
+            seqs = BlatBackend._query_sequences(str(query), str(psl), tmp)
+            self.assertEqual(seqs, {"b/1": "CCCC"})
+
+    def test_te_opts_override_the_defaults(self):
+        from RelocaTE3.aligners import BlatBackend
+
+        # --te-opts is appended after the defaults so a sweep can still override
+        # them (BLAT takes the last value for a repeated option).
         cmd = BlatBackend(
-            te_opts=["-minScore=10", "-tileSize=7"]
+            te_opts=["-minScore=30", "-tileSize=11"]
         )._blat_cmd("te.fa", "query.fa", "aln.psl")
-        self.assertIn("-minScore=10", cmd)
-        self.assertIn("-tileSize=7", cmd)
+        self.assertLess(cmd.index("-minScore=10"), cmd.index("-minScore=30"))
+        self.assertLess(cmd.index("-tileSize=7"), cmd.index("-tileSize=11"))
         # opts land before the output path so BLAT still parses the trailing psl
-        self.assertLess(cmd.index("-minScore=10"), cmd.index("aln.psl"))
+        self.assertLess(cmd.index("-minScore=30"), cmd.index("aln.psl"))
 
 
 class TestBlatMissingBinary(unittest.TestCase):

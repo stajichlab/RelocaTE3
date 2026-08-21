@@ -391,8 +391,10 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
         "(default: 3, matching RelocaTE2)",
     )
     call.add_argument(
-        "--min-mapq", type=int, default=1, dest="min_mapq",
-        help="Minimum MAPQ for a uniquely-mapped read",
+        "--min-mapq", type=int, default=0, dest="min_mapq",
+        help="Minimum MAPQ for a read to be admitted as evidence "
+             "(default: 0 = no MAPQ gate, matching RelocaTE2, which marks "
+             "low-MAPQ reads instead of dropping them)",
     )
     call.add_argument(
         "--require-both-junctions", action=argparse.BooleanOptionalAction,
@@ -703,9 +705,11 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     parser.add_argument(
         "--min-mapq",
         type=int,
-        default=1,
+        default=0,
         dest="min_mapq",
-        help="Minimum MAPQ for a uniquely-mapped read",
+        help="Minimum MAPQ for a read to be admitted as evidence "
+             "(default: 0 = no MAPQ gate, matching RelocaTE2, which marks "
+             "low-MAPQ reads instead of dropping them)",
     )
     parser.add_argument(
         "--require-both-junctions",

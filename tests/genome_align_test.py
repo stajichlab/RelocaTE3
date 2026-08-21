@@ -106,6 +106,59 @@ def test_build_flank_pairs_se_when_mate_also_matched_te(tmp_path: Path):
     assert r1.read_text() == "" and r2.read_text() == ""
 
 
+def test_build_flank_pairs_skips_te_internal_middle_reads(tmp_path: Path):
+    """``:middle`` reads must never reach the genome aligner (RelocaTE2 parity).
+
+    A ``:middle`` read lies entirely inside the TE, so it carries no flank and
+    cannot mark a breakpoint -- it is pure transposon sequence that maps to every
+    reference copy of its family. RelocaTE2 drops these before alignment and
+    keeps only their genomic mates (``clean_pairs_memory.py``: "...but not reads
+    themselve as they are part of repeat").
+
+    RelocaTE3 used to align them: on riceTElib cov30x_rep1, 2,546,333 of
+    3,942,639 genome-BAM records (64.6%) were ``:middle`` where RelocaTE2's
+    equivalent inputs held 0. In ``_stream_clusters`` each one extends its
+    cluster and counts as a supporting read, so they glued unrelated breakpoints
+    together and inflated support at every reference TE copy.
+    """
+    reads = ReadLibrary([str(R1), str(R2)], "HEG4")
+    flank_fq = tmp_path / "HEG4.left.flankingReads.fq"
+    flank_fq.write_text(
+        "@read_500_1/1:end:5\nACGTACGTAC\n+\nIIIIIIIIII\n"      # junction: keep
+        "@read_500_3/1:middle\nTTTTTTTTTT\n+\nIIIIIIIIII\n"      # TE-internal: drop
+    )
+    read_repeat = {
+        "read_500_1/1:end:5": ("mPing", "+"),
+        "read_500_3/1:middle": ("mPing", "+"),
+    }
+    r1, r2, se = tmp_path / "r1.fq", tmp_path / "r2.fq", tmp_path / "se.fq"
+    n_pair, n_se, retag = build_flank_pairs(
+        [str(flank_fq)], read_repeat, reads, r1, r2, se
+    )
+    written = r1.read_text() + r2.read_text() + se.read_text()
+    assert ":middle" not in written
+    assert "TTTTTTTTTT" not in written, "the TE-internal sequence must not be aligned"
+    # only the junction flank survives, still paired with its genomic mate
+    assert (n_pair, n_se) == (1, 0)
+    assert retag == {"read_500_1": ("read_500_1/1:end:5", "read_500_1/2")}
+
+
+def test_middle_read_mate_is_still_recovered_as_support(tmp_path: Path):
+    """Dropping the middle read must not drop its genomic mate.
+
+    RelocaTE2 keeps that mate -- it lands in unique genome sequence and brackets
+    the insertion, which is exactly what a supporting read is.
+    ``recover_support_mates`` reads the same ``read_repeat`` table, so the mate is
+    picked up there once the middle read is no longer paired with it.
+    """
+    reads = ReadLibrary([str(R1), str(R2)], "HEG4")
+    read_repeat = {"read_500_3/1:middle": ("mPing", "+")}
+    out_fq = tmp_path / "support.fq"
+    n = recover_support_mates(read_repeat, reads, out_fq, exclude=set())
+    assert n == 1, "the middle read's genomic mate must still be aligned"
+    assert "read_500_3/2" in out_fq.read_text()
+
+
 @pytest.mark.skipif(shutil.which("bwa") is None, reason="bwa not available")
 def test_align_to_genome_anchors_ambiguous_flank_to_mate(tmp_path: Path):
     """An ambiguous junction flank (maps to two identical loci) must be placed at

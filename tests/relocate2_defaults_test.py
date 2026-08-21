@@ -104,6 +104,21 @@ def test_explicit_flag_still_works():
     assert _defaults(REQUIRED_FIND + ["--require-both-junctions"])["require_both_junctions"] is True
 
 
+def test_min_mapq_defaults_to_no_gate():
+    """RelocaTE2 has no MAPQ admission gate, so neither may RelocaTE3's default.
+
+    ``relocaTE_insertionFinder.py:1521-1558`` admits reads on XM/XO/XT/X1 only;
+    MAPQ is used at :1523,1539 purely to mark a read low quality, and calls
+    resting solely on low-quality reads are dropped later (:226-241). RelocaTE3
+    defaulted to 1, silently discarding MAPQ-0 reads. On the mPing benchmark
+    those are frequently the single read carrying the second junction, so the
+    call collapsed to one-sided and was dropped: restoring the RelocaTE2 default
+    recovered 4 true calls at cov30x_rep1 with no new false positives.
+    """
+    assert _defaults(REQUIRED_RUN_ALL)["min_mapq"] == 0
+    assert _defaults(REQUIRED_FIND)["min_mapq"] == 0
+
+
 def test_required_junction_reads_defaults_to_one():
     """relocaTE_insertionFinder.py:1732-1734 -- required_(left|right)_reads = 1."""
     from RelocaTE3.insertions import find_insertions

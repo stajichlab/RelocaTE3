@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -613,48 +614,194 @@ class BlatBackend(AlignerBackend):
                 "(closest accuracy to blat on the rice benchmark)"
             )
 
+    #: RelocaTE2's BLAT sensitivity settings (relocaTE2.py:545). BLAT's own
+    #: defaults are minScore=30, tileSize=11.
+    RT2_BLAT_OPTS = ("-minScore=10", "-tileSize=7")
+
     def _blat_cmd(self, te_library, query_fa, psl):
-        # Runs BLAT at its defaults (minScore=30, tileSize=11). We briefly
-        # hardcoded RelocaTE2's -minScore=10 -tileSize=7 here (relocaTE2.py:545)
-        # on the theory that BLAT sensitivity was the recall gap. Benchmarking on
-        # riceTElib (9 samples, 3 coverages) disproved it: those params raise
-        # recall by ~0.05 but collapse precision as coverage rises -- 0.635 /
-        # 0.406 / 0.231 at 5x / 15x / 30x, versus RelocaTE2's steady ~0.83 --
-        # because false positives grow superlinearly with depth (286 -> 1222 ->
-        # 3320) while RelocaTE2's stay flat. The extra calls are short-TSD
-        # (median 3 bp) LINE/SINE junctions that RelocaTE2 discards downstream
-        # and we do not, so the permissive settings are only safe once that
-        # filter exists. At BLAT's defaults RelocaTE3 already beat RelocaTE2 on
-        # F1 at every coverage (0.444 / 0.645 / 0.729 vs 0.438 / 0.620 / 0.696).
-        # See relocate-benchmark docs/2026-08-10-ricetelib-parity-results.md.
+        # Runs BLAT with RelocaTE2's parameters, which is the whole point of
+        # defaulting to BLAT at all: at BLAT's own defaults the TE search simply
+        # does not find a large share of the junction reads RelocaTE2 finds.
+        # Measured on mPing cov30x_rep1, over the 19 junction reads RelocaTE2
+        # used at sites RelocaTE3 missed entirely: BLAT defaults find 0 of 19,
+        # -minScore=10 -tileSize=7 finds 19 of 19.
         #
-        # The sensitized values remain available per-run via --te-opts, which is
-        # appended below (before the output path, so it can override anything
-        # defaulted here). The TE library is the database and the reads are the
-        # query, so db precedes query.
+        # History, because this was reverted once (02e68eb) and the reasoning
+        # was sound at the time: benchmarking on riceTElib showed these params
+        # raising recall but collapsing precision with depth (0.635 / 0.406 /
+        # 0.231 at 5x / 15x / 30x). The extra calls were overwhelmingly
+        # one-sided junctions -- and RelocaTE3 was then admitting every
+        # one-sided call at characterize, because characterize.py ported
+        # RelocaTE2's gate (characterizer.pl:91) with `or` where RelocaTE2 has
+        # `and`. With that gate corrected, one-sided calls are dropped the way
+        # RelocaTE2 drops them, which is precisely the "filter" the old comment
+        # said these settings needed before they were safe. Re-measure both
+        # panels if you touch either of these two things again; they interact.
+        #
+        # --te-opts is appended after, so a run can still override any of this.
+        # The TE library is the database and the reads are the query, so db
+        # precedes query.
         return [
             "blat",
             str(te_library),
             str(query_fa),
+            *self.RT2_BLAT_OPTS,
             *self._stage_opts("te"),
             "-noHead",
             "-out=psl",
             str(psl),
         ]
 
-    def _blat_side(self, te_library, read_file, out_bam, threads, tmpdir):
-        # BLAT reads FASTA, not FASTQ (it treats a FASTQ's "@name" lines as a list
-        # of filenames). Read libraries are FASTQ, so convert the query to FASTA
-        # first; FastxFile handles FASTQ/FASTA (and gzip) and preserves the /1,/2
-        # mate suffix in the name.
-        query_fa = os.path.join(tmpdir, f"query.{Path(out_bam).stem}.fa")
+    #: Query sequences per BLAT chunk, matching RelocaTE2's ``fastq_split -s``
+    #: (relocaTE2.py:91). BLAT is single-threaded, so chunking is the only way
+    #: to use more than one core.
+    BLAT_CHUNK_SEQS = 200_000
+
+    def _write_query_chunks(self, read_file, query_fa, tmpdir, stem) -> list[str]:
+        """Convert ``read_file`` to one-line-per-record FASTA and split it.
+
+        BLAT reads FASTA, not FASTQ (it treats a FASTQ's ``@name`` lines as a
+        list of filenames), so the query has to be converted. RelocaTE2 uses
+        ``seqtk`` for this (relocaTE2.py step 2) and so do we: doing it in Python
+        dominates the TE-search stage on a full-size library -- roughly 4M reads
+        per 35 min, hours for one 30x side before BLAT even starts.
+
+        ``seqtk seq -A -l 0`` emits exactly two lines per record and preserves
+        the ``/1``, ``/2`` mate suffix, so plain ``split -l`` cuts on record
+        boundaries. Falls back to a pure-Python conversion when seqtk is absent.
+
+        Args:
+            read_file: FASTQ or FASTA input, optionally gzipped.
+            query_fa: path to write the whole converted FASTA to.
+            tmpdir: scratch directory for the chunk files.
+            stem: basename fragment making chunk names unique per side.
+
+        Returns:
+            Chunk FASTA paths, in file order.
+        """
+        if shutil.which("seqtk") is not None:
+            with open(query_fa, "w") as out:
+                subprocess.run(
+                    ["seqtk", "seq", "-A", "-l", "0", str(read_file)],
+                    stdout=out,
+                    check=True,
+                )
+            prefix = os.path.join(tmpdir, f"chunk.{stem}.")
+            subprocess.run(
+                [
+                    "split",
+                    "-l",
+                    str(2 * self.BLAT_CHUNK_SEQS),
+                    "-d",
+                    "-a",
+                    "5",
+                    "--additional-suffix=.fa",
+                    query_fa,
+                    prefix,
+                ],
+                check=True,
+            )
+            return sorted(
+                os.path.join(tmpdir, f)
+                for f in os.listdir(tmpdir)
+                if f.startswith(f"chunk.{stem}.") and f.endswith(".fa")
+            )
+
+        chunks: list[str] = []
+        out = None
+        try:
+            with pysam.FastxFile(str(read_file)) as fx, open(query_fa, "w") as whole:
+                for i, rec in enumerate(fx):
+                    if i % self.BLAT_CHUNK_SEQS == 0:
+                        if out is not None:
+                            out.close()
+                        path = os.path.join(tmpdir, f"chunk.{stem}.{len(chunks):05d}.fa")
+                        chunks.append(path)
+                        out = open(path, "w")
+                    record = f">{rec.name}\n{rec.sequence}\n"
+                    out.write(record)
+                    whole.write(record)
+        finally:
+            if out is not None:
+                out.close()
+        return chunks
+
+    @staticmethod
+    def _query_sequences(query_fa, psl, tmpdir) -> dict[str, str]:
+        """Load sequences for just the reads BLAT matched.
+
+        BLAT's PSL carries no sequence, so the PSL->SAM conversion needs the
+        query sequences to fill SEQ. Only matched reads are needed -- a few
+        thousand out of tens of millions -- so pull those by name rather than
+        holding the whole library in memory.
+        """
+        names: set[str] = set()
+        with open(psl) as ph:
+            for line in ph:
+                fields = line.split("\t")
+                if len(fields) > 9:
+                    names.add(fields[9])
+        if not names:
+            return {}
+
         seqs: dict[str, str] = {}
-        with pysam.FastxFile(str(read_file)) as fx, open(query_fa, "w") as out:
-            for rec in fx:
-                out.write(f">{rec.name}\n{rec.sequence}\n")
-                seqs[rec.name] = rec.sequence
+        if shutil.which("seqtk") is not None:
+            names_file = os.path.join(tmpdir, "matched.names")
+            with open(names_file, "w") as fh:
+                fh.write("\n".join(names) + "\n")
+            proc = subprocess.run(
+                ["seqtk", "subseq", str(query_fa), names_file],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            stream = proc.stdout.splitlines()
+        else:
+            with open(query_fa) as fh:
+                stream = fh.read().splitlines()
+        name = None
+        for line in stream:
+            if line.startswith(">"):
+                name = line[1:].split()[0]
+            elif name is not None and name in names:
+                seqs[name] = seqs.get(name, "") + line.strip()
+        return seqs
+
+    def _blat_side(self, te_library, read_file, out_bam, threads, tmpdir):
+        # The query is converted once, then searched in chunks concurrently.
+        # BLAT is single-threaded and RT2_BLAT_OPTS make it far slower per base,
+        # so one process over a whole library is not viable: a single mPing 5x
+        # side ran >13 min unchunked while RelocaTE2 does the entire sample in
+        # about that. RelocaTE2 splits into 200k-read chunks and runs a process
+        # pool (relocaTE2.py:91,110); this is the same strategy. Output is
+        # order-independent -- PSL records are keyed by read name.
+        stem = Path(out_bam).stem
+        query_fa = os.path.join(tmpdir, f"query.{stem}.fa")
+        chunks = self._write_query_chunks(read_file, query_fa, tmpdir, stem)
+
         psl = os.path.join(tmpdir, "aln.psl")
-        subprocess.run(self._blat_cmd(te_library, query_fa, psl), check=True)
+        if not chunks:
+            open(psl, "w").close()
+        else:
+            part_psls = [f"{c}.psl" for c in chunks]
+            workers = max(1, min(int(threads or 1), len(chunks)))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [
+                    pool.submit(
+                        subprocess.run,
+                        self._blat_cmd(te_library, chunk, part),
+                        check=True,
+                    )
+                    for chunk, part in zip(chunks, part_psls)
+                ]
+                for fut in futures:
+                    fut.result()  # re-raise the first failure
+            with open(psl, "w") as merged:
+                for part in part_psls:
+                    with open(part) as ph:
+                        shutil.copyfileobj(ph, merged)
+
+        seqs = self._query_sequences(query_fa, psl, tmpdir)
         ref_lengths = {
             r: fa.get_reference_length(r)
             for fa in [pysam.FastaFile(str(te_library))]

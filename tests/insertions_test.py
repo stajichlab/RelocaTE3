@@ -18,24 +18,28 @@ def _bp(counts):
 
 
 class TestPairBreakpoints(unittest.TestCase):
-    """RelocaTE2-style support-dominant breakpoint pairing (replaces the old
-    distance-window pairing that manufactured runaway-TSD false positives)."""
+    """RelocaTE2's nearest-right sub-clustering (TSD_from_read_depth:603-770)."""
 
-    def test_dominant_breakpoint_absorbs_minor_neighbour(self):
-        # a minor left breakpoint (1 read) beside the dominant left (5 reads) must
-        # be absorbed, not emitted as a separate one-sided call.
+    def test_each_left_pairs_with_its_nearest_right(self):
+        # RelocaTE2 emits one sub-cluster per left position; a minor left beside
+        # a dominant one is NOT absorbed, it gets its own pair (:610-676).
         pairs = _pair_breakpoints(_bp({1003: 5, 1005: 1}), _bp({1000: 5}))
-        self.assertEqual(pairs, [(1003, 1000)])
+        self.assertEqual(pairs, [(1003, 1000), (1005, 1000)])
 
-    def test_far_lone_breakpoints_not_paired_into_runaway(self):
-        # a lone left and a lone right farther apart than a TSD must NOT be paired
-        # (that produced runaway TSDs); each is emitted one-sided.
+    def test_lone_breakpoints_within_the_window_still_pair(self):
+        # 60 bp apart is inside RelocaTE2's 100 bp pairing window, so it pairs.
+        # The call is suppressed later, at emission, when TSD_len_calculate
+        # returns a non-positive length (relocaTE_insertionFinder.py:818).
         pairs = _pair_breakpoints(_bp({100: 3}), _bp({40: 3}))
+        self.assertEqual(pairs, [(100, 40)])
+
+    def test_lone_breakpoints_beyond_the_window_are_split(self):
+        pairs = _pair_breakpoints(_bp({1000: 3}), _bp({500: 3}))
         self.assertEqual(sorted(pairs, key=lambda p: (p[0] or 0, p[1] or 0)),
-                         [(None, 40), (100, None)])
+                         [(None, 500), (1000, None)])
 
     def test_distinct_sites_stay_separate(self):
-        # two real insertions ~50 bp apart remain two paired calls.
+        # two real insertions ~50 bp apart: each left takes its own nearest right.
         pairs = _pair_breakpoints(_bp({1003: 3, 1053: 3}), _bp({1000: 3, 1050: 3}))
         self.assertEqual(pairs, [(1003, 1000), (1053, 1050)])
 
@@ -290,16 +294,24 @@ class TestInsertionFinder(unittest.TestCase):
         with tempfile.TemporaryDirectory() as workdir:
             bam_path = os.path.join(workdir, "flank.bam")
             # Site A: two-sided (left + right) at tsd_start~1000.
-            # Site C: lone left junction ~1000 bp away (single-sided).
+            # Site C: left-only junction ~1000 bp away, with three reads.
+            #
+            # Three, not one: RelocaTE2's cluster arbitration
+            # (write_output:271-283) discards a one-sided candidate backed by
+            # fewer than MIN_ONE_SIDED_JUNCTIONS reads whenever the same cluster
+            # also holds a two-sided candidate. A single-read site C would be
+            # removed there and never reach the require_both_junctions test.
             reads = [
                 {"name": "aR:start:5", "seq": "TTA" + "A" * 37, "start0": 999},
                 {"name": "aL:end:5", "seq": "A" * 37 + "TTA", "start0": 962},
-                {"name": "cL:end:5", "seq": "A" * 37 + "TTA", "start0": 1962},
+                {"name": "cL1:end:5", "seq": "A" * 37 + "TTA", "start0": 1962},
+                {"name": "cL2:end:5", "seq": "A" * 37 + "TTA", "start0": 1962},
+                {"name": "cL3:end:5", "seq": "A" * 37 + "TTA", "start0": 1962},
             ]
             _write_junction_bam(bam_path, "Chr1", 5000, reads)
             read_repeat = os.path.join(workdir, "rr.txt")
             with open(read_repeat, "w") as fh:
-                for n in ("aR", "aL", "cL"):
+                for n in ("aR", "aL", "cL1", "cL2", "cL3"):
                     fh.write(f"{n}\tmping\t+\n")
 
             def _run(finder):

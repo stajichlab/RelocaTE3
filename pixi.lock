@@ -23,6 +23,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/linux-64/pybedtools-0.12.0-py312hedfda1a_1.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/pysam-0.24.0-py312hf5ad864_1.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/samtools-1.24-h9dcdb79_1.conda
+      - conda: https://conda.anaconda.org/bioconda/linux-64/seqtk-1.5-h577a1d6_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/biopython-1.88-py312h4c3975b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/bzip2-1.0.8-hda65f42_10.conda
@@ -128,6 +129,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/linux-64/pybedtools-0.12.0-py312hedfda1a_1.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/pysam-0.24.0-py312hf5ad864_0.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/samtools-1.23.1-ha83d96e_0.conda
+      - conda: https://conda.anaconda.org/bioconda/linux-64/seqtk-1.5-h577a1d6_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16.1-hb03c661_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/biopython-1.87-py312h4c3975b_0.conda
@@ -325,6 +327,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/osx-64/pybedtools-0.12.0-py313hc68a4d9_1.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/pysam-0.24.0-py313hd584dab_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/samtools-1.23.1-head6495_0.conda
+      - conda: https://conda.anaconda.org/bioconda/osx-64/seqtk-1.5-h7f84b70_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.6.17-hbd8a1cb_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cycler-0.12.1-pyhcf101f3_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/exceptiongroup-1.3.1-pyhd8ed1ab_0.conda
@@ -463,6 +466,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/pybedtools-0.12.0-py313h9e0c8cc_1.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/pysam-0.24.0-py313hae41486_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.23.1-hc612e98_0.conda
+      - conda: https://conda.anaconda.org/bioconda/osx-arm64/seqtk-1.5-hba9b596_1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.6.17-hbd8a1cb_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cycler-0.12.1-pyhcf101f3_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/exceptiongroup-1.3.1-pyhd8ed1ab_0.conda
@@ -786,6 +790,17 @@ packages:
   license: MIT
   size: 504278
   timestamp: 1784062341168
+- conda: https://conda.anaconda.org/bioconda/linux-64/seqtk-1.5-h577a1d6_1.tar.bz2
+  sha256: f265fe676118d9d45fde040cc8354fc96ca18c45ed2410854c06c143e823258b
+  md5: 0bc157aea007a7895e6f2e8f44a0b407
+  depends:
+  - libgcc >=13
+  - libzlib >=1.3.1,<2.0a0
+  license: MIT
+  license_family: MIT
+  purls: []
+  size: 141778
+  timestamp: 1752093609066
 - conda: https://conda.anaconda.org/bioconda/osx-64/bedtools-2.31.1-hbb299f0_3.tar.bz2
   sha256: 2e121af16a83ffd673075a629544e6d6e810901a6a3ee2233e6c7f70f1c0691f
   md5: 14117a0fac7ea77047ccb2d396e05d16
@@ -920,6 +935,19 @@ packages:
   license: MIT
   size: 477620
   timestamp: 1773863301094
+- conda: https://conda.anaconda.org/bioconda/osx-64/seqtk-1.5-h7f84b70_1.tar.bz2
+  sha256: 53204ac5a719d9234a873ff758b94f4f7055ce55decc7776a02c93a68d202366
+  md5: d3a0a92a467e91b8e2550baa01035706
+  depends:
+  - libzlib >=1.3.1,<2.0a0
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports:
+    weak:
+    - seqtk >=1.5,<2.0a0
+  size: 43408
+  timestamp: 1752094396903
 - conda: https://conda.anaconda.org/bioconda/osx-arm64/bedtools-2.31.1-he85ad4a_3.tar.bz2
   sha256: cd11a800ed5e388ad21e2648f022cb376bbce887795c02427b84caa8b10cdd6c
   md5: 098e54e6b442c7c65be261cae3c7aa0b
@@ -1056,6 +1084,19 @@ packages:
   license: MIT
   size: 447384
   timestamp: 1773861469209
+- conda: https://conda.anaconda.org/bioconda/osx-arm64/seqtk-1.5-hba9b596_1.tar.bz2
+  sha256: 7b676000bdb87d467417ac195eb4202e6640d5c7b6c96e9f50189f85c418e85e
+  md5: d3a6230d317efcd364175fa0a0f2794c
+  depends:
+  - libzlib >=1.3.1,<2.0a0
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports:
+    weak:
+    - seqtk >=1.5,<2.0a0
+  size: 42177
+  timestamp: 1752093468280
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
   build_number: 20
   sha256: 1dd3fffd892081df9726d7eb7e0dea6198962ba775bd88842135a4ddb4deb3c9

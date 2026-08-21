@@ -1,31 +1,26 @@
-"""Adjacent insertions must not be merged into one impossible call.
+"""Breakpoint pairing must follow RelocaTE2's sub-clustering exactly.
 
-``_pair_breakpoints`` groups breakpoints within ``SUBCLUSTER_GAP`` and then keeps
-the dominant left and dominant right of each group. When two real insertions sit
-close together, their *inner* breakpoints fall inside that gap, so the group
-holds both -- and the dominant pair ends up being insertion A's left breakpoint
-with insertion B's right breakpoint. Both true sites are then lost: one call is
-emitted, at neither position.
+``_pair_breakpoints`` is a direct port of ``TSD_from_read_depth``
+(relocaTE_insertionFinder.py:603-770). RelocaTE2 walks each *left* breakpoint in
+ascending order and pairs it with its **nearest** right breakpoint, accepting the
+pair only when they are within ``PAIR_MAX_DISTANCE`` (100 bp, :643). Right
+breakpoints no left ever claimed are then emitted one-sided (:678).
 
-The pairing is geometrically impossible, which is what makes it detectable
-without any extra evidence. A left-junction read marks the *right* edge of the
-TSD and a right-junction read marks the *left* edge (see ``_make_insertion``), so
-a genuine pair always has ``left_position >= right_position``. When the left
-breakpoint lies to the left of the right breakpoint, the two breakpoints cannot
-belong to the same insertion.
+RelocaTE3 previously used its own scheme -- chain positions into groups by a
+25 bp gap, take the most-supported position on each side, then split the pair
+again if it looked geometrically impossible. That is not what RelocaTE2 does, and
+a chain of <=25 bp steps could span far more than 25 bp, pairing a dominant left
+with a distant dominant right.
 
-Observed on the Chr3 2 Mb fixture at two of the three sites RelocaTE2 finds and
-RelocaTE3 missed entirely:
-
-    truth Chr3:155988   RelocaTE2: 155951..155962 and 155984..155988
-                        RelocaTE3: one call at 155962 (L=155962, R=155984 -> -21)
-    truth Chr3:672724   RelocaTE2: 672693..672695 and 672720..672724
-                        RelocaTE3: one call at 672695 (L=672695, R=672720 -> -24)
+Note the impossible-pairing case is still handled -- just where RelocaTE2 handles
+it. RelocaTE2 pairs the breakpoints here and then rejects the sub-insertion at
+emission, because ``TSD_len_calculate`` returns a non-positive length and
+``if TSD_len > 0`` (:818) suppresses the call. See ``_make_insertion``.
 """
 
 from __future__ import annotations
 
-from RelocaTE3.insertions import _pair_breakpoints
+from RelocaTE3.insertions import PAIR_MAX_DISTANCE, _pair_breakpoints
 
 
 def _obs(n: int) -> list[object]:
@@ -33,61 +28,78 @@ def _obs(n: int) -> list[object]:
     return [object()] * n
 
 
-def test_impossible_pairing_is_split_into_two_sub_insertions():
-    """L to the left of R cannot be one TSD; emit both breakpoints separately."""
-    left = {155962: _obs(3)}
-    right = {155984: _obs(5)}
-    pairs = _pair_breakpoints(left, right)
-    assert (155962, 155984) not in pairs, "must not pair across two insertions"
-    assert sorted(pairs, key=lambda p: (p[0] or 0, p[1] or 0)) == [
-        (None, 155984),
-        (155962, None),
-    ]
-
-
-def test_a_real_tsd_still_pairs():
-    """left >= right is the valid arrangement and must be preserved."""
-    left = {1005: _obs(4)}
-    right = {1003: _obs(4)}
-    assert _pair_breakpoints(left, right) == [(1005, 1003)]
+def test_nearest_right_wins_not_the_deepest():
+    """RelocaTE2 pairs on distance, not support (:610-642)."""
+    # 1003 is nearer to 1005 than 1050 is, even though both have equal depth
+    assert _pair_breakpoints({1005: _obs(4)}, {1003: _obs(4)}) == [(1005, 1003)]
 
 
 def test_coincident_breakpoints_pair():
     """A zero-length TSD (left == right) is still one insertion."""
-    left = {500: _obs(2)}
-    right = {500: _obs(2)}
-    assert _pair_breakpoints(left, right) == [(500, 500)]
+    assert _pair_breakpoints({500: _obs(2)}, {500: _obs(2)}) == [(500, 500)]
 
 
-def test_distant_breakpoints_remain_separate_groups():
-    """Beyond SUBCLUSTER_GAP the grouping already separated them."""
-    left = {1000: _obs(2)}
-    right = {2000: _obs(2)}
-    pairs = _pair_breakpoints(left, right)
+def test_lone_pair_beyond_the_window_is_split():
+    """":709 -- two junctions are far from each other, might be one end from two
+    insertion"."""
+    pairs = _pair_breakpoints({1000: _obs(2)}, {2000: _obs(2)})
     assert sorted(pairs, key=lambda p: (p[0] or 0, p[1] or 0)) == [
         (None, 2000),
         (1000, None),
     ]
 
 
-def test_one_sided_groups_are_unchanged():
+def test_window_boundary_is_inclusive():
+    """`min_dist <= 100` pairs; one bp further splits."""
+    d = PAIR_MAX_DISTANCE
+    assert _pair_breakpoints({1000: _obs(2)}, {1000 + d: _obs(2)}) == [(1000, 1000 + d)]
+    assert len(_pair_breakpoints({1000: _obs(2)}, {1000 + d + 1: _obs(2)})) == 2
+
+
+def test_one_sided_clusters_are_unchanged():
     assert _pair_breakpoints({700: _obs(3)}, {}) == [(700, None)]
     assert _pair_breakpoints({}, {700: _obs(3)}) == [(None, 700)]
 
 
-def test_dominant_selection_still_applies_within_a_valid_group():
-    """Among several left breakpoints the best-supported one wins."""
-    left = {1005: _obs(1), 1006: _obs(7)}
-    right = {1003: _obs(4)}
+def test_every_left_gets_its_own_sub_insertion():
+    """RelocaTE2 emits one sub-cluster per left position, even when two lefts
+    share the same nearest right -- it does not collapse them (:610-676)."""
+    pairs = _pair_breakpoints({1005: _obs(1), 1006: _obs(7)}, {1003: _obs(4)})
+    assert pairs == [(1005, 1003), (1006, 1003)]
+
+
+def test_unclaimed_right_breakpoints_are_emitted_one_sided():
+    """:678 -- rights that no left paired with become their own sub-clusters."""
+    # 1003 is nearest to both lefts; 5000 is claimed by nobody
+    pairs = _pair_breakpoints({1005: _obs(2), 1006: _obs(2)}, {1003: _obs(3), 5000: _obs(3)})
+    assert (None, 5000) in pairs
+    assert (1005, 1003) in pairs and (1006, 1003) in pairs
+
+
+def test_adjacent_insertions_resolve_when_both_are_present():
+    """The Chr3 case, with the full breakpoint set RelocaTE2 actually sees.
+
+    truth Chr3:155988  RelocaTE2: 155951..155962 and 155984..155988
+
+    Each left pairs with its own nearest right, so the two insertions separate
+    naturally -- no geometric special-case needed.
+    """
+    left = {155962: _obs(3), 155988: _obs(4)}
+    right = {155951: _obs(3), 155984: _obs(5)}
     pairs = _pair_breakpoints(left, right)
-    assert pairs == [(1006, 1003)]
+    assert pairs == [(155962, 155951), (155988, 155984)]
 
 
-def test_splitting_does_not_invent_extra_calls():
-    """A split yields exactly the two breakpoints, not a third merged one."""
-    pairs = _pair_breakpoints({100: _obs(2)}, {120: _obs(2)})
-    assert len(pairs) == 2
-    assert all((p[0] is None) != (p[1] is None) for p in pairs)
+def test_several_positions_on_one_side_only():
+    """:687/:697 -- each becomes its own one-sided sub-insertion."""
+    assert _pair_breakpoints({100: _obs(2), 400: _obs(2)}, {}) == [
+        (100, None),
+        (400, None),
+    ]
+    assert _pair_breakpoints({}, {100: _obs(2), 400: _obs(2)}) == [
+        (None, 100),
+        (None, 400),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -141,48 +153,68 @@ def test_start_edge_is_checked_too():
 
 
 # ---------------------------------------------------------------------------
-# Splitting needs a real separation, not merely a negative overlap
+# Cluster-level arbitration (write_output:257-330)
 # ---------------------------------------------------------------------------
 #
-# Splitting on *any* `left < right` was too aggressive. On the Chr3 fixture the
-# two genuine cases were separated by 22 and 25 bp, but at riceTElib's TE density
-# and low coverage a real single insertion routinely shows 1-3 bp of breakpoint
-# jitter in the same direction. Those were being split into two half-calls that
-# both then missed, costing recall AND precision: mean F1 fell 0.444 -> 0.409 at
-# 5x, 0.647 -> 0.593 at 15x and 0.731 -> 0.670 at 30x, 9 of 9 samples worse.
-#
-# So a split now requires the breakpoints to be separated by more than
-# SPLIT_MIN_SEPARATION, comfortably above jitter and comfortably below the
-# genuine Chr3 cases.
+# RelocaTE2 generates many candidates per cluster and then weighs them against
+# each other. Porting _pair_breakpoints without this filter raised false
+# positives while leaving recall untouched (mPing precision 1.000 -> 0.976,
+# riceTElib 5x F1 0.409 -> 0.360): pairing and arbitration are one mechanism.
 
-from RelocaTE3.insertions import SPLIT_MIN_SEPARATION
+from RelocaTE3.insertions import MIN_ONE_SIDED_JUNCTIONS, _arbitrate_cluster
+
+NO_EDGES: dict = {"start": {}, "end": {}}
 
 
-def test_small_negative_overlap_is_jitter_and_still_pairs():
-    """1-3 bp the 'wrong' way is alignment noise on one insertion, not two."""
-    for gap in (1, 2, 3):
-        pairs = _pair_breakpoints({1000: _obs(3)}, {1000 + gap: _obs(4)})
-        assert pairs == [(1000, 1000 + gap)], f"gap {gap} should still pair"
+def _cand(left: int, right: int, start: int = 1000) -> Insertion:
+    return Insertion(
+        chrom="Chr1", start=start, end=start + 2, te_name="mPing", strand="+",
+        tsd="TTA", left_junction_reads=left, right_junction_reads=right,
+    )
 
 
-def test_wide_separation_still_splits():
-    """The genuine Chr3 cases were 22 and 25 bp apart."""
-    for gap in (22, 25):
-        pairs = _pair_breakpoints({1000: _obs(3)}, {1000 + gap: _obs(4)})
-        assert (1000, 1000 + gap) not in pairs, f"gap {gap} must split"
-        assert len(pairs) == 2
+def test_single_two_sided_candidate_is_reported():
+    ins = _cand(3, 4)
+    assert _arbitrate_cluster([ins], NO_EDGES) == [ins]
 
 
-def test_threshold_boundary_is_exclusive():
-    """At exactly SPLIT_MIN_SEPARATION we still pair; one beyond, we split."""
-    g = SPLIT_MIN_SEPARATION
-    assert _pair_breakpoints({500: _obs(2)}, {500 + g: _obs(2)}) == [(500, 500 + g)]
-    assert len(_pair_breakpoints({500: _obs(2)}, {500 + g + 1: _obs(2)})) == 2
+def test_single_one_sided_candidate_at_a_reference_edge_is_dropped():
+    """:311 else-branch -- a lone one-sided call is checked against existingTE."""
+    edges = {"start": {1002: 1}, "end": {}}
+    assert _arbitrate_cluster([_cand(0, 4)], edges) == []
+    assert _arbitrate_cluster([_cand(0, 4)], NO_EDGES) != []
 
 
-def test_threshold_sits_below_subcluster_gap():
-    """Beyond SUBCLUSTER_GAP the grouping already separates them, so the
-    split threshold only has meaning below it."""
-    from RelocaTE3.insertions import SUBCLUSTER_GAP
+def test_all_two_sided_candidates_are_kept():
+    """:259 -- if every candidate has both junctions, keep them all."""
+    cands = [_cand(2, 2, 1000), _cand(3, 1, 2000)]
+    assert _arbitrate_cluster(cands, NO_EDGES) == cands
 
-    assert 0 < SPLIT_MIN_SEPARATION < SUBCLUSTER_GAP
+
+def test_weak_one_sided_dropped_when_a_two_sided_candidate_exists():
+    """:271 -- 'if we found both junction for one insertion we should find both
+    junction for others too'."""
+    good = _cand(2, 2, 1000)
+    weak = _cand(0, 1, 2000)
+    assert _arbitrate_cluster([good, weak], NO_EDGES) == [good]
+
+
+def test_well_supported_one_sided_survives_alongside_a_two_sided():
+    """:277 -- a one-sided candidate with >= 3 reads is kept anyway."""
+    good = _cand(2, 2, 1000)
+    strong_one_sided = _cand(0, MIN_ONE_SIDED_JUNCTIONS, 2000)
+    kept = _arbitrate_cluster([good, strong_one_sided], NO_EDGES)
+    assert kept == [good, strong_one_sided]
+
+
+def test_no_two_sided_keeps_only_deep_candidates_away_from_edges():
+    """:289 -- needs >= 3 junction reads in total and no reference-TE boundary."""
+    shallow = _cand(0, 2, 1000)
+    deep = _cand(0, 3, 2000)
+    assert _arbitrate_cluster([shallow, deep], NO_EDGES) == [deep]
+    at_edge = {"start": {2002: 1}, "end": {}}
+    assert _arbitrate_cluster([shallow, deep], at_edge) == []
+
+
+def test_empty_cluster_returns_nothing():
+    assert _arbitrate_cluster([], NO_EDGES) == []

@@ -112,8 +112,30 @@ def test_records_without_bwa_tags_are_unaffected(finder):
 
 
 def test_existing_mismatch_and_mapq_gates_still_apply(finder):
+    """``min_mapq`` still gates when a caller opts into it (fixture uses 1)."""
     assert not finder._passes_quality(FakeRead(mapq=0, tags={"XT": "U"}))
     assert not finder._passes_quality(FakeRead(nm=5, tags={"XT": "U"}))
+
+
+def test_default_admits_mapq_zero_reads_as_relocate2_does():
+    """RelocaTE2 has no MAPQ admission gate; the RelocaTE3 default must not either.
+
+    ``relocaTE_insertionFinder.py:1521-1558`` admits a read on XM/XO/XT/X1 only.
+    MAPQ is used at :1523,1539 solely to *record* the read as low quality, and
+    the call is discarded later (:226-241) only if it rests entirely on such
+    reads. RelocaTE3 defaulted ``min_mapq`` to 1, discarding MAPQ-0 reads
+    outright. That cost real calls: on the mPing benchmark RelocaTE2 frequently
+    resolves the second junction from a single MAPQ-0 read, which RelocaTE3
+    never saw, leaving a one-sided call that the both-junctions gate then
+    dropped. Restoring the default recovered 4 true calls at cov30x_rep1 with
+    no new false positives.
+    """
+    default = InsertionFinder(mismatch_allow=2)
+    assert default.min_mapq == 0
+    assert default._passes_quality(FakeRead(mapq=0, tags={"XT": "U"}))
+    # ... and it is still recognised as low quality, so it cannot validate a
+    # call on its own.
+    assert InsertionFinder._is_low_quality(FakeRead(mapq=0, tags={"XT": "U"}))
 
 
 # ---------------------------------------------------------------------------

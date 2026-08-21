@@ -326,6 +326,8 @@ def test_run_all_delegates_to_the_staged_commands(monkeypatch, tmp_path):
     # step 5 carries the calling thresholds validated in the benchmark
     fi = by["find-insertions"]
     assert fi.tsd == "UNK" and fi.te_name == "riceTElib"
+    # min_mapq is passed explicitly as 1 above; this asserts pass-through, not
+    # the default (which is 0 -- see relocate2_defaults_test.py).
     assert fi.require_both_junctions is True and fi.min_mapq == 1
     assert fi.reference_ins == "rm.out"
 
