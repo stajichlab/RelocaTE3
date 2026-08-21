@@ -159,15 +159,18 @@ class TestCharacterizer(unittest.TestCase):
             self.assertEqual(row[6], "0")  # no spanners
             self.assertEqual(row[7], "homozygous")
 
-    def test_keeps_single_sided_multi_read_junction(self):
-        """Single-sided multi-read junctions are valid (carry a real read-captured TSD).
+    def test_skips_single_sided_multi_read_junction(self):
+        """A one-sided call is dropped even when it carries a real TSD.
 
-        Pre-2026-06-25 the class path emitted ``supporting_junction`` as the TSD
-        column for these sites, and characterize accepted the literal sentinel.
-        After ``insertions.py:_emit`` was changed to emit the captured TSD
-        directly for single-sided multi-read junctions (see
-        ``plans/2026-06-25-tsd-supporting-junction-port.md``), characterize must
-        accept them by junction-count too.
+        RelocaTE2's gate is ``characterizer.pl:91``::
+
+            if ( ($left_count >= 1 and $right_count >= 1)
+                 or $TSD eq 'supporting_junction' )
+
+        so junction reads on one side only never reach the characterized
+        output, whatever the TSD column holds. This gate previously used ``or``
+        plus a ``total_count > 1`` guard, which admitted every one-sided
+        multi-read cluster and produced the riceTElib precision collapse.
         """
         with tempfile.TemporaryDirectory() as workdir:
             bam_path = os.path.join(workdir, "reads.bam")
@@ -182,6 +185,37 @@ class TestCharacterizer(unittest.TestCase):
             with open(sites_file, "w") as fh:
                 # single-sided (R:0) but multi-read (T:2 L:2) with a real TSD
                 fh.write("mping\tTTA\tHEG4\tChr1\t998..1000\t+\tT:2\tR:0\tL:2\n")
+
+            characterizer = Characterizer()
+            txt_path, _ = characterizer.characterize(
+                sites_file=Path(sites_file),
+                bam_files=[Path(bam_path)],
+                outdir=Path(workdir),
+            )
+            # header only -- the one-sided site was dropped
+            self.assertEqual(len(Path(txt_path).read_text().splitlines()), 1)
+
+    def test_keeps_single_sided_supporting_junction(self):
+        """The ``supporting_junction`` sentinel is RelocaTE2's one-sided exception.
+
+        It is the only one-sided class ``characterizer.pl:91`` admits, and the
+        only one ``clean_false_positive.py:99,107`` does not grep out.
+        """
+        with tempfile.TemporaryDirectory() as workdir:
+            bam_path = os.path.join(workdir, "reads.bam")
+            _write_bam(
+                bam_path,
+                "Chr1",
+                2000,
+                [{"start": 985, "len": 40, "cigar": "40M", "nm": 0}],
+            )
+
+            sites_file = os.path.join(workdir, "HEG4.mping.all_nonref.txt")
+            with open(sites_file, "w") as fh:
+                fh.write(
+                    "mping\tsupporting_junction\tHEG4\tChr1\t998..1000\t+"
+                    "\tT:2\tR:0\tL:2\n"
+                )
 
             characterizer = Characterizer()
             txt_path, _ = characterizer.characterize(

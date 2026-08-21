@@ -183,17 +183,28 @@ class Characterizer:
                 left_count = self._extract_count(left_string, "L")
                 right_count = self._extract_count(right_string, "R")
 
-                # Accept a call if it has junction support on either side
-                # (multi-read clusters only, to exclude singletons) OR carries
-                # the legacy ``supporting_junction`` sentinel. Pre-2026-06-25
-                # the sentinel was the only carrier of single-sided clusters;
-                # the class path now emits the captured TSD directly for
-                # single-sided multi-read junctions (see insertions.py:_emit
-                # and plans/2026-06-25-tsd-supporting-junction-port.md), so
-                # the gate must accept those by count as well.
-                junction_supported = (
-                    left_count >= 1 or right_count >= 1
-                ) and total_count > 1
+                # RelocaTE2 parity -- characterizer.pl:91 reads
+                #     if ( ($left_count >= 1 and $right_count >= 1)
+                #          or $TSD eq 'supporting_junction' )
+                # so a site reaches the characterized output only when BOTH
+                # junction sides were observed, or it carries the
+                # ``supporting_junction`` sentinel (one junction side plus
+                # bracketing supporting reads). Every other one-sided case is
+                # written by the insertion finder with a sentinel in the TSD
+                # column (``singleton`` / ``insufficient_data``) and dropped
+                # here, exactly as RelocaTE2 drops it -- see also
+                # clean_false_positive.py:99,107, which greps the same classes
+                # out of the headline GFF.
+                #
+                # This gate previously used ``or`` plus a ``total_count > 1``
+                # guard, which admitted every one-sided multi-read cluster.
+                # That is the single divergence responsible for the riceTElib
+                # precision collapse (4253 calls at precision 0.08 against
+                # RelocaTE2's 360 at 0.83); ``--require-both-junctions`` was
+                # masking it upstream rather than fixing it. No ``total_count``
+                # guard is needed: with both sides required, T >= 2 always, so
+                # singletons cannot pass.
+                junction_supported = left_count >= 1 and right_count >= 1
                 if not (junction_supported or tsd == "supporting_junction"):
                     continue
 
