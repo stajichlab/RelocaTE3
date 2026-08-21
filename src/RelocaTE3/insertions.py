@@ -30,7 +30,7 @@ class InsertionFinder:
     def __init__(
         self,
         mismatch_allow: int = 0,
-        min_mapq: int = 1,
+        min_mapq: int = 0,
         verbose: int = 0,
         require_both_junctions: bool = True,
         insert_size: int = 500,
@@ -39,7 +39,14 @@ class InsertionFinder:
 
         Args:
             mismatch_allow: maximum read/genome mismatches (excluding indels).
-            min_mapq: minimum MAPQ for a read to be considered uniquely mapped.
+            min_mapq: minimum MAPQ for a read to be admitted as evidence.
+                Defaults to 0 (no MAPQ admission gate), matching RelocaTE2,
+                which never filters on MAPQ at admission -- it *records* a read
+                below MAPQ 29 as low quality
+                (relocaTE_insertionFinder.py:1523,1539) and then discards only
+                those calls resting entirely on low-quality reads (:226-241,
+                ported as ``_call_validated_by_high_quality``). Raising this
+                re-introduces a filter RelocaTE2 does not have.
             verbose: verbosity level.
             require_both_junctions: when True (the default), emit only insertions
                 supported by both a left and a right junction read.
@@ -192,7 +199,20 @@ class InsertionFinder:
                 wrote_any = False
                 for ins in _call_insertions(cluster, genome=None):
                     # RelocaTE2 parity: drop single-sided (one-junction) calls,
-                    # which cannot resolve a TSD and dominate the false positives.
+                    # which cannot resolve a TSD and dominate the false
+                    # positives. RelocaTE2 keeps one narrow one-sided class --
+                    # ``supporting_junction`` (relocaTE_insertionFinder.py:378-387),
+                    # the only one admitted by characterizer.pl:91 -- and that
+                    # exemption is deliberately NOT reproduced here yet, because
+                    # it is defined in terms of supporting-read counts that
+                    # RelocaTE3 does not yet compute the way RelocaTE2 does.
+                    # Measured on riceTElib cov30x_rep1: of the one-sided calls,
+                    # RelocaTE2 has support on both ends at 1 of 64 sites,
+                    # RelocaTE3 at 3562 of 4873. Applying RelocaTE2's rule to
+                    # RelocaTE3's counts would admit thousands of calls rather
+                    # than a handful. Close the supporting-read gap first; see
+                    # "Remaining known parity gaps" in
+                    # docs/require-both-junctions.md.
                     if self.require_both_junctions and (
                         ins.left_junction_reads == 0
                         or ins.right_junction_reads == 0
@@ -874,10 +894,6 @@ def _pair_breakpoints(
     and is split back into two one-sided sub-insertions rather than merged into a
     call at neither position. A smaller inversion is breakpoint jitter on a
     single insertion and is left paired.
-
-    This replaces greedy nearest-neighbour pairing within a 100 bp window, which
-    paired a lone left with a distant lone right and reported the ~100 bp gap as a
-    (runaway) TSD -- the dominant source of RelocaTE3's false positives.
     """
     if not left and not right:
         return []
@@ -892,25 +908,9 @@ def _pair_breakpoints(
     for group in groups:
         lpos = [p for p, s in group if s == "L"]
         rpos = [p for p, s in group if s == "R"]
-        # dominant = most reads; ties -> the position closer to the other boundary
-        # (left is the right edge of the TSD, right is the left edge) for a
-        # sensible small TSD span.
         lp = max(lpos, key=lambda p: (len(left[p]), p)) if lpos else None
         rp = max(rpos, key=lambda p: (len(right[p]), -p)) if rpos else None
-        if (
-            lp is not None
-            and rp is not None
-            and rp - lp > SPLIT_MIN_SEPARATION
-        ):
-            # Two adjacent insertions swept into one group: their *inner*
-            # breakpoints sit within SUBCLUSTER_GAP, so the dominant pair becomes
-            # insertion A's left with insertion B's right, giving a call at
-            # neither site and losing both. Emit each breakpoint separately.
-            #
-            # Requires a separation beyond SPLIT_MIN_SEPARATION. lp < rp is
-            # geometrically impossible for one insertion (see _make_insertion),
-            # but a few bp of it is ordinary jitter at low coverage, and
-            # splitting on that is far more costly than tolerating it.
+        if lp is not None and rp is not None and rp - lp > SPLIT_MIN_SEPARATION:
             pairs.append((lp, None))
             pairs.append((None, rp))
             continue
@@ -1022,7 +1022,7 @@ def _make_insertion(
     right_reads: list[JunctionObservation],
     genome: pysam.FastaFile | None,
     cluster: "_Cluster",
-) -> Insertion:
+) -> Insertion | None:
     """Build an :class:`Insertion` from the left/right junction reads of one site.
 
     TSD inference follows RelocaTE2's read-depth path: when both breakpoints
@@ -1030,6 +1030,10 @@ def _make_insertion(
     from supporting-read depth pileups (``_estimate_tsd_length_from_depth``).
     The TSD bases are captured from a junction read (R2 parity) and only fall
     back to the reference genome when no read sequence is available.
+
+    Returns ``None`` when a two-sided candidate's breakpoints are geometrically
+    impossible -- RelocaTE2 gates emission on a positive TSD length
+    (relocaTE_insertionFinder.py:818) and reports no call at all.
     """
     junctions = left_reads + right_reads
     te_name = _majority_te_name([j.te_name for j in junctions])
@@ -1051,12 +1055,33 @@ def _make_insertion(
     if left_reads and right_reads:
         i_end = left_reads[0].position  # right edge of TSD
         i_start = right_reads[0].position  # left edge of TSD
-        overlap = i_end - i_start + 1
-        if overlap > 0:
-            tsd_len = overlap
-        else:
-            tsd_len = _estimate_tsd_length_from_depth(spans, min(i_start, i_end))
-            i_start = i_end = min(i_start, i_end)
+
+        # RelocaTE2 derives the TSD length twice and reconciles them
+        # (relocaTE_insertionFinder.py:800-818):
+        #
+        #   TSD_len   = tsd_finder(...)          # read-depth pileup
+        #   TSD_len_1 = TSD_len_calculate(...)   # geometry of the breakpoints
+        #   if not int(TSD_len) == int(TSD_len_1): TSD_len = int(TSD_len_1)
+        #   if TSD_len > 0:                      # ... otherwise no call at all
+        #
+        # so the *geometric* estimate always wins, and a non-positive result
+        # means the pairing is impossible and RelocaTE2 emits nothing. Both
+        # breakpoints here are the dominant (most-supported) position of their
+        # side, chosen in _pair_breakpoints, which is what TSD_len_calculate's
+        # modal `TSD_left`/`TSD_right` lookup achieves.
+        #
+        # RelocaTE3 previously kept the geometric value only when it was
+        # positive and otherwise fell back to the depth estimate and *still
+        # emitted the call* at a collapsed position. That is the single largest
+        # source of false positives on a multi-family library: measured on
+        # riceTElib cov30x_rep1, RelocaTE3 emitted 944 two-sided calls against
+        # RelocaTE2's 357 from fewer TE reads, and 88 of them spanned >20 bp
+        # where RelocaTE2 had exactly 1.
+        geometric = i_end - i_start + 1
+        depth = _estimate_tsd_length_from_depth(spans, min(i_start, i_end))
+        tsd_len = geometric if geometric != depth else depth
+        if tsd_len <= 0:
+            return None
     else:
         present = left_reads or right_reads
         bp = present[0].position
@@ -1097,6 +1122,8 @@ def _call_insertions(
         left_reads = left.get(lp, []) if lp is not None else []
         right_reads = right.get(rp, []) if rp is not None else []
         ins = _make_insertion(cluster.chrom, left_reads, right_reads, genome, cluster)
+        if ins is None:  # impossible geometry -- RelocaTE2 emits nothing (:818)
+            continue
         _count_support(ins, cluster)
         insertions.append(ins)
     return insertions
