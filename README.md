@@ -221,8 +221,15 @@ existingTE.bed                                           reference TE copies (fi
 > may still differ byte-for-byte between runs; the tables under `results/` are
 > the reproducible artifacts.
 
-The characterized GFF carries the RelocaTE2 attribute set: `TSD`, `Name` (TE
-family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
+The characterized GFF carries the RelocaTE2 attribute set: `TSD`, `Name` (the
+single primary TE family), `Note`, and `Left/Right_junction_reads` and
+`Left/Right_support_reads`. RelocaTE3 appends junction-read family evidence as
+`TE_family_support`, `TE_family_confidence`, and `TE_family_status`. It reports
+the weaker, indirect mate evidence separately as `TE_supporting_family_support`,
+`TE_supporting_family_confidence`, and `TE_supporting_family_status`, with
+`TE_family_concordance` describing whether the two evidence classes agree. The
+single primary family remains junction-driven rather than joining disagreeing
+assignments into a compound family name.
 
 ## Migrating from RelocaTE2
 

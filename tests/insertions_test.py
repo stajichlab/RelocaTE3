@@ -254,6 +254,78 @@ class TestInsertionFinder(unittest.TestCase):
             self.assertEqual(row[1], "GATCA")
             self.assertEqual(row[4], "101..105")
 
+    def test_tsd_unknown_pools_same_start_subcandidates(self):
+        """Nearest-right pairs sharing a TSD start become one RelocaTE2-style call."""
+        with tempfile.TemporaryDirectory() as workdir:
+            bam_path = os.path.join(workdir, "flank.bam")
+            reads = [
+                # Site A: two left breakpoints share one right breakpoint. Both
+                # pairs have two reads, so the shorter resolved TSD wins.
+                {
+                    "name": "aLeftShort:end:5",
+                    "seq": "A" * 38 + "TA",
+                    "start0": 61,
+                },
+                {
+                    "name": "aLeftLong:end:5",
+                    "seq": "A" * 35 + "TACTC",
+                    "start0": 64,
+                },
+                {
+                    "name": "aRight:start:5",
+                    "seq": "TACTC" + "A" * 35,
+                    "start0": 99,
+                },
+                # Site B: the longer-TSD pair has an extra left read, so its
+                # three reads beat the two-read short-TSD pair.
+                {
+                    "name": "bLeftShort:end:5",
+                    "seq": "A" * 38 + "TA",
+                    "start0": 2961,
+                },
+                {
+                    "name": "bLeftLong1:end:5",
+                    "seq": "A" * 35 + "TACTC",
+                    "start0": 2964,
+                },
+                {
+                    "name": "bLeftLong2:end:5",
+                    "seq": "A" * 35 + "TACTC",
+                    "start0": 2964,
+                },
+                {
+                    "name": "bRight:start:5",
+                    "seq": "TACTC" + "A" * 35,
+                    "start0": 2999,
+                },
+            ]
+            _write_junction_bam(bam_path, "Chr1", 5000, reads)
+
+            rr = Path(workdir) / "rr.txt"
+            rr.write_text(
+                "aLeftShort\tfamilyAlpha\t+\n"
+                "aLeftLong\tfamilyBeta\t+\n"
+                "aRight\tfamilyShared\t+\n"
+                "bLeftShort\tfamilyShared\t+\n"
+                "bLeftLong1\tfamilyShared\t+\n"
+                "bLeftLong2\tfamilyShared\t+\n"
+                "bRight\tfamilyShared\t+\n"
+            )
+
+            output = InsertionFinder().find_insertions(
+                Path(bam_path), rr, "UNK", "Chr1", "HEG4", Path(workdir)
+            )
+            rows = [line.split("\t") for line in output.read_text().splitlines()]
+
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[0][0], "familyShared")
+            self.assertEqual(rows[0][1], "TA")
+            self.assertEqual(rows[0][4], "100..101")
+            self.assertEqual(rows[0][6:9], ["T:4", "R:2", "L:2"])
+            self.assertEqual(rows[1][1], "TACTC")
+            self.assertEqual(rows[1][4], "3000..3004")
+            self.assertEqual(rows[1][6:9], ["T:5", "R:2", "L:3"])
+
     def test_offset_split_merges_to_one_call(self):
         """A wildcard-TSD 1 bp offset between the two junction sides must not
         fragment one insertion into two single-sided calls (issue: TSD-start
@@ -336,6 +408,69 @@ class TestInsertionFinder(unittest.TestCase):
             cols = both_rows[0].split("\t")
             self.assertNotEqual(cols[7], "R:0")  # kept call has a right junction
             self.assertNotEqual(cols[8], "L:0")  # ...and a left junction
+
+    def test_supporting_junction_keeps_one_sided_call_with_opposite_support(self):
+        """The strict policy retains RelocaTE2's narrow one-sided exception."""
+        with tempfile.TemporaryDirectory() as workdir:
+            bam_path = os.path.join(workdir, "flank.bam")
+            reads = [
+                # Right junction at the left edge of the legacy 3-base sentinel.
+                {"name": "junction:start:5", "seq": "A" * 40, "start0": 999},
+                # Unpaired, forward read ending to its left: opposite-side support.
+                {"name": "support", "seq": "A" * 40, "start0": 900},
+                # Left junction at 3000; its sentinel begins one base beyond the
+                # aligned flank, matching RelocaTE2's reference_end + 1 convention.
+                {"name": "left-junction:end:5", "seq": "A" * 40, "start0": 2960},
+                # Reverse read beginning to its right: opposite-side support.
+                {
+                    "name": "right-support",
+                    "seq": "A" * 40,
+                    "start0": 3100,
+                    "flag": 16,
+                },
+            ]
+            _write_junction_bam(bam_path, "Chr1", 5000, reads)
+            repeat = Path(workdir) / "read_repeat_name.txt"
+            repeat.write_text("junction\tmping\t+\nleft-junction\tmping\t+\n")
+
+            out = InsertionFinder(mismatch_allow=0, min_mapq=1).find_insertions(
+                bam_file=Path(bam_path),
+                read_repeat_file=repeat,
+                tsd="UNK",
+                target="Chr1",
+                sample="HEG4",
+                outdir=Path(workdir),
+            )
+            rows = [line.split("\t") for line in out.read_text().splitlines()]
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[0][1], "supporting_junction")
+            self.assertEqual(rows[0][4], "1000..1002")
+            self.assertEqual(rows[0][7:12], ["R:1", "L:0", "ST:1", "SR:0", "SL:1"])
+            self.assertEqual(rows[1][1], "supporting_junction")
+            self.assertEqual(rows[1][4], "3001..3003")
+            self.assertEqual(rows[1][7:12], ["R:0", "L:1", "ST:1", "SR:1", "SL:0"])
+
+    def test_paired_nonjunction_record_is_not_supporting_evidence(self):
+        """RelocaTE2 excludes paired, untagged BAM records from support counts."""
+        with tempfile.TemporaryDirectory() as workdir:
+            bam_path = os.path.join(workdir, "flank.bam")
+            reads = [
+                {"name": "junction:start:5", "seq": "A" * 40, "start0": 999},
+                {"name": "paired-mate", "seq": "A" * 40, "start0": 900, "flag": 1},
+            ]
+            _write_junction_bam(bam_path, "Chr1", 5000, reads)
+            repeat = Path(workdir) / "read_repeat_name.txt"
+            repeat.write_text("junction\tmping\t+\n")
+
+            out = InsertionFinder(mismatch_allow=0, min_mapq=1).find_insertions(
+                bam_file=Path(bam_path),
+                read_repeat_file=repeat,
+                tsd="UNK",
+                target="Chr1",
+                sample="HEG4",
+                outdir=Path(workdir),
+            )
+            self.assertEqual(out.read_text(), "")
 
     def test_distinct_sites_not_merged(self):
         """Two real insertions farther apart than the TSD length must stay two

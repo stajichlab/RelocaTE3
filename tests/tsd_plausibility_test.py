@@ -43,6 +43,22 @@ def test_short_tsd_is_captured_from_the_read():
     assert tsd == "TTA"
 
 
+def test_most_supported_junction_tsd_is_selected():
+    """Three GCA junctions must outvote one erroneous TCA junction."""
+    left = [_obs("AAAAAGCA", side="left")]
+    right = [_obs("TCAGGG"), _obs("GCATTT"), _obs("GCACCC")]
+
+    assert _resolve_tsd(left, right, "Chr1", 100, 102, 3, None) == "GCA"
+
+
+def test_tied_junction_tsds_keep_the_first_right_capture():
+    """A tie retains the deterministic right-before-left legacy behavior."""
+    left = [_obs("AAAAAGCA", side="left")]
+    right = [_obs("TCAGGG")]
+
+    assert _resolve_tsd(left, right, "Chr1", 100, 102, 3, None) == "TCA"
+
+
 def test_tsd_at_the_cap_is_still_reported():
     length = MAX_PLAUSIBLE_TSD
     seq = "A" * length + "GGGG"

@@ -35,7 +35,38 @@ Each non-reference insertion feature has the following GFF3 ``attributes``
 column entries, preserving the RelocaTE2 convention:
 
 ``Name``
-    TE family name (from the TE library FASTA header).
+    Single primary TE family name (from the TE library FASTA header).
+
+``TE_family_support``
+    Comma-separated ``family=count`` junction-read votes, ordered by decreasing
+    support and then family name.
+
+``TE_family_confidence``
+    Fraction of informative family votes supporting ``Name``. This measures
+    assignment agreement, not insertion-call confidence.
+
+``TE_family_status``
+    ``unique`` when only one family received votes, ``dominant`` when the
+    primary family has an absolute majority, ``ambiguous`` when no family has
+    a majority, or ``unassigned`` when no informative family vote is available.
+
+``TE_supporting_family_support``
+    Comma-separated ``family=count`` votes from bracketing supporting mates.
+    These are reported separately because a mate links the TE family to the
+    locus indirectly and cannot change the junction-driven ``Name``.
+
+``TE_supporting_family_confidence``
+    Fraction of informative supporting-mate votes assigned to their most
+    supported family.
+
+``TE_supporting_family_status``
+    ``unique``, ``dominant``, ``ambiguous``, or ``unassigned``, using the same
+    vote rules as the junction-family status.
+
+``TE_family_concordance``
+    Relationship between the junction and supporting primary families:
+    ``concordant``, ``discordant``, ``junction_only``, ``supporting_only``, or
+    ``unassigned``.
 
 ``TSD``
     Target-site duplication sequence (the genomic bases duplicated at the
@@ -70,7 +101,9 @@ Tab-delimited TXT format
 
 The ``.txt`` file has one row per insertion with the same fields as the GFF
 ``attributes`` column, plus the genomic coordinates, written as plain
-tab-separated text for easy downstream processing with ``awk`` or pandas.
+tab-separated text for easy downstream processing with ``awk`` or pandas. The
+family-evidence columns are appended so the established RelocaTE2-compatible
+columns retain their positions.
 
 read_repeat_name.txt
 --------------------

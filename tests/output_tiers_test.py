@@ -33,7 +33,13 @@ import pytest
 from RelocaTE3.insertions import write_insertion_tiers
 
 # TE, TSD-or-class, sample, chrom, start..end, strand, T:, R:, L:, ST:, SR:, SL:
-TWO_SIDED = "mping\tTTA\tHEG4\tChr3\t100..102\t+\tT:6\tR:3\tL:3\tST:0\tSR:9\tSL:8"
+TWO_SIDED = (
+    "mping\tTTA\tHEG4\tChr3\t100..102\t+\tT:6\tR:3\tL:3\tST:0\tSR:9\tSL:8\t"
+    "TE_family_support:mping=5,RIRE3=1\tTE_family_confidence:0.833333\t"
+    "TE_family_status:dominant\tTE_supporting_family_support:RIRE3=2\t"
+    "TE_supporting_family_confidence:1.000000\t"
+    "TE_supporting_family_status:unique\tTE_family_concordance:discordant"
+)
 # RelocaTE2's high_conf grep removes the literal patterns
 # "Right_junction_reads=1;Left_junction_reads=0" and its mirror -- *exactly one*
 # read against zero. A one-sided call backed by several reads is kept.
@@ -132,6 +138,17 @@ def test_gff_carries_the_relocate2_attributes(written: Path):
     for key in ("TSD=", "Name=", "Right_junction_reads=", "Left_junction_reads=",
                 "Right_support_reads=", "Left_support_reads="):
         assert key in first, f"{key} missing from GFF attributes"
+
+
+def test_gff_carries_optional_family_evidence(written: Path):
+    first = _rows(_tier(written, ".gff"))[0]
+    assert "TE_family_support=mping=5,RIRE3=1;" in first
+    assert "TE_family_confidence=0.833333;" in first
+    assert "TE_family_status=dominant;" in first
+    assert "TE_supporting_family_support=RIRE3=2;" in first
+    assert "TE_supporting_family_confidence=1.000000;" in first
+    assert "TE_supporting_family_status=unique;" in first
+    assert "TE_family_concordance=discordant;" in first
 
 
 def test_table_keeps_its_name_and_contents(tmp_path: Path):

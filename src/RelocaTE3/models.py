@@ -6,7 +6,7 @@ RelocaTE2 to pass state between functions, making the pipeline testable.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -149,6 +149,18 @@ class Insertion:
     right_support_reads: int = 0
     note: str = "Non-reference, not found in reference"
     read_names: list = None  # type: ignore[assignment]
+    # Junction-read TE-family evidence. ``te_name`` remains the single primary
+    # assignment; these fields expose competing breakpoint-spanning read votes
+    # without conflating them into a biologically misleading compound name.
+    te_family_support: dict[str, int] = field(default_factory=dict)
+    te_family_confidence: float = 0.0
+    te_family_status: str = "unassigned"
+    # Supporting-mate TE-family evidence is deliberately separate because it
+    # links a family to the locus indirectly and must never outvote junctions.
+    te_supporting_family_support: dict[str, int] = field(default_factory=dict)
+    te_supporting_family_confidence: float = 0.0
+    te_supporting_family_status: str = "unassigned"
+    te_family_concordance: str = "unassigned"
     # genotyping (Step 7); populated by characterize.py
     status: str = ""  # homozygous / heterozygous / somatic_insertion / ...
     spanners: int = 0  # reference-allele reads mapping cleanly across the site

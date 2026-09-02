@@ -30,6 +30,14 @@ def _format_number(value: float) -> str:
     return f"{value:g}"
 
 
+def _format_family_support(support: dict[str, int]) -> str:
+    """Render deterministic ``family=count`` evidence for characterized output."""
+    return ",".join(
+        f"{name}={count}"
+        for name, count in sorted(support.items(), key=lambda item: (-item[1], item[0]))
+    )
+
+
 def _open_alignment(
     alignment_file: str | Path, genome_fasta: str | Path | None = None
 ) -> pysam.AlignmentFile:
@@ -172,6 +180,7 @@ class Characterizer:
                     right_string,
                     left_string,
                 ) = fields[:9]
+                family_metadata = self._extract_family_metadata(fields[9:])
 
                 end_match = _COORD_END.search(coor)
                 if not end_match:
@@ -225,6 +234,7 @@ class Characterizer:
                     "strain": exp,
                     "coor": coor,
                     "TE_orient": te_orient,
+                    **family_metadata,
                 }
 
     @staticmethod
@@ -232,6 +242,39 @@ class Characterizer:
         """Parse a "T:5"/"L:2"/"R:0" style count, defaulting to 0."""
         match = re.search(rf"{prefix}:(\d+)", text)
         return int(match.group(1)) if match else 0
+
+    @staticmethod
+    def _extract_family_metadata(fields: list[str]) -> dict[str, str]:
+        """Read optional family evidence appended by RelocaTE3 step 5.
+
+        Older RelocaTE2/RelocaTE3 tables have no such fields, so conservative
+        defaults preserve their compatibility with the characterizer.
+        """
+        values = {
+            key: value
+            for field in fields
+            for key, sep, value in [field.partition(":")]
+            if sep
+        }
+        return {
+            "family_support": values.get("TE_family_support", ""),
+            "family_confidence": values.get(
+                "TE_family_confidence", "0.000000"
+            ),
+            "family_status": values.get("TE_family_status", "unassigned"),
+            "supporting_family_support": values.get(
+                "TE_supporting_family_support", ""
+            ),
+            "supporting_family_confidence": values.get(
+                "TE_supporting_family_confidence", "0.000000"
+            ),
+            "supporting_family_status": values.get(
+                "TE_supporting_family_status", "unassigned"
+            ),
+            "family_concordance": values.get(
+                "TE_family_concordance", "unassigned"
+            ),
+        }
 
     def _count_spanners(self, alignments, chromosome, pos, site, indel_reads) -> int:
         """Count reads that fully span the insertion site without clipping.
@@ -451,7 +494,10 @@ class Characterizer:
         """Write the tabular and GFF3 characterization outputs."""
         with open(txt_path, "w") as txt_out, open(gff_path, "w") as gff_out:
             txt_out.write(
-                "strain\tTE\tTSD\tchromosome.pos\tstrand\tavg_flankers\tspanners\tstatus\n"
+                "strain\tTE\tTSD\tchromosome.pos\tstrand\tavg_flankers\tspanners\t"
+                "status\tTE_family_support\tTE_family_confidence\tTE_family_status\t"
+                "TE_supporting_family_support\tTE_supporting_family_confidence\t"
+                "TE_supporting_family_status\tTE_family_concordance\n"
             )
             gff_out.write("##gff-version 3\n")
 
@@ -466,13 +512,28 @@ class Characterizer:
                         start = start_match.group(1) if start_match else str(pos)
                         txt_out.write(
                             f"{rec['strain']}\t{rec['TE']}\t{tsd}\t{chrom}:{coor}\t"
-                            f"{rec['TE_orient']}\t{flankers}\t{spanners}\t{rec['status']}\n"
+                            f"{rec['TE_orient']}\t{flankers}\t{spanners}\t{rec['status']}\t"
+                            f"{rec['family_support']}\t{rec['family_confidence']}\t"
+                            f"{rec['family_status']}\t{rec['supporting_family_support']}\t"
+                            f"{rec['supporting_family_confidence']}\t"
+                            f"{rec['supporting_family_status']}\t"
+                            f"{rec['family_concordance']}\n"
                         )
                         gff_out.write(
                             f"{chrom}\t{rec['strain']}\ttransposable_element_attribute\t"
                             f"{start}\t{pos}\t{rec['TE_orient']}\t.\t.\t"
                             f"ID={chrom}.{pos}.spanners;avg_flankers={flankers};"
-                            f"spanners={spanners};type={rec['status']};TE={rec['TE']};TSD={tsd}\n"
+                            f"spanners={spanners};type={rec['status']};TE={rec['TE']};"
+                            f"TSD={tsd};TE_family_support={rec['family_support']};"
+                            f"TE_family_confidence={rec['family_confidence']};"
+                            f"TE_family_status={rec['family_status']};"
+                            "TE_supporting_family_support="
+                            f"{rec['supporting_family_support']};"
+                            "TE_supporting_family_confidence="
+                            f"{rec['supporting_family_confidence']};"
+                            "TE_supporting_family_status="
+                            f"{rec['supporting_family_status']};"
+                            f"TE_family_concordance={rec['family_concordance']}\n"
                         )
 
 
@@ -554,14 +615,22 @@ def write_characterized(
     """Write the genotyped insertions as GFF3 and a tab-delimited table."""
     with open(txt_path, "w") as txt:
         txt.write(
-            "strain\tTE\tTSD\tchromosome.pos\tstrand\tavg_flankers\tspanners\tstatus\n"
+            "strain\tTE\tTSD\tchromosome.pos\tstrand\tavg_flankers\tspanners\t"
+            "status\tTE_family_support\tTE_family_confidence\tTE_family_status\t"
+            "TE_supporting_family_support\tTE_supporting_family_confidence\t"
+            "TE_supporting_family_status\tTE_family_concordance\n"
         )
         for ins in insertions:
             if not ins.status:
                 continue
             txt.write(
                 f"{sample}\t{ins.te_name}\t{ins.tsd}\t{ins.chrom}:{ins.start}..{ins.end}\t"
-                f"{ins.strand}\t{ins.avg_flankers}\t{ins.spanners}\t{ins.status}\n"
+                f"{ins.strand}\t{ins.avg_flankers}\t{ins.spanners}\t{ins.status}\t"
+                f"{_format_family_support(ins.te_family_support)}\t"
+                f"{ins.te_family_confidence:.6f}\t{ins.te_family_status}\t"
+                f"{_format_family_support(ins.te_supporting_family_support)}\t"
+                f"{ins.te_supporting_family_confidence:.6f}\t"
+                f"{ins.te_supporting_family_status}\t{ins.te_family_concordance}\n"
             )
 
     with open(gff_path, "w") as gff:
@@ -571,7 +640,16 @@ def write_characterized(
                 continue
             attrs = (
                 f"ID={ins.chrom}.{ins.end}.spanners;avg_flankers={ins.avg_flankers};"
-                f"spanners={ins.spanners};type={ins.status};TE={ins.te_name};TSD={ins.tsd}"
+                f"spanners={ins.spanners};type={ins.status};TE={ins.te_name};TSD={ins.tsd};"
+                f"TE_family_support={_format_family_support(ins.te_family_support)};"
+                f"TE_family_confidence={ins.te_family_confidence:.6f};"
+                f"TE_family_status={ins.te_family_status};"
+                "TE_supporting_family_support="
+                f"{_format_family_support(ins.te_supporting_family_support)};"
+                "TE_supporting_family_confidence="
+                f"{ins.te_supporting_family_confidence:.6f};"
+                f"TE_supporting_family_status={ins.te_supporting_family_status};"
+                f"TE_family_concordance={ins.te_family_concordance}"
             )
             gff.write(
                 f"{ins.chrom}\t{sample}\ttransposable_element_attribute\t"

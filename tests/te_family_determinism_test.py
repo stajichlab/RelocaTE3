@@ -135,6 +135,40 @@ def test_majority_te_name_breaks_ties_deterministically():
     assert _majority_te_name(["NA", "mPing", "NA"]) == "mPing"
 
 
+def test_family_evidence_distinguishes_unique_dominant_and_ambiguous_votes():
+    """The primary label stays singular while competing evidence remains visible."""
+    from RelocaTE3.insertions import _te_family_evidence
+
+    unique = _te_family_evidence(["mPing", "mPing", "NA"])
+    assert unique.primary == "mPing"
+    assert unique.support == {"mPing": 2}
+    assert unique.confidence == 1.0
+    assert unique.status == "unique"
+
+    dominant = _te_family_evidence(["mPing", "mPing", "RIRE3"])
+    assert dominant.primary == "mPing"
+    assert dominant.support == {"mPing": 2, "RIRE3": 1}
+    assert dominant.confidence == 2 / 3
+    assert dominant.status == "dominant"
+
+    tied = _te_family_evidence(["mGing", "RIRE3"])
+    assert tied.primary == "RIRE3"
+    assert tied.support == {"RIRE3": 1, "mGing": 1}
+    assert tied.confidence == 0.5
+    assert tied.status == "ambiguous"
+
+    plurality = _te_family_evidence(["mPing", "mPing", "RIRE3", "mGing"])
+    assert plurality.primary == "mPing"
+    assert plurality.confidence == 0.5
+    assert plurality.status == "ambiguous"
+
+    missing = _te_family_evidence(["NA", ""])
+    assert missing.primary == "NA"
+    assert missing.support == {}
+    assert missing.confidence == 0.0
+    assert missing.status == "unassigned"
+
+
 def test_majority_te_name_is_stable_across_hash_seeds():
     """The actual failure mode: identical input, different PYTHONHASHSEED."""
     import subprocess

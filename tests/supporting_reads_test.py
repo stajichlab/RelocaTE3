@@ -23,8 +23,6 @@ sd of library)" in RelocaTE2's own comment.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from RelocaTE3.insertions import _Cluster, call_support_only
 
 INSERT = 500
@@ -96,3 +94,22 @@ def test_negative_coordinates_are_clamped():
     ins = call_support_only(_cluster([(10, 50, "-")]), insert_size=INSERT)
     assert ins is not None
     assert ins.start >= 1, "GFF coordinates are 1-based and must stay positive"
+
+
+def test_support_only_call_retains_family_evidence_without_assigning_primary():
+    cluster = _cluster([(100, 200, "+"), (900, 1000, "-")])
+    ins = call_support_only(
+        cluster,
+        insert_size=INSERT,
+        read_repeat={
+            "read0/1": ("mPing", "+"),
+            "read1/2": ("mPing", "+"),
+        },
+    )
+
+    assert ins is not None
+    assert ins.te_name == "NA", "indirect mate evidence must not become primary"
+    assert ins.te_supporting_family_support == {"mPing": 2}
+    assert ins.te_supporting_family_confidence == 1.0
+    assert ins.te_supporting_family_status == "unique"
+    assert ins.te_family_concordance == "supporting_only"

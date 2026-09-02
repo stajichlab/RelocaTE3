@@ -7,12 +7,14 @@ used by the pipeline code.
 from __future__ import annotations
 
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pysam
 
 from RelocaTE3 import logger
+from RelocaTE3.models import Insertion, JunctionObservation
 
 # junction-read name suffix: "<read>:start|end:5|3"
 _JUNCTION = re.compile(r"(.*):(start|end):([53])")
@@ -49,21 +51,14 @@ class InsertionFinder:
                 re-introduces a filter RelocaTE2 does not have.
             verbose: verbosity level.
             require_both_junctions: when True (the default), emit only insertions
-                supported by both a left and a right junction read.
-
-                This deliberately diverges from RelocaTE2, which keeps one-sided
-                calls (``l_count >= 1 OR r_count >= 1``,
-                relocaTE_insertionFinder.py:365). RelocaTE2 can afford to: on
-                mPing all 53 of its one-sided calls are correct. RelocaTE3's are
-                not -- 86 one-sided calls, 33 correct (38%) -- so matching the
-                policy without matching the candidate quality is much worse than
-                diverging. On the riceTElib 500-family panel, allowing one-sided
-                calls drops F1 from 0.448/0.643/0.722 to 0.170/0.155/0.144 at
-                5x/15x/30x, i.e. it degrades *with* coverage.
+                supported by both a left and a right junction read, plus
+                RelocaTE2's narrow ``supporting_junction`` exception: one
+                junction side with unpaired supporting evidence bracketing the
+                missing side. Other one-sided classes remain excluded.
 
                 Set False (``--no-require-both-junctions``) for single-element
-                studies, where one-sided calls are mostly genuine and the extra
-                sensitivity is worth a few points of precision.
+                studies that intentionally retain every surviving one-sided
+                candidate.
         """
         self.mismatch_allow = mismatch_allow
         self.min_mapq = min_mapq
@@ -190,6 +185,7 @@ class InsertionFinder:
         if fullreads_bam and Path(fullreads_bam).exists():
             full_bam = pysam.AlignmentFile(str(fullreads_bam), "rb")
             logger.info("False-junction filtering against %s", fullreads_bam)
+        pooled_subcandidates = 0
         with open(out_txt, "w") as out:
             for cluster in _stream_clusters(
                 str(bam_file), read_repeat, quality_filter=self._passes_quality
@@ -202,14 +198,20 @@ class InsertionFinder:
                 # below are its :212-241 pair (full-read false junctions, and
                 # calls resting only on low-quality reads).
                 candidates: list[Insertion] = []
-                for ins in _call_insertions(cluster, genome=None):
+                raw_candidates = _call_insertions(
+                    cluster, genome=None, read_repeat=read_repeat
+                )
+                pooled_candidates = _consolidate_same_start(
+                    raw_candidates, cluster, read_repeat
+                )
+                pooled_subcandidates += len(raw_candidates) - len(pooled_candidates)
+                for ins in pooled_candidates:
                     if _fullread_false_junction(full_bam, ins):
                         continue
+                    left_reads, right_reads = _candidate_junctions(ins, cluster)
                     if not _call_validated_by_high_quality(
-                        [j for j in cluster.junctions if j.side == "left"
-                         and j.position == ins.end],
-                        [j for j in cluster.junctions if j.side == "right"
-                         and j.position == ins.start],
+                        left_reads,
+                        right_reads,
                     ):
                         continue
                     candidates.append(ins)
@@ -218,42 +220,42 @@ class InsertionFinder:
                 for ins in _arbitrate_cluster(
                     candidates, existing_te[cluster.chrom]
                 ):
-                    # RelocaTE2 parity: drop single-sided (one-junction) calls,
-                    # which cannot resolve a TSD and dominate the false
-                    # positives. RelocaTE2 keeps one narrow one-sided class --
-                    # ``supporting_junction`` (relocaTE_insertionFinder.py:378-387),
-                    # the only one admitted by characterizer.pl:91 -- and that
-                    # exemption is deliberately NOT reproduced here yet, because
-                    # it is defined in terms of supporting-read counts that
-                    # RelocaTE3 does not yet compute the way RelocaTE2 does.
-                    # Measured on riceTElib cov30x_rep1: of the one-sided calls,
-                    # RelocaTE2 has support on both ends at 1 of 64 sites,
-                    # RelocaTE3 at 3562 of 4873. Applying RelocaTE2's rule to
-                    # RelocaTE3's counts would admit thousands of calls rather
-                    # than a handful. Close the supporting-read gap first; see
-                    # "Remaining known parity gaps" in
-                    # docs/require-both-junctions.md.
+                    supporting_junction = _as_supporting_junction(ins, cluster)
+                    if supporting_junction is not None:
+                        ins = supporting_junction
                     if self.require_both_junctions and (
                         ins.left_junction_reads == 0
                         or ins.right_junction_reads == 0
-                    ):
+                    ) and ins.tsd != "supporting_junction":
                         continue
+                    family_columns = _te_family_metadata_columns(ins)
                     out.write(
                         f"{ins.te_name}\t{ins.tsd}\t{sample}\t{ins.chrom}\t"
                         f"{ins.start}..{ins.end}\t{ins.strand}\t"
                         f"T:{ins.left_junction_reads + ins.right_junction_reads}\t"
                         f"R:{ins.right_junction_reads}\tL:{ins.left_junction_reads}\t"
-                        f"ST:0\tSR:{ins.right_support_reads}\tSL:{ins.left_support_reads}\n"
+                        f"ST:{ins.left_support_reads + ins.right_support_reads}\t"
+                        f"SR:{ins.right_support_reads}\tSL:{ins.left_support_reads}\t"
+                        + "\t".join(family_columns)
+                        + "\n"
                     )
                     wrote_any = True
                 # RelocaTE2 calls a site from mates alone only when no junction
                 # read produced one, and files it separately (NONSUP).
                 if not wrote_any:
-                    call = call_support_only(cluster, insert_size=self.insert_size)
+                    call = call_support_only(
+                        cluster,
+                        insert_size=self.insert_size,
+                        read_repeat=read_repeat,
+                    )
                     if call is not None:
                         support_only.append(call)
         if full_bam is not None:
             full_bam.close()
+        logger.info(
+            "Collapsed %d same-start step-5 subcandidate(s)",
+            pooled_subcandidates,
+        )
         logger.info("Wrote variable-length TSD insertions table %s", out_txt)
         write_supporting_reads(result_dir, target, te_name, sample, support_only)
         return out_txt
@@ -686,7 +688,7 @@ class InsertionFinder:
             return
         top_tsd = max(tsd_count.items(), key=lambda kv: kv[1])[0]
         te_orient = "+" if fwd > rev else "-"
-        repeat_family = self._insertion_family(reads, read_repeat)
+        family = self._insertion_family_evidence(reads, read_repeat)
 
         # coordinate range: TSD spans [tsd_start, tsd_start + len(top_tsd) - 1]
         coor_start = tsd_start
@@ -712,26 +714,37 @@ class InsertionFinder:
             tsd_field = "supporting_junction"
 
         out.write(
-            f"{repeat_family}\t{tsd_field}\t{sample}\t{chrom}\t{coor_start}..{coor}\t"
+            f"{family.primary}\t{tsd_field}\t{sample}\t{chrom}\t{coor_start}..{coor}\t"
             f"{te_orient}\tT:{total_count}\tR:{right_count}\tL:{left_count}\t"
-            f"ST:0\tSR:0\tSL:0\n"
+            f"ST:0\tSR:0\tSL:0\t"
+            f"TE_family_support:{_format_te_family_support(family.support)}\t"
+            f"TE_family_confidence:{family.confidence:.6f}\t"
+            f"TE_family_status:{family.status}\t"
+            "TE_supporting_family_support:\t"
+            "TE_supporting_family_confidence:0.000000\t"
+            "TE_supporting_family_status:unassigned\t"
+            f"TE_family_concordance:{_te_family_concordance(family.primary, 'NA')}\n"
         )
 
     @staticmethod
     def _insertion_family(reads, read_repeat) -> str:
         """Pick the dominant TE family among a cluster's junction reads."""
-        family: dict[str, int] = defaultdict(int)
+        return InsertionFinder._insertion_family_evidence(reads, read_repeat).primary
+
+    @staticmethod
+    def _insertion_family_evidence(reads, read_repeat) -> "TEFamilyEvidence":
+        """Return the primary family and all family votes for legacy clusters."""
+        families: list[str] = []
         for read in reads:
             m = _JUNCTION.search(read)
             real = m.group(1) if m else None
             if real and real in read_repeat:
-                family[read_repeat[real][0]] += 1
-        if not family:
-            return ""
-        return max(family.items(), key=lambda kv: kv[1])[0]
+                families.append(read_repeat[real][0])
+        evidence = _te_family_evidence(families)
+        if evidence.primary == "NA":
+            return TEFamilyEvidence("", {}, 0.0, "unassigned")
+        return evidence
 
-
-from RelocaTE3.models import Insertion, JunctionObservation
 
 # read-name junction tag: <name>:(start|end):(5|3)
 _JUNCTION_RE = re.compile(r":(start|end):([53])$")
@@ -858,7 +871,12 @@ def _stream_clusters(
                         InsertionFinder._is_low_quality(rec),
                     )
                 )
-            else:
+            elif not rec.is_paired:
+                # RelocaTE2 records supporting evidence only from unpaired BAM
+                # records (align_process:917,935). Paired non-junction records
+                # are mates of junction reads, not independent support; counting
+                # them made almost every one-sided RelocaTE3 candidate appear
+                # bracketed and made the supporting_junction class unusable.
                 current.support.append((name, gstart, gend, strand, seq))
         if current is not None:
             yield current
@@ -1090,11 +1108,14 @@ def _resolve_tsd(
     tsd_len: int,
     genome: pysam.FastaFile | None,
 ) -> str:
-    """Capture TSD literally from a junction read; fall back to the genome.
+    """Select the most-supported read-captured TSD; fall back to the genome.
 
     Mirrors RelocaTE2's read-derived TSD reporting (TSD_check_cluster). The
-    genome fetch is only used when no read has the bases (e.g. supporting-only
-    insertions).
+    legacy caller counts the sequence captured by every valid junction and
+    emits the most frequent one. Captures are considered right reads first,
+    then left reads, preserving the previous first-capture result when the top
+    sequences tie. The genome fetch is only used when no read has the bases
+    (e.g. supporting-only insertions).
 
     Returns ``"UNK"`` when ``tsd_len`` is non-positive or exceeds
     ``MAX_PLAUSIBLE_TSD``. The insertion is still called either way; only the
@@ -1104,14 +1125,21 @@ def _resolve_tsd(
         # Too long to be a duplication: say so rather than reporting the
         # intervening genome as a TSD (see MAX_PLAUSIBLE_TSD).
         return "UNK"
+    captures: list[str] = []
     for obs in right_reads:
         captured = _capture_tsd_from_read(obs.seq, "right", tsd_len)
         if captured:
-            return captured
+            captures.append(captured)
     for obs in left_reads:
         captured = _capture_tsd_from_read(obs.seq, "left", tsd_len)
         if captured:
-            return captured
+            captures.append(captured)
+    if captures:
+        # Counter preserves first-seen key order, and max returns the first item
+        # among equal keys. This makes ties deterministic while retaining the
+        # old right-before-left selection order.
+        counts = Counter(captures)
+        return max(counts, key=counts.get)
     if genome is None:
         return "UNK"
     fetched = _fetch_tsd(genome, chrom, i_start, i_end)
@@ -1132,10 +1160,99 @@ def _majority_te_name(te_names: list[str]) -> str:
     counts. Ranking by (-count, name) makes the winner reproducible. Which name
     wins among equals is arbitrary; that it is always the same one is the point.
     """
-    votes = [name for name in te_names if name != "NA"]
-    if not votes:
-        return "NA"
-    return min(set(votes), key=lambda name: (-votes.count(name), name))
+    return _te_family_evidence(te_names).primary
+
+
+@dataclass(frozen=True)
+class TEFamilyEvidence:
+    """One primary TE family plus transparent read-level vote evidence."""
+
+    primary: str
+    support: dict[str, int]
+    confidence: float
+    status: str
+
+
+def _te_family_evidence(te_names: list[str]) -> TEFamilyEvidence:
+    """Summarize TE-family votes without creating compound family labels.
+
+    ``confidence`` is the fraction of informative junction reads supporting the
+    primary family. ``status`` is ``unique`` for one observed family,
+    ``dominant`` when the primary has an absolute majority, ``ambiguous`` when
+    no family has a majority, and ``unassigned`` when no informative family is
+    present. Ambiguous calls retain the
+    deterministic lexicographic primary used by :func:`_majority_te_name` so
+    existing callers of that function remain reproducible and compatible.
+    """
+    counts = Counter(name for name in te_names if name and name != "NA")
+    if not counts:
+        return TEFamilyEvidence("NA", {}, 0.0, "unassigned")
+
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    primary, primary_count = ordered[0]
+    if len(ordered) == 1:
+        status = "unique"
+    elif primary_count > sum(counts.values()) / 2:
+        status = "dominant"
+    else:
+        status = "ambiguous"
+    support = dict(ordered)
+    return TEFamilyEvidence(
+        primary,
+        support,
+        primary_count / sum(counts.values()),
+        status,
+    )
+
+
+def _format_te_family_support(support: dict[str, int]) -> str:
+    """Render deterministic ``family=count`` pairs for tables and GFF3."""
+    return ",".join(
+        f"{name}={count}"
+        for name, count in sorted(support.items(), key=lambda item: (-item[1], item[0]))
+    )
+
+
+def _parse_te_family_support(text: str) -> dict[str, int]:
+    """Parse :func:`_format_te_family_support`, ignoring malformed entries."""
+    support: dict[str, int] = {}
+    for item in filter(None, text.split(",")):
+        name, sep, count = item.rpartition("=")
+        if not sep or not name:
+            continue
+        try:
+            support[name] = int(count)
+        except ValueError:
+            continue
+    return support
+
+
+def _te_family_concordance(junction_primary: str, supporting_primary: str) -> str:
+    """Describe agreement between direct junction and indirect mate evidence."""
+    junction = bool(junction_primary and junction_primary != "NA")
+    supporting = bool(supporting_primary and supporting_primary != "NA")
+    if junction and supporting:
+        return "concordant" if junction_primary == supporting_primary else "discordant"
+    if junction:
+        return "junction_only"
+    if supporting:
+        return "supporting_only"
+    return "unassigned"
+
+
+def _te_family_metadata_columns(ins: Insertion) -> tuple[str, ...]:
+    """Return append-only metadata columns for a legacy insertion table."""
+    return (
+        f"TE_family_support:{_format_te_family_support(ins.te_family_support)}",
+        f"TE_family_confidence:{ins.te_family_confidence:.6f}",
+        f"TE_family_status:{ins.te_family_status}",
+        "TE_supporting_family_support:"
+        f"{_format_te_family_support(ins.te_supporting_family_support)}",
+        "TE_supporting_family_confidence:"
+        f"{ins.te_supporting_family_confidence:.6f}",
+        f"TE_supporting_family_status:{ins.te_supporting_family_status}",
+        f"TE_family_concordance:{ins.te_family_concordance}",
+    )
 
 
 def _make_insertion(
@@ -1156,13 +1273,13 @@ def _make_insertion(
     Returns ``None`` when a two-sided candidate's breakpoints are geometrically
     impossible -- RelocaTE2 gates emission on a positive TSD length
     (relocaTE_insertionFinder.py:818) and reports no call at all.
+
+    For a geometrically valid two-sided candidate, each junction must also be
+    long enough to contain the inferred TSD.  RelocaTE2 applies its wildcard
+    TSD pattern to every flank independently in ``TSD_check_cluster``; a short
+    flank that cannot match is omitted before family voting, junction counting,
+    and full-read false-junction filtering.
     """
-    junctions = left_reads + right_reads
-    te_name = _majority_te_name([j.te_name for j in junctions])
-
-    orients = [j.te_orientation for j in junctions]
-    strand = "+" if orients.count("+") >= orients.count("-") else "-"
-
     # RelocaTE2 estimates TSD length from a depth pileup over the *junction*
     # reads of the cluster, dividing by their count
     # (relocaTE_insertionFinder.py:1069-1076 feeding tsd_finder at :843).
@@ -1204,6 +1321,24 @@ def _make_insertion(
         tsd_len = geometric if geometric != depth else depth
         if tsd_len <= 0:
             return None
+
+        # RelocaTE2 next runs TSD_check_cluster separately for every junction.
+        # Its inferred TSD is a ``.`` wildcard of ``tsd_len`` bases, so a flank
+        # shorter than that length does not match and contributes no evidence.
+        # This can turn an apparent two-sided candidate into a one-sided one;
+        # that distinction is load-bearing for the downstream full-read filter.
+        left_reads = [
+            obs
+            for obs in left_reads
+            if _capture_tsd_from_read(obs.seq, "left", tsd_len)
+        ]
+        right_reads = [
+            obs
+            for obs in right_reads
+            if _capture_tsd_from_read(obs.seq, "right", tsd_len)
+        ]
+        if not left_reads and not right_reads:
+            return None
     else:
         present = left_reads or right_reads
         bp = present[0].position
@@ -1215,23 +1350,34 @@ def _make_insertion(
         else:
             i_start = i_end = bp
 
+    junctions = left_reads + right_reads
+    family = _te_family_evidence([j.te_name for j in junctions])
+
+    orients = [j.te_orientation for j in junctions]
+    strand = "+" if orients.count("+") >= orients.count("-") else "-"
+
     tsd = _resolve_tsd(left_reads, right_reads, chrom, i_start, i_end, tsd_len, genome)
 
     return Insertion(
         chrom=chrom,
         start=i_start,
         end=i_end,
-        te_name=te_name,
+        te_name=family.primary,
         strand=strand,
         tsd=tsd,
         left_junction_reads=len(left_reads),
         right_junction_reads=len(right_reads),
         read_names=[j.read_name for j in junctions],
+        te_family_support=family.support,
+        te_family_confidence=family.confidence,
+        te_family_status=family.status,
     )
 
 
 def _call_insertions(
-    cluster: _Cluster, genome: pysam.FastaFile | None
+    cluster: _Cluster,
+    genome: pysam.FastaFile | None,
+    read_repeat: dict[str, tuple[str, str]] | None = None,
 ) -> list[Insertion]:
     """Split a cluster into one or more insertions by pairing breakpoints."""
     left = _group_by_position([j for j in cluster.junctions if j.side == "left"])
@@ -1246,9 +1392,151 @@ def _call_insertions(
         ins = _make_insertion(cluster.chrom, left_reads, right_reads, genome, cluster)
         if ins is None:  # impossible geometry -- RelocaTE2 emits nothing (:818)
             continue
-        _count_support(ins, cluster)
+        _count_support(ins, cluster, read_repeat)
         insertions.append(ins)
     return insertions
+
+
+def _candidate_junctions(
+    ins: Insertion, cluster: _Cluster
+) -> tuple[list[JunctionObservation], list[JunctionObservation]]:
+    """Recover a candidate's ordered junction observations from its read names."""
+    by_name = {obs.read_name: obs for obs in cluster.junctions}
+    left_names = ins.read_names[: ins.left_junction_reads]
+    right_names = ins.read_names[
+        ins.left_junction_reads : ins.left_junction_reads + ins.right_junction_reads
+    ]
+    return (
+        [by_name[name] for name in left_names if name in by_name],
+        [by_name[name] for name in right_names if name in by_name],
+    )
+
+
+def _as_supporting_junction(
+    ins: Insertion, cluster: _Cluster
+) -> Insertion | None:
+    """Return RelocaTE2's admissible one-sided call, or ``None``.
+
+    ``supporting_junction`` is the only one-sided class retained by RelocaTE2's
+    characterizer. It requires supporting evidence on the side missing a
+    junction (relocaTE_insertionFinder.py:373-387). Its coordinates span the
+    three-base ``UKN`` sentinel used by the legacy unknown-TSD path, anchored at
+    the observed right breakpoint or one base after the observed left
+    breakpoint.
+    """
+    left_reads, right_reads = _candidate_junctions(ins, cluster)
+    if left_reads and right_reads:
+        return None
+    if left_reads:
+        if ins.right_support_reads < 1:
+            return None
+        start = left_reads[0].position + 1
+    elif right_reads:
+        if ins.left_support_reads < 1:
+            return None
+        start = right_reads[0].position
+    else:
+        return None
+    return replace(ins, start=start, end=start + 2, tsd="supporting_junction")
+
+
+def _consolidate_same_start(
+    candidates: list[Insertion],
+    cluster: _Cluster,
+    read_repeat: dict[str, tuple[str, str]],
+) -> list[Insertion]:
+    """Pool subcandidates that resolve to one chromosome and TSD start.
+
+    RelocaTE2 first pairs each left breakpoint with its nearest right breakpoint,
+    then writes every resulting read back into ``teInsertions[event][tsd_start]``.
+    Multiple pairs with the same right breakpoint therefore become one call:
+    their junction counts and family votes are pooled, and one dominant TSD is
+    selected. Returning each pair independently creates duplicate calls and can
+    hide the shared right-side TE family behind two separate voting ties.
+
+    The dominant candidate is the one with the most junction evidence. Equal
+    evidence prefers a resolved, shorter TSD, matching RelocaTE2's conservative
+    choice at ambiguous same-start sites. Distinct starts are never combined.
+    """
+    grouped: dict[tuple[str, int], list[Insertion]] = {}
+    order: list[tuple[str, int]] = []
+    for ins in candidates:
+        key = (ins.chrom, ins.start)
+        if key not in grouped:
+            grouped[key] = []
+            order.append(key)
+        grouped[key].append(ins)
+
+    by_name = {obs.read_name: obs for obs in cluster.junctions}
+    consolidated: list[Insertion] = []
+    unresolved = {"UNK", "UKN", "singleton", "supporting_junction"}
+
+    for key in order:
+        group = grouped[key]
+        if len(group) == 1:
+            consolidated.append(group[0])
+            continue
+
+        def dominance(ins: Insertion) -> tuple:
+            total = ins.left_junction_reads + ins.right_junction_reads
+            resolved = bool(ins.tsd) and ins.tsd not in unresolved
+            tsd_length = len(ins.tsd) if resolved else float("inf")
+            return (-total, not resolved, tsd_length, ins.end, ins.te_name)
+
+        dominant = min(group, key=dominance)
+        left_names: list[str] = []
+        right_names: list[str] = []
+        for ins in group:
+            left_names.extend(ins.read_names[: ins.left_junction_reads])
+            right_names.extend(
+                ins.read_names[
+                    ins.left_junction_reads : ins.left_junction_reads
+                    + ins.right_junction_reads
+                ]
+            )
+        read_names = left_names + right_names
+
+        family = _te_family_evidence(
+            [_te_family(read_repeat, name) for name in read_names]
+        )
+        if family.primary == "NA":
+            family = TEFamilyEvidence(
+                dominant.te_name,
+                dominant.te_family_support,
+                dominant.te_family_confidence,
+                dominant.te_family_status,
+            )
+
+        orientations = [
+            by_name[name].te_orientation for name in read_names if name in by_name
+        ]
+        if not orientations:
+            orientations = [
+                ins.strand
+                for ins in group
+                for _ in range(ins.left_junction_reads + ins.right_junction_reads)
+            ]
+        strand = "+" if orientations.count("+") > orientations.count("-") else "-"
+
+        merged = Insertion(
+            chrom=dominant.chrom,
+            start=dominant.start,
+            end=dominant.end,
+            te_name=family.primary,
+            strand=strand,
+            tsd=dominant.tsd,
+            left_junction_reads=len(left_names),
+            right_junction_reads=len(right_names),
+            note=dominant.note,
+            read_names=read_names,
+            te_family_support=family.support,
+            te_family_confidence=family.confidence,
+            te_family_status=family.status,
+        )
+        _count_support(merged, cluster, read_repeat)
+        consolidated.append(merged)
+
+    return consolidated
 
 
 def _fetch_tsd(genome: pysam.FastaFile, chrom: str, start: int, end: int) -> str:
@@ -1311,16 +1599,59 @@ def _capture_tsd_from_read(seq: str, side: str, length: int) -> str:
     return (seq[:length] if side == "right" else seq[-length:]).upper()
 
 
-def _count_support(ins: Insertion, cluster: _Cluster) -> None:
-    """Count bracketing supporting reads (RelocaTE2 ``Supporting_count`` rule)."""
+def _supporting_te_family(
+    read_repeat: dict[str, tuple[str, str]], read_name: str
+) -> str:
+    """Resolve a supporting read through its TE-containing mate, as RelocaTE2."""
+    for candidate in (
+        read_name,
+        f"{read_name}/1",
+        f"{read_name}/2",
+        f"{read_name}.f",
+        f"{read_name}.r",
+    ):
+        if candidate in read_repeat:
+            return read_repeat[candidate][0]
+    return "NA"
+
+
+def _count_support(
+    ins: Insertion,
+    cluster: _Cluster,
+    read_repeat: dict[str, tuple[str, str]] | None = None,
+) -> None:
+    """Count bracketing mates and retain their TE-family evidence separately."""
     left = right = 0
-    for _name, gstart, gend, strand, _seq in cluster.support:
+    supporting_names: list[str] = []
+    seen_names: set[str] = set()
+    for name, gstart, gend, strand, _seq in cluster.support:
+        supports_call = False
         if strand == "+" and gend <= ins.start:
             left += 1
+            supports_call = True
         elif strand == "-" and gstart >= ins.end:
             right += 1
+            supports_call = True
+        if supports_call and name not in seen_names:
+            seen_names.add(name)
+            supporting_names.append(name)
     ins.left_support_reads = left
     ins.right_support_reads = right
+    family = _te_family_evidence(
+        [
+            _supporting_te_family(read_repeat, name)
+            for name in supporting_names
+        ]
+        if read_repeat
+        else []
+    )
+    ins.te_supporting_family_support = family.support
+    ins.te_supporting_family_confidence = family.confidence
+    ins.te_supporting_family_status = family.status
+    ins.te_family_concordance = _te_family_concordance(
+        ins.te_name,
+        family.primary,
+    )
 
 
 #: RelocaTE2's -s/--size: sequencing library insert size (relocaTE2.py:198).
@@ -1333,7 +1664,9 @@ _INSERT_SD_FACTOR = 1.2
 
 
 def call_support_only(
-    cluster: _Cluster, insert_size: int = DEFAULT_INSERT_SIZE
+    cluster: _Cluster,
+    insert_size: int = DEFAULT_INSERT_SIZE,
+    read_repeat: dict[str, tuple[str, str]] | None = None,
 ) -> Insertion | None:
     """Call an insertion from supporting (mate) reads alone -- RelocaTE2's NONSUP.
 
@@ -1376,7 +1709,7 @@ def call_support_only(
         ins_end = min(minus_starts)
         ins_start = max(1, ins_end - span)  # stay on the contig
 
-    return Insertion(
+    insertion = Insertion(
         chrom=cluster.chrom,
         start=ins_start,
         end=ins_end,
@@ -1387,10 +1720,14 @@ def call_support_only(
         right_support_reads=len(minus_starts),
         note="Non-reference, supporting reads only",
     )
+    _count_support(insertion, cluster, read_repeat)
+    return insertion
 
 
 def _call_support_only(
-    cluster: _Cluster, min_support: int = MIN_SUPPORT_ONLY
+    cluster: _Cluster,
+    min_support: int = MIN_SUPPORT_ONLY,
+    read_repeat: dict[str, tuple[str, str]] | None = None,
 ) -> Insertion | None:
     """Call an insertion from supporting reads alone, when junctions failed to map.
 
@@ -1412,7 +1749,7 @@ def _call_support_only(
     ins_end = min(minus_starts)  # leftmost extent of right-bracketing reads
     if ins_start > ins_end:
         return None  # reads overlap: ambiguous, not a clean bracket
-    return Insertion(
+    insertion = Insertion(
         chrom=cluster.chrom,
         start=ins_start,
         end=ins_end,
@@ -1423,6 +1760,8 @@ def _call_support_only(
         right_support_reads=len(minus_starts),
         note="Non-reference, supporting reads only",
     )
+    _count_support(insertion, cluster, read_repeat)
+    return insertion
 
 
 def _load_fullread_spans(
@@ -1463,6 +1802,36 @@ def _fullread_key(name: str) -> str:
     matched, and the false-junction filter silently did nothing.
     """
     return _MATE_SUFFIX_RE.sub("", _JUNCTION_RE.sub("", name))
+
+
+def _junction_fullread_key(name: str) -> str:
+    """Normalise a junction name while retaining its paired-end identity."""
+    return _JUNCTION_RE.sub("", name)
+
+
+def _fullread_record_key(record) -> str:
+    """Return the junction-compatible key for one full-read BAM record.
+
+    BWA removes ``/1`` and ``/2`` from paired SAM query names, but preserves
+    the end in the read1/read2 flag. Reconstructing it prevents the non-junction
+    mate from being mistaken for the junction end. Older single-end sidecars
+    have no mate flag and continue to use the suffix-free compatibility key.
+    """
+    base = _fullread_key(record.query_name)
+    if getattr(record, "is_paired", False):
+        if getattr(record, "is_read1", False):
+            return f"{base}/1"
+        if getattr(record, "is_read2", False):
+            return f"{base}/2"
+    return base
+
+
+def _matching_fullread_spans(
+    spans: dict[str, list[tuple[str, int, int]]], junction_name: str
+) -> list[tuple[str, int, int]] | None:
+    """Look up a junction end, with fallback for legacy unpaired sidecars."""
+    key = _junction_fullread_key(junction_name)
+    return spans.get(key) or spans.get(_fullread_key(key))
 
 
 def _is_false_junction(
@@ -1557,7 +1926,7 @@ def _fullread_false_junction(fullreads_bam, ins: Insertion) -> bool:
     for rec in records:
         if getattr(rec, "is_unmapped", False):
             continue
-        spans.setdefault(_fullread_key(rec.query_name), []).append(
+        spans.setdefault(_fullread_record_key(rec), []).append(
             (ins.chrom, rec.reference_start + 1, rec.reference_end)
         )
 
@@ -1565,11 +1934,11 @@ def _fullread_false_junction(fullreads_bam, ins: Insertion) -> bool:
     right_names = ins.read_names[left_total:]
     left_full = sum(
         1 for t in left_names
-        if _maps_through(spans.get(_fullread_key(t)), ins.chrom, ins.end)
+        if _maps_through(_matching_fullread_spans(spans, t), ins.chrom, ins.end)
     )
     right_full = sum(
         1 for t in right_names
-        if _maps_through(spans.get(_fullread_key(t)), ins.chrom, ins.start)
+        if _maps_through(_matching_fullread_spans(spans, t), ins.chrom, ins.start)
     )
     return left_full >= 0.3 * left_total and right_full >= 0.3 * right_total
 
@@ -1595,10 +1964,18 @@ def find_insertions(
     insertions: list[Insertion] = []
     n_false = 0
     n_support_only = 0
+    n_pooled = 0
     with pysam.FastaFile(genome_fasta) as genome:
         for cluster in _stream_clusters(genome_bam, read_repeat):
             calls = []
-            for ins in _call_insertions(cluster, genome):
+            raw_candidates = _call_insertions(
+                cluster, genome, read_repeat=read_repeat
+            )
+            pooled_candidates = _consolidate_same_start(
+                raw_candidates, cluster, read_repeat
+            )
+            n_pooled += len(raw_candidates) - len(pooled_candidates)
+            for ins in pooled_candidates:
                 if (
                     ins.left_junction_reads < required_junction_reads
                     and ins.right_junction_reads < required_junction_reads
@@ -1607,20 +1984,22 @@ def find_insertions(
                 if _is_false_junction(ins, fullread_spans):
                     n_false += 1
                     continue
-                calls.append(ins)
+                calls.append(_as_supporting_junction(ins, cluster) or ins)
             if not calls and include_support_only:
-                support_call = _call_support_only(cluster)
+                support_call = _call_support_only(cluster, read_repeat=read_repeat)
                 if support_call is not None:
                     calls.append(support_call)
                     n_support_only += 1
             insertions.extend(calls)
     insertions.sort(key=lambda i: (i.chrom, i.start, i.end))
     logger.info(
-        "Called %d non-reference insertions (%d junction-based, %d support-only, %d false junctions filtered)",
+        "Called %d non-reference insertions (%d junction-based, %d support-only, "
+        "%d false junctions filtered, %d same-start subcandidates collapsed)",
         len(insertions),
         len(insertions) - n_support_only,
         n_support_only,
         n_false,
+        n_pooled,
     )
     return insertions
 
@@ -1634,12 +2013,24 @@ def write_insertions_gff(
     """Write insertions as GFF3 with the RelocaTE2 attribute set."""
     with open(path, "w") as fh:
         for ins in insertions:
+            family_support = _format_te_family_support(ins.te_family_support)
+            supporting_family_support = _format_te_family_support(
+                ins.te_supporting_family_support
+            )
             attrs = (
                 f"ID={ins.feature_id};Name={ins.te_name};TSD={ins.tsd};Note={ins.note};"
                 f"Right_junction_reads={ins.right_junction_reads};"
                 f"Left_junction_reads={ins.left_junction_reads};"
                 f"Right_support_reads={ins.right_support_reads};"
                 f"Left_support_reads={ins.left_support_reads};"
+                f"TE_family_support={family_support};"
+                f"TE_family_confidence={ins.te_family_confidence:.6f};"
+                f"TE_family_status={ins.te_family_status};"
+                f"TE_supporting_family_support={supporting_family_support};"
+                "TE_supporting_family_confidence="
+                f"{ins.te_supporting_family_confidence:.6f};"
+                f"TE_supporting_family_status={ins.te_supporting_family_status};"
+                f"TE_family_concordance={ins.te_family_concordance};"
             )
             fh.write(
                 f"{ins.chrom}\t{source}\t{sample}\t{ins.start}\t{ins.end}\t.\t{ins.strand}\t.\t{attrs}\n"
@@ -1650,6 +2041,14 @@ def _gff_attr(attrs: str, key: str, default: str = "") -> str:
     """Extract ``key=value`` from a GFF attribute column."""
     m = re.search(rf"{key}=([^;]*)", attrs)
     return m.group(1) if m else default
+
+
+def _float_or_default(text: str, default: float = 0.0) -> float:
+    """Parse an optional float without rejecting older output files."""
+    try:
+        return float(text)
+    except ValueError:
+        return default
 
 
 def read_insertions_gff(path: str | Path) -> list[Insertion]:
@@ -1682,6 +2081,27 @@ def read_insertions_gff(path: str | Path) -> list[Insertion]:
                         _gff_attr(attrs, "Right_support_reads", "0")
                     ),
                     note=_gff_attr(attrs, "Note", ""),
+                    te_family_support=_parse_te_family_support(
+                        _gff_attr(attrs, "TE_family_support", "")
+                    ),
+                    te_family_confidence=_float_or_default(
+                        _gff_attr(attrs, "TE_family_confidence", "0")
+                    ),
+                    te_family_status=_gff_attr(
+                        attrs, "TE_family_status", "unassigned"
+                    ),
+                    te_supporting_family_support=_parse_te_family_support(
+                        _gff_attr(attrs, "TE_supporting_family_support", "")
+                    ),
+                    te_supporting_family_confidence=_float_or_default(
+                        _gff_attr(attrs, "TE_supporting_family_confidence", "0")
+                    ),
+                    te_supporting_family_status=_gff_attr(
+                        attrs, "TE_supporting_family_status", "unassigned"
+                    ),
+                    te_family_concordance=_gff_attr(
+                        attrs, "TE_family_concordance", "unassigned"
+                    ),
                 )
             )
     return insertions
@@ -1700,6 +2120,13 @@ def write_insertions_txt(insertions: list[Insertion], path: str | Path) -> None:
         "left_junction",
         "right_support",
         "left_support",
+        "TE_family_support",
+        "TE_family_confidence",
+        "TE_family_status",
+        "TE_supporting_family_support",
+        "TE_supporting_family_confidence",
+        "TE_supporting_family_status",
+        "TE_family_concordance",
     ]
     with open(path, "w") as fh:
         fh.write("\t".join(header) + "\n")
@@ -1718,6 +2145,13 @@ def write_insertions_txt(insertions: list[Insertion], path: str | Path) -> None:
                         ins.left_junction_reads,
                         ins.right_support_reads,
                         ins.left_support_reads,
+                        _format_te_family_support(ins.te_family_support),
+                        f"{ins.te_family_confidence:.6f}",
+                        ins.te_family_status,
+                        _format_te_family_support(ins.te_supporting_family_support),
+                        f"{ins.te_supporting_family_confidence:.6f}",
+                        ins.te_supporting_family_status,
+                        ins.te_family_concordance,
                     )
                 )
                 + "\n"
@@ -1743,11 +2177,14 @@ def write_supporting_reads(
     gff_path = result_dir / f"{target}.{te_name}.all_nonref_supporting.gff"
     with open(txt_path, "w") as txt:
         for ins in insertions:
+            family_columns = _te_family_metadata_columns(ins)
             txt.write(
                 f"{ins.te_name}\t{ins.tsd}\t{sample}\t{ins.chrom}\t"
                 f"{ins.start}..{ins.end}\t{ins.strand}\tT:0\tR:0\tL:0\t"
                 f"ST:{ins.left_support_reads + ins.right_support_reads}\t"
-                f"SR:{ins.right_support_reads}\tSL:{ins.left_support_reads}\n"
+                f"SR:{ins.right_support_reads}\tSL:{ins.left_support_reads}\t"
+                + "\t".join(family_columns)
+                + "\n"
             )
     write_insertions_gff(insertions, gff_path, sample)
     logger.info(
@@ -1867,11 +2304,35 @@ def _row_to_gff(fields: list[str], sample: str, source: str = "RelocaTE3") -> st
     left_j = fields[8].removeprefix("L:")
     right_s = fields[10].removeprefix("SR:")
     left_s = fields[11].removeprefix("SL:")
+    optional = {
+        key: value
+        for field in fields[12:]
+        for key, sep, value in [field.partition(":")]
+        if sep
+    }
+    family_support = optional.get("TE_family_support", "")
+    family_confidence = optional.get("TE_family_confidence", "0.000000")
+    family_status = optional.get("TE_family_status", "unassigned")
+    supporting_family_support = optional.get("TE_supporting_family_support", "")
+    supporting_family_confidence = optional.get(
+        "TE_supporting_family_confidence", "0.000000"
+    )
+    supporting_family_status = optional.get(
+        "TE_supporting_family_status", "unassigned"
+    )
+    family_concordance = optional.get("TE_family_concordance", "unassigned")
     attrs = (
         f"ID={chrom}.{start}.spanners;Name={te_name};TSD={tsd};"
         f"Note=Non-reference, not found in reference;"
         f"Right_junction_reads={right_j};Left_junction_reads={left_j};"
         f"Right_support_reads={right_s};Left_support_reads={left_s};"
+        f"TE_family_support={family_support};"
+        f"TE_family_confidence={family_confidence};"
+        f"TE_family_status={family_status};"
+        f"TE_supporting_family_support={supporting_family_support};"
+        f"TE_supporting_family_confidence={supporting_family_confidence};"
+        f"TE_supporting_family_status={supporting_family_status};"
+        f"TE_family_concordance={family_concordance};"
     )
     return f"{chrom}\t{source}\t{sample}\t{start}\t{end}\t.\t{strand}\t.\t{attrs}"
 
