@@ -27,10 +27,16 @@ def test_run_sample_produces_outputs(tmp_path: Path):
     """
     reads = ReadLibrary([str(R1), str(R2)], "HEG4")
     gff = run_sample(
-        reads, str(TELIB), str(GENOME), tmp_path, threads=2,
-        te_aligner="minimap2", genome_aligner="minimap2",
+        reads,
+        str(TELIB),
+        str(GENOME),
+        tmp_path,
+        threads=2,
+        te_aligner="minimap2",
+        genome_aligner="minimap2",
     )
     assert (tmp_path / "te_containing" / "HEG4.read_repeat_name.txt").exists()
+    assert (tmp_path / "te_containing" / "HEG4.te_hit_names.txt").exists()
     left = tmp_path / "flanking" / "HEG4.left.flankingReads.fq"
     assert left.exists() and os.path.getsize(left) > 0
 
@@ -109,8 +115,12 @@ def test_run_sample_forwards_aligner_choices(monkeypatch, tmp_path: Path):
 
     reads = ReadLibrary([str(R1), str(R2)], "HEG4")
     run_sample(
-        reads, str(TELIB), str(GENOME), tmp_path,
-        te_aligner="minimap2", genome_aligner="bowtie2",
+        reads,
+        str(TELIB),
+        str(GENOME),
+        tmp_path,
+        te_aligner="minimap2",
+        genome_aligner="bowtie2",
     )
     assert seen == {"te_aligner": "minimap2", "genome_aligner": "bowtie2"}
 
@@ -121,7 +131,8 @@ def test_run_sample_defaults_match_relocate2(monkeypatch, tmp_path: Path):
 
     seen: dict[str, str] = {}
     monkeypatch.setattr(
-        pipeline_mod.RelocaTE, "identify_TE_reads",
+        pipeline_mod.RelocaTE,
+        "identify_TE_reads",
         lambda self, reads, outdir, **kw: (
             seen.__setitem__("te_aligner", kw.get("te_aligner")),
             (Path(outdir) / "te_containing").mkdir(parents=True, exist_ok=True),
@@ -129,7 +140,8 @@ def test_run_sample_defaults_match_relocate2(monkeypatch, tmp_path: Path):
         )[-1],
     )
     monkeypatch.setattr(
-        pipeline_mod, "align_to_genome",
+        pipeline_mod,
+        "align_to_genome",
         lambda reads, genome, outdir, **kw: (
             seen.__setitem__("genome_aligner", kw.get("genome_aligner")),
             (Path(outdir) / "g.bam", None),
@@ -137,5 +149,7 @@ def test_run_sample_defaults_match_relocate2(monkeypatch, tmp_path: Path):
     )
     monkeypatch.setattr(pipeline_mod, "find_insertions", lambda *a, **k: [])
 
-    run_sample(ReadLibrary([str(R1), str(R2)], "HEG4"), str(TELIB), str(GENOME), tmp_path)
+    run_sample(
+        ReadLibrary([str(R1), str(R2)], "HEG4"), str(TELIB), str(GENOME), tmp_path
+    )
     assert seen == {"te_aligner": "blat", "genome_aligner": "bwaaln"}

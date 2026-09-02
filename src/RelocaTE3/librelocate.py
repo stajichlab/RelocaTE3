@@ -14,15 +14,20 @@ The trim step emits, per read that overlaps a TE:
 - a line in the **read_repeat_name** table mapping the *original* (unsuffixed)
   read name to the TE family and strand. Step 5 strips the junction suffix to
   recover this original name, so the table must use the unsuffixed name.
+- a line in the **te_hit_names** table for every read with a selected,
+  aligner-admitted TE hit, including reads that do not satisfy a trimming
+  branch. Step 4 uses this larger population to distinguish a genomic mate from
+  a weak/unclassified TE hit.
 - the **TE-matched portion** as a FASTA entry (five_prime / three_prime).
-- the full read in the **ContainingReads** FASTQ.
+- the full read in the **ContainingReads** FASTQ for every selected TE hit.
 
-Sequence/orientation handling mirrors RelocaTE2's ``parse_align_bwa`` exactly:
-read-relative ``start``/``end`` come from the aligned orientation
-(``query_alignment_start``/``end``) while the sequence is taken in the original
-read orientation (the reverse complement of the BAM SEQ for reverse alignments).
-Reconstructing both from the BAM alone avoids re-reading the FASTQ and keeps the
-trim output consistent with the step-5 ``TSD_check`` port.
+Sequence/orientation handling mirrors RelocaTE2's trim step exactly:
+read-relative ``start``/``end`` come from the TE alignment, while sequence and
+qualities come from the original FASTQ record.  This distinction matters for
+BLAT: PSL has no base qualities, so its intermediate BAM necessarily carries
+synthetic qualities.  Restoring the original record before slicing the flank
+ensures the downstream ``bwa aln`` placement sees the same evidence as
+RelocaTE2.
 """
 
 from __future__ import annotations
@@ -101,6 +106,7 @@ class RelocaTE:
             seqreads.name,
             list(zip(directions, bamfiles)),
             outdir,
+            source_fastqs=seqreads.file_set,
             minimum_match_length=minimum_match_length,
             minimum_trimmed_length=minimum_trimmed_length,
             mismatch_allowance=mismatch_allowance,
@@ -131,6 +137,7 @@ class RelocaTE:
         minimum_match_length: int = 10,
         minimum_trimmed_length: int = 10,
         mismatch_allowance: int = 2,
+        source_fastqs: list[str | Path] | None = None,
     ) -> int:
         """Trim TE sequence from reads and write the step-3 output files.
 
@@ -142,11 +149,20 @@ class RelocaTE:
             minimum_match_length: minimum TE match length (RelocaTE2 ``len_cut_match``).
             minimum_trimmed_length: minimum retained flank length (``len_cut_trim``).
             mismatch_allowance: maximum mismatches in the TE alignment.
+            source_fastqs: original FASTQ files corresponding positionally to
+                ``direction_bams``. When supplied, original sequence and quality
+                are restored before trimming. This is required for BLAT parity
+                because PSL-derived BAM records have no native qualities.
 
         Returns:
             Number of flanking (trimmed) reads written across all directions.
         """
         outdir = Path(outdir)
+        if source_fastqs is not None and len(source_fastqs) != len(direction_bams):
+            raise ValueError(
+                "source_fastqs must contain one file for each TE-alignment BAM "
+                f"({len(source_fastqs)} FASTQ(s), {len(direction_bams)} BAM(s))"
+            )
         flank_dir = outdir / "flanking"
         contain_dir = outdir / "te_containing"
         portion_dir = outdir / "te_portions"
@@ -154,6 +170,7 @@ class RelocaTE:
             d.mkdir(parents=True, exist_ok=True)
 
         read_repeat_path = contain_dir / f"{name}.read_repeat_name.txt"
+        te_hit_names_path = contain_dir / f"{name}.te_hit_names.txt"
         five_path = portion_dir / f"{name}.five_prime.fa"
         three_path = portion_dir / f"{name}.three_prime.fa"
 
@@ -161,13 +178,27 @@ class RelocaTE:
         # read_repeat / TE-portion files aggregate across directions (append)
         with (
             open(read_repeat_path, "w") as rr_out,
+            open(te_hit_names_path, "w") as te_hits_out,
             open(five_path, "w") as te5_out,
             open(three_path, "w") as te3_out,
         ):
-            for direction, bam in direction_bams:
+            for index, (direction, bam) in enumerate(direction_bams):
                 coord = self._parse_te_bam(
                     Path(bam), mismatch_allowance=mismatch_allowance
                 )
+                if source_fastqs is not None:
+                    mate = str(index + 1) if len(direction_bams) == 2 else None
+                    restored = self._restore_original_fastq(
+                        coord, Path(source_fastqs[index]), mate=mate
+                    )
+                    if restored != len(coord):
+                        logger.warning(
+                            "Restored original sequence/quality for %d of %d TE-hit "
+                            "reads from %s",
+                            restored,
+                            len(coord),
+                            source_fastqs[index],
+                        )
                 flank_path = flank_dir / f"{name}.{direction}.flankingReads.fq"
                 contain_path = contain_dir / f"{name}.{direction}.ContainingReads.fq"
                 flank_written += self._write_direction(
@@ -175,6 +206,7 @@ class RelocaTE:
                     flank_path,
                     contain_path,
                     rr_out,
+                    te_hits_out,
                     te5_out,
                     te3_out,
                     minimum_match_length,
@@ -188,12 +220,60 @@ class RelocaTE:
         )
         return flank_written
 
+    @staticmethod
+    def _restore_original_fastq(
+        coord: dict, source_fastq: Path, mate: str | None = None
+    ) -> int:
+        """Restore original FASTQ-frame sequence and qualities for TE hits.
+
+        RelocaTE2 streams the original FASTQ and uses the TE alignment only for
+        coordinates. RelocaTE3 previously reconstructed the read from the
+        TE-alignment BAM. That is equivalent for aligners which preserve QUAL,
+        but BLAT PSL has no QUAL field, so the PSL-to-SAM bridge fills the BAM
+        with synthetic qualities. Those synthetic scores alter downstream
+        ``bwa aln`` placements on the repetitive riceTElib panel.
+
+        Only records already selected into ``coord`` are retained. Paired-end
+        TE BAMs use canonical ``/1`` and ``/2`` names, so ``mate`` identifies
+        the source side even when the input FASTQ used Illumina or SRA naming.
+        The method streams plain or gzipped FASTQ and returns the number of
+        selected records restored.
+        """
+        if not coord:
+            return 0
+
+        # Imported lazily to keep librelocate's parsing helpers independent of
+        # aligner construction at module import time.
+        from RelocaTE3.aligners import canonical_name
+
+        restored: set[str] = set()
+        with pysam.FastxFile(str(source_fastq)) as records:
+            for record in records:
+                candidates = [record.name]
+                if mate is not None:
+                    candidates.insert(0, canonical_name(record.name, mate))
+
+                key = next(
+                    (candidate for candidate in candidates if candidate in coord), None
+                )
+                if key is None:
+                    continue
+
+                coord[key]["seq"] = record.sequence
+                if record.quality is not None:
+                    coord[key]["qual"] = record.quality
+                restored.add(key)
+                if len(restored) == len(coord):
+                    break
+        return len(restored)
+
     def _write_direction(
         self,
         coord,
         flank_path,
         contain_path,
         rr_out,
+        te_hits_out,
         te5_out,
         te3_out,
         len_cutoff_m,
@@ -204,6 +284,11 @@ class RelocaTE:
         flank_written = 0
         with open(flank_path, "w") as flank_out, open(contain_path, "w") as contain_out:
             for rl_name, rec in coord.items():
+                # This is the step-3/step-4 membership contract.  It deliberately
+                # precedes trim classification: RelocaTE2's ContainingReads.fq
+                # includes every selected TE hit, even when no junction/middle
+                # branch accepts the read.
+                te_hits_out.write(f"{rl_name}\n")
                 trimmed = self._trim_record(
                     rl_name,
                     rec,
@@ -215,12 +300,14 @@ class RelocaTE:
                     mismatch_allowance,
                 )
                 if trimmed is None:
+                    contain_out.write(f"@{rl_name}\n{rec['seq']}\n+\n{rec['qual']}\n")
                     continue
                 header, trimmed_seq, trimmed_qual = trimmed
                 if len(trimmed_seq) >= len_cutoff_l:
                     flank_out.write(f"@{header}\n{trimmed_seq}\n+\n{trimmed_qual}\n")
                     flank_written += 1
-                # every read that overlapped a TE is written to ContainingReads
+                # Classified reads carry the same tag in ContainingReads as in
+                # RelocaTE2; unclassified hits above retain their original name.
                 contain_out.write(f"@{header}\n{rec['seq']}\n+\n{rec['qual']}\n")
         return flank_written
 

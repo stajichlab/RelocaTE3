@@ -108,7 +108,7 @@ def _menu_map(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         default="",
         help=(
             "Extra options passed verbatim to the TE-search aligner, e.g. "
-            "\"-minIdentity=80\" (blat) or \"-B 4\" (minimap2)"
+            '"-minIdentity=80" (blat) or "-B 4" (minimap2)'
         ),
     )
     _add_common_args(parser)
@@ -125,6 +125,15 @@ def _menu_trim(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         required=True,
         metavar="BAM",
         help="BAM file(s) from TE library alignment (output of 'map')",
+    )
+    parser.add_argument(
+        "-f",
+        "--fastq",
+        nargs="+",
+        metavar="FASTQ",
+        help="Original FASTQ file(s), in the same order as --bam. Restores "
+        "original qualities before trimming; required for exact "
+        "BLAT/RelocaTE2 parity",
     )
     parser.add_argument("-n", "--name", required=True, help="Sample/individual name")
     parser.add_argument("-o", "--outdir", default=".", help="Output directory")
@@ -204,7 +213,7 @@ def _menu_run(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         default="",
         help=(
             "Extra options passed verbatim to the TE-search aligner, e.g. "
-            "\"-minIdentity=80\" (blat) or \"-B 4\" (minimap2)"
+            '"-minIdentity=80" (blat) or "-B 4" (minimap2)'
         ),
     )
     parser.add_argument(
@@ -332,96 +341,136 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
     """
     te = parser.add_argument_group("TE-library search (steps 2-3)")
     te.add_argument(
-        "--te-aligner", dest="te_aligner", default="blat",
+        "--te-aligner",
+        dest="te_aligner",
+        default="blat",
         choices=["minimap2", "bwa", "bwamem2", "bwaaln", "bowtie2", "blat"],
         help="Aligner for TE-library search (default: blat, matching RelocaTE2)",
     )
     te.add_argument(
-        "--te-opts", dest="te_opts", default="",
-        help='Extra options passed verbatim to the TE-search aligner. Values '
+        "--te-opts",
+        dest="te_opts",
+        default="",
+        help="Extra options passed verbatim to the TE-search aligner. Values "
         'start with "-", so the --te-opts=VALUE form is required',
     )
     te.add_argument(
-        "--min-match", type=int, default=10, dest="minimum_match_length",
+        "--min-match",
+        type=int,
+        default=10,
+        dest="minimum_match_length",
         help="Minimum alignment match length to TE",
     )
     te.add_argument(
-        "--min-trimmed", type=int, default=10, dest="minimum_trimmed_length",
+        "--min-trimmed",
+        type=int,
+        default=10,
+        dest="minimum_trimmed_length",
         help="Minimum trimmed flanking sequence length to retain",
     )
     te.add_argument(
-        "--mismatch", type=int, default=2, dest="mismatch_allowance",
+        "--mismatch",
+        type=int,
+        default=2,
+        dest="mismatch_allowance",
         help="Allowed mismatches, TE alignment and read/genome comparison "
         "(default: 2, matching RelocaTE2's --mismatch and --mismatch_junction)",
     )
 
     gen = parser.add_argument_group("Genome placement (step 4)")
     gen.add_argument(
-        "--genome-aligner", dest="genome_aligner", default="bwaaln",
+        "--genome-aligner",
+        dest="genome_aligner",
+        default="bwaaln",
         choices=["minimap2", "bwa", "bwamem2", "bwaaln", "bowtie2"],
         help="Aligner for genome re-alignment (default: bwaaln, matching "
         "RelocaTE2; blat is not supported here)",
     )
     gen.add_argument(
-        "--genome-opts", dest="genome_opts", default="",
+        "--genome-opts",
+        dest="genome_opts",
+        default="",
         help="Extra options passed verbatim to the genome aligner "
         "(use the --genome-opts=VALUE form)",
     )
 
     call = parser.add_argument_group("Insertion calling (step 5)")
     call.add_argument(
-        "--tsd", default="UNK",
+        "--tsd",
+        default="UNK",
         help="TSD motif (e.g. TTA), fixed wildcard (e.g. ...), or UNK to infer each TSD",
     )
     call.add_argument(
         "-c", "--target", default="ALL", help="Chromosome to analyze, or ALL"
     )
     call.add_argument(
-        "--te-name", dest="te_name", default="repeat",
+        "--te-name",
+        dest="te_name",
+        default="repeat",
         help="TE label used in output filenames",
     )
     call.add_argument(
-        "-s", "--size", type=int, default=500, dest="insert_size",
+        "-s",
+        "--size",
+        type=int,
+        default=500,
+        dest="insert_size",
         help="Library insert size for mate-pair-only insertions "
         "(default: 500, matching RelocaTE2)",
     )
     call.add_argument(
-        "--distance", type=int, default=3, dest="distance",
+        "--distance",
+        type=int,
+        default=3,
+        dest="distance",
         help="Reference-TE boundary window for dropping one-sided calls "
         "(default: 3, matching RelocaTE2)",
     )
     call.add_argument(
-        "--min-mapq", type=int, default=0, dest="min_mapq",
+        "--min-mapq",
+        type=int,
+        default=0,
+        dest="min_mapq",
         help="Minimum MAPQ for a read to be admitted as evidence "
-             "(default: 0 = no MAPQ gate, matching RelocaTE2, which marks "
-             "low-MAPQ reads instead of dropping them)",
+        "(default: 0 = no MAPQ gate, matching RelocaTE2, which marks "
+        "low-MAPQ reads instead of dropping them)",
     )
     call.add_argument(
-        "--require-both-junctions", action=argparse.BooleanOptionalAction,
-        default=True, dest="require_both_junctions",
+        "--require-both-junctions",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        dest="require_both_junctions",
         help="Require junction reads on BOTH sides of an insertion (default: on). Use --no-require-both-junctions to also emit single-sided calls, which raises sensitivity but costs precision sharply on multi-family TE libraries",
     )
 
     ref = parser.add_argument_group("Reference TEs (steps 0/6)")
     ref.add_argument(
-        "--repeatmasker", metavar="OUT", default=None,
+        "--repeatmasker",
+        metavar="OUT",
+        default=None,
         help="RepeatMasker .out for the reference. Filters novel calls that land "
         "on a known reference TE, and additionally emits all_ref_insert.{gff,txt}",
     )
 
     gt = parser.add_argument_group("Genotyping (step 7)")
     gt.add_argument(
-        "--genotype", action="store_true",
+        "--genotype",
+        action="store_true",
         help="Classify each insertion as homozygous/heterozygous/somatic. Aligns "
         "the original reads to the genome unless --genotype-bam is given",
     )
     gt.add_argument(
-        "--genotype-bam", dest="genotype_bam", default=None, metavar="BAM",
+        "--genotype-bam",
+        dest="genotype_bam",
+        default=None,
+        metavar="BAM",
         help="Existing BAM/CRAM of the original reads aligned to the genome, "
         "reused for genotyping instead of realigning (implies --genotype)",
     )
     gt.add_argument(
-        "-x", "--excision", action="store_true",
+        "-x",
+        "--excision",
+        action="store_true",
         help="Also search for excision events that leave a footprint",
     )
     gt.add_argument(
@@ -432,19 +481,36 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
 def _menu_run_all(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Arguments for the 'run-all' subcommand (whole pipeline, one command)."""
     parser.add_argument(
-        "-1", "--left", "--r1", required=True, dest="left", metavar="R1",
+        "-1",
+        "--left",
+        "--r1",
+        required=True,
+        dest="left",
+        metavar="R1",
         help="Left/R1 read file (FASTQ, may be gzipped)",
     )
     parser.add_argument(
-        "-2", "--right", "--r2", dest="right", metavar="R2",
+        "-2",
+        "--right",
+        "--r2",
+        dest="right",
+        metavar="R2",
         help="Right/R2 read file for paired-end (FASTQ, may be gzipped)",
     )
     parser.add_argument(
-        "-T", "--te-library", required=True, dest="te_library", metavar="FASTA",
+        "-T",
+        "--te-library",
+        required=True,
+        dest="te_library",
+        metavar="FASTA",
         help="Transposon library FASTA file",
     )
     parser.add_argument(
-        "-g", "--genome-fasta", required=True, dest="genome_fasta", metavar="FASTA",
+        "-g",
+        "--genome-fasta",
+        required=True,
+        dest="genome_fasta",
+        metavar="FASTA",
         help="Reference genome FASTA file (indexed automatically if needed)",
     )
     parser.add_argument("-n", "--name", required=True, help="Sample/individual name")
@@ -463,40 +529,56 @@ def _menu_run_batch(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Arguments for the 'run-batch' subcommand (many samples, one command)."""
     source = parser.add_argument_group("Sample source (give exactly one)")
     source.add_argument(
-        "--samples", metavar="SHEET",
+        "--samples",
+        metavar="SHEET",
         help="CSV/TSV sample sheet with columns sample_id,r1_fq[,r2_fq] and "
         "optional per-row te_library / reference_genome / repeatmasker overrides",
     )
     source.add_argument(
-        "--fq-dir", dest="fq_dir", metavar="DIR",
+        "--fq-dir",
+        dest="fq_dir",
+        metavar="DIR",
         help="Directory of paired FASTQs to discover (RelocaTE2's --fq_dir). "
         "Pairs <sample>_R1/_R2 and <sample>_1/_2",
     )
     parser.add_argument(
-        "-T", "--te-library", required=True, dest="te_library", metavar="FASTA",
+        "-T",
+        "--te-library",
+        required=True,
+        dest="te_library",
+        metavar="FASTA",
         help="Transposon library FASTA (per-row te_library in the sheet wins)",
     )
     parser.add_argument(
-        "-g", "--genome-fasta", required=True, dest="genome_fasta", metavar="FASTA",
+        "-g",
+        "--genome-fasta",
+        required=True,
+        dest="genome_fasta",
+        metavar="FASTA",
         help="Reference genome FASTA (per-row reference_genome in the sheet wins)",
     )
     parser.add_argument(
-        "-o", "--outdir", default=".",
+        "-o",
+        "--outdir",
+        default=".",
         help="Root output directory; each sample writes to <outdir>/<sample>",
     )
+    parser.add_argument("--threads", type=int, default=1, help="CPU threads per sample")
     parser.add_argument(
-        "--threads", type=int, default=1, help="CPU threads per sample"
-    )
-    parser.add_argument(
-        "--jobs", type=int, default=1,
+        "--jobs",
+        type=int,
+        default=1,
         help="Samples to process concurrently (each still uses --threads)",
     )
     parser.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="Re-run samples that already have a results table",
     )
     parser.add_argument(
-        "--keep-going", action="store_true", dest="keep_going",
+        "--keep-going",
+        action="store_true",
+        dest="keep_going",
         help="Continue after a sample fails instead of stopping at the first one",
     )
     _add_pipeline_tuning_args(parser)
@@ -585,7 +667,8 @@ def _menu_align_genome(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         metavar="R1",
         help="Original left/R1 reads (FASTQ). When given (with --right), junction "
         "flanks are aligned paired with their genomic mate so ambiguous flanks are "
-        "anchored to the true insertion (reads read_repeat from --outdir).",
+        "anchored to the true insertion, and original junction reads are aligned "
+        "for false-junction filtering (reads te_hit_names from --outdir).",
     )
     parser.add_argument(
         "-2",
@@ -615,7 +698,7 @@ def _menu_align_genome(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         default="",
         help=(
             "Extra options passed verbatim to the genome aligner, e.g. "
-            "\"-n 0.10\" (bwa aln edit-distance budget)"
+            '"-n 0.10" (bwa aln edit-distance budget)'
         ),
     )
     parser.add_argument(
@@ -708,8 +791,8 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         default=0,
         dest="min_mapq",
         help="Minimum MAPQ for a read to be admitted as evidence "
-             "(default: 0 = no MAPQ gate, matching RelocaTE2, which marks "
-             "low-MAPQ reads instead of dropping them)",
+        "(default: 0 = no MAPQ gate, matching RelocaTE2, which marks "
+        "low-MAPQ reads instead of dropping them)",
     )
     parser.add_argument(
         "--require-both-junctions",
@@ -764,6 +847,7 @@ def cmd_trim(args: argparse.Namespace) -> int:
         args.name,
         list(zip(directions, bam_paths)),
         out,
+        source_fastqs=args.fastq,
         minimum_match_length=args.minimum_match_length,
         minimum_trimmed_length=args.minimum_trimmed_length,
         mismatch_allowance=args.mismatch_allowance,
@@ -931,6 +1015,7 @@ def cmd_run_all(args: argparse.Namespace) -> int:
     )
 
     genome_bam = _find_genome_bam(outdir, args.name)
+    junction_fullreads_bam = outdir / "genome_aln" / f"{args.name}.fullreads.genome.bam"
 
     # Step 5 -- cluster junctions into non-reference insertion calls.
     _step(
@@ -944,10 +1029,13 @@ def cmd_run_all(args: argparse.Namespace) -> int:
         outdir=str(outdir),
         te_name=args.te_name,
         reference_ins=args.repeatmasker,
-        # The genotyping BAM *is* the original reads aligned to the genome, so
-        # when the user supplies one it can also drive the false-junction filter.
-        # run-all otherwise builds it after calling, too late to use here.
-        fullreads_bam=getattr(args, "genotype_bam", None),
+        # align-genome writes a junction-only BAM with original sequences and
+        # qualities using the same genome aligner. This mirrors RelocaTE2's
+        # false-junction evidence; the all-read genotyping BAM is a separate
+        # artifact with different membership semantics.
+        fullreads_bam=(
+            str(junction_fullreads_bam) if junction_fullreads_bam.is_file() else None
+        ),
         mismatch_allow=args.mismatch_allowance,
         min_mapq=args.min_mapq,
         require_both_junctions=args.require_both_junctions,
@@ -970,7 +1058,9 @@ def cmd_run_all(args: argparse.Namespace) -> int:
     # Step 7 -- zygosity, which needs the ORIGINAL (untrimmed) reads on the
     # genome. Build that BAM unless the user supplied one.
     if args.genotype or args.genotype_bam:
-        sites = outdir / "results" / f"{args.target}.{args.te_name}.all_nonref_insert.txt"
+        sites = (
+            outdir / "results" / f"{args.target}.{args.te_name}.all_nonref_insert.txt"
+        )
         if not sites.is_file():
             raise RuntimeError(f"run-all: expected insertion table not found: {sites}")
 
@@ -1142,9 +1232,7 @@ def cmd_find_reference(args: argparse.Namespace) -> int:
     logger.info("Wrote %d reference TE copies to %s", len(reference_tes), bed_path)
 
     read_repeat = read_read_repeat(Path(args.read_repeat))
-    insertions = find_reference_insertions(
-        str(args.bam), read_repeat, reference_tes
-    )
+    insertions = find_reference_insertions(str(args.bam), read_repeat, reference_tes)
 
     gff_path = result_dir / f"{args.name}.all_ref_insert.gff"
     txt_path = result_dir / f"{args.name}.all_ref_insert.txt"
@@ -1179,8 +1267,9 @@ def cmd_align_genome(args: argparse.Namespace) -> int:
 
         from RelocaTE3.aligners import get_aligner
         from RelocaTE3.genome_align import (
+            align_junction_fullreads,
             align_flanks_anchored,
-            read_read_repeat,
+            read_te_hit_names,
         )
         from RelocaTE3.ReadLibrary import ReadLibrary
 
@@ -1188,8 +1277,13 @@ def cmd_align_genome(args: argparse.Namespace) -> int:
             [args.left] + ([args.right] if args.right else []), args.name
         )
         outdir = Path(args.outdir)
-        rr_path = outdir / "te_containing" / f"{args.name}.read_repeat_name.txt"
-        read_repeat = read_read_repeat(rr_path) if rr_path.exists() else {}
+        te_hits_path = outdir / "te_containing" / f"{args.name}.te_hit_names.txt"
+        if not te_hits_path.is_file():
+            raise FileNotFoundError(
+                f"All-TE-hit table not found: {te_hits_path}; rerun the map/trim "
+                "step with this RelocaTE3 version"
+            )
+        all_te_hits = read_te_hit_names(te_hits_path)
         suffix = "minimap" if args.genome_aligner == "minimap2" else args.genome_aligner
         out_bam = outdir / f"{args.name}.repeat.{suffix}.sorted.bam"
         backend = get_aligner(
@@ -1203,13 +1297,24 @@ def cmd_align_genome(args: argparse.Namespace) -> int:
                 backend,
                 args.genome_fasta,
                 list(args.fastq),
-                read_repeat,
+                all_te_hits,
                 reads,
                 out_bam,
                 args.threads,
                 tmp,
             )
+            fullreads_bam, _ = align_junction_fullreads(
+                backend,
+                args.genome_fasta,
+                list(args.fastq),
+                reads,
+                outdir / "genome_aln" / f"{args.name}.fullreads.genome.bam",
+                args.threads,
+                tmp,
+            )
         logger.info("Genome-aligned BAM (mate-anchored) written to %s", bam)
+        if fullreads_bam is not None:
+            logger.info("Junction full-read BAM written to %s", fullreads_bam)
         return 0
     if args.genome_aligner == "minimap2":
         # Preserve the original minimap2 path byte-for-byte (tuned flags, paired
@@ -1281,14 +1386,15 @@ def cmd_find_insertions(args: argparse.Namespace) -> int:
         reference_ins=args.reference_ins,
         distance=getattr(args, "distance", 3),
     )
-    logger.info("Non-reference insertions written to %s (+ .all/.high_conf tiers)", out_txt)
+    logger.info(
+        "Non-reference insertions written to %s (+ .all/.high_conf tiers)", out_txt
+    )
     return 0
 
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-
 
 
 def split_aligner_opts(value) -> list[str]:
