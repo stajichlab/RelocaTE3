@@ -525,6 +525,12 @@ def psl_to_sam(psl_lines, sequences=None):
     small gaps). CIGAR is soft-clip + M/I/D from block coordinates; ``NM`` is the
     PSL mismatch + inserted-base counts. ``-`` strand sets flag 0x10.
 
+    Before conversion, reject gap-complex alignments using RelocaTE2's exact
+    PSL admission thresholds: at most one query and target gap opening, at most
+    three inserted query and target bases, and fewer than three alignment
+    blocks. Rejected alignments therefore cannot participate in downstream
+    per-read best-hit selection.
+
     ``sequences`` (a ``{qname: forward_seq}`` map) fills the SAM SEQ field
     (reverse-complemented for ``-`` strand, per SAM convention) -- required so the
     trim step can emit flanking reads, since BLAT's PSL carries no sequence. When
@@ -536,8 +542,19 @@ def psl_to_sam(psl_lines, sequences=None):
         if len(f) < 21 or not f[0].isdigit():
             continue  # skip PSL header / blank lines
         mismatches = int(f[1])
+        q_num_ins = int(f[4])
         q_base_ins = int(f[5])
+        t_num_ins = int(f[6])
         t_base_ins = int(f[7])
+        block_count = int(f[17])
+        if (
+            q_num_ins > 1
+            or q_base_ins > 3
+            or t_num_ins > 1
+            or t_base_ins > 3
+            or block_count >= 3
+        ):
+            continue
         strand = f[8]
         qname, qsize = f[9], int(f[10])
         qstart, qend = int(f[11]), int(f[12])

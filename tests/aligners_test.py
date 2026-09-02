@@ -291,6 +291,49 @@ class TestBowtie2JunctionSoftclip(unittest.TestCase):
 class TestPslToSam(unittest.TestCase):
     """The PSL->SAM converter (BLAT backend) tested without the blat binary."""
 
+    @staticmethod
+    def _psl_with_gap_counts(
+        *,
+        q_num_insert=0,
+        q_base_insert=0,
+        t_num_insert=0,
+        t_base_insert=0,
+        block_count=1,
+    ):
+        if block_count == 2:
+            block_sizes = "38,39,"
+            q_starts = "0,41,"
+            t_starts = "100,141,"
+        else:
+            block_sizes = ",".join(["80"] * block_count) + ","
+            q_starts = ",".join(["0"] * block_count) + ","
+            t_starts = ",".join(["100"] * block_count) + ","
+        return "\t".join(
+            [
+                "80",
+                "0",
+                "0",
+                "0",
+                str(q_num_insert),
+                str(q_base_insert),
+                str(t_num_insert),
+                str(t_base_insert),
+                "+",
+                "gap-test",
+                "80",
+                "0",
+                "80",
+                "teA",
+                "500",
+                "100",
+                "180",
+                str(block_count),
+                block_sizes,
+                q_starts,
+                t_starts,
+            ]
+        )
+
     def test_single_block_exact(self):
         psl = "80\t0\t0\t0\t0\t0\t0\t0\t+\tt1\t80\t0\t80\tteA\t500\t100\t180\t1\t80,\t0,\t100,"
         sam = psl_to_sam([psl])
@@ -313,6 +356,29 @@ class TestPslToSam(unittest.TestCase):
 
     def test_skips_header_lines(self):
         self.assertEqual(psl_to_sam(["psLayout version 3", "", "match\tmis"]), [])
+
+    def test_accepts_relocate2_gap_limits(self):
+        psl = self._psl_with_gap_counts(
+            q_num_insert=1,
+            q_base_insert=3,
+            t_num_insert=1,
+            t_base_insert=3,
+            block_count=2,
+        )
+        self.assertEqual(len(psl_to_sam([psl])), 1)
+
+    def test_rejects_alignments_exceeding_relocate2_gap_limits(self):
+        rejected = {
+            "query gap openings": {"q_num_insert": 2},
+            "query inserted bases": {"q_base_insert": 4},
+            "target gap openings": {"t_num_insert": 2},
+            "target inserted bases": {"t_base_insert": 4},
+            "alignment blocks": {"block_count": 3},
+        }
+        for condition, values in rejected.items():
+            with self.subTest(condition=condition):
+                psl = self._psl_with_gap_counts(**values)
+                self.assertEqual(psl_to_sam([psl]), [])
 
 
 class TestExtraOptionPassthrough(unittest.TestCase):
