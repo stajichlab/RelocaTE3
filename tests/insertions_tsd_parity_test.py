@@ -1,9 +1,14 @@
 """Tests for the depth-based TSD length/sequence inference (R2 parity)."""
 
+from unittest.mock import MagicMock
+
 from RelocaTE3.insertions import (
+    _Cluster,
     _capture_tsd_from_read,
     _estimate_tsd_length_from_depth,
+    _make_insertion,
 )
+from RelocaTE3.models import JunctionObservation
 
 
 def test_depth_estimator_returns_zero_when_no_reads():
@@ -29,12 +34,6 @@ def test_capture_tsd_from_right_read_uses_first_bases():
 
 def test_capture_tsd_short_seq_returns_empty():
     assert _capture_tsd_from_read("AT", side="right", length=3) == ""
-
-
-from unittest.mock import MagicMock
-
-from RelocaTE3.insertions import _Cluster, _make_insertion
-from RelocaTE3.models import JunctionObservation
 
 
 def _mk_junction(name, side, pos, strand, seq, te_end="5"):
@@ -76,6 +75,10 @@ def test_make_insertion_one_sided_recovers_tsd_from_depth_and_read():
         cluster=cluster,
     )
     assert ins.tsd == "TTA"
+    assert ins.te_name == "mPing"
+    assert ins.te_family_support == {"mPing": 3}
+    assert ins.te_family_confidence == 1.0
+    assert ins.te_family_status == "unique"
     genome.fetch.assert_not_called()
 
 
@@ -123,6 +126,49 @@ def test_geometric_tsd_length_is_used_for_a_two_sided_call():
     assert ins is not None
     assert (ins.start, ins.end) == (100, 102)
     assert ins.tsd == "TTA"
+
+
+def test_short_junction_is_removed_before_fullread_filtering():
+    """Reproduce the riceTElib Chr1:22171544 RelocaTE2-only rejection.
+
+    The paired breakpoints imply a 40 bp TSD, but the left flank is only 29 bp.
+    RelocaTE2's TSD_check_cluster cannot match its 40-base wildcard against that
+    flank, so only the 88 bp right junction reaches the full-read filter.
+    """
+    cluster = _Cluster("Chr1")
+    left = JunctionObservation(
+        "cov5x_rep1:clone10:Chr1-37415/1:end:5",
+        "left",
+        22171583,
+        "+",
+        "Os1279#DNAauto/CACTA",
+        "5",
+        "A" * 29,
+        22171555,
+        22171583,
+    )
+    right = JunctionObservation(
+        "cov5x_rep1:baseline:Chr1-182527/1:start:5",
+        "right",
+        22171544,
+        "+",
+        "Os0029#MITE/Stow",
+        "5",
+        "T" * 88,
+        22171544,
+        22171631,
+    )
+    cluster.junctions = [left, right]
+    cluster.extend(22171544, 22171631)
+
+    ins = _make_insertion("Chr1", [left], [right], None, cluster)
+
+    assert ins is not None
+    assert (ins.start, ins.end, ins.tsd) == (22171544, 22171583, "UNK")
+    assert (ins.left_junction_reads, ins.right_junction_reads) == (0, 1)
+    assert ins.read_names == [right.read_name]
+    assert ins.te_name == "Os0029#MITE/Stow"
+    assert ins.strand == "-"
 
 
 def test_impossible_geometry_emits_no_call():

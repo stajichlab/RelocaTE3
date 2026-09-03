@@ -1,4 +1,4 @@
-"""Unit tests for genome re-alignment helpers (Step 4)."""
+"""Tests for the RelocaTE2-compatible step-4 alignment-input planner."""
 
 from __future__ import annotations
 
@@ -14,273 +14,315 @@ from RelocaTE3.aligners import get_aligner
 from RelocaTE3.genome_align import (
     align_flanks_anchored,
     align_to_genome,
-    build_flank_pairs,
     collect_junction_fullreads,
-    recover_support_mates,
+    plan_genome_alignment_inputs,
+    read_te_hit_names,
     split_mate,
     strip_tag,
 )
 from RelocaTE3.ReadLibrary import ReadLibrary
 
 
+def _write_fastq(path: Path, records: list[tuple[str, str]]) -> None:
+    with open(path, "w") as out:
+        for name, sequence in records:
+            out.write(f"@{name}\n{sequence}\n+\n{'I' * len(sequence)}\n")
+
+
 def _rc(seq: str) -> str:
     return seq.translate(str.maketrans("ACGTacgt", "TGCAtgca"))[::-1]
 
-DATA = Path(__file__).parent / "data"
-R1 = DATA / "sim_reads" / "MSU7.Chr3_2M.ALL_reads_6X_100_500_1.fq.gz"
-R2 = DATA / "sim_reads" / "MSU7.Chr3_2M.ALL_reads_6X_100_500_2.fq.gz"
 
-
-def test_strip_tag():
-    assert strip_tag("read_500_1/1:end:5") == "read_500_1/1"
-    assert strip_tag("read_500_1/2:start:3") == "read_500_1/2"
-    assert strip_tag("read_500_1/1:middle") == "read_500_1/1"
-    assert strip_tag("M00:1:2:3/1") == "M00:1:2:3/1"  # real colons preserved
-
-
-def test_split_mate():
-    assert split_mate("read_500_1/1") == ("read_500_1", "1")
-    assert split_mate("read_500_1/2") == ("read_500_1", "2")
+def test_read_name_helpers_and_all_hit_loader(tmp_path: Path):
+    assert strip_tag("read/1:end:5") == "read/1"
+    assert strip_tag("read/2:middle") == "read/2"
+    assert strip_tag("M00:1:2:3/1") == "M00:1:2:3/1"
+    assert split_mate("read/1") == ("read", "1")
     assert split_mate("nomate") == ("nomate", "")
 
+    names = tmp_path / "sample.te_hit_names.txt"
+    names.write_text("read/1\nread/2:middle\n\n")
+    assert read_te_hit_names(names) == {"read/1", "read/2"}
 
-def test_recover_support_mates_pulls_only_unmatched_mates(tmp_path: Path):
-    reads = ReadLibrary([str(R1), str(R2)], "HEG4")
-    # read_500_1/1 matched the TE; its mate /2 did not -> /2 is a supporting read.
-    # read_500_2/1 and /2 both matched -> no support read for that pair.
-    read_repeat = {
-        "read_500_1/1:end:5": ("mPing", "+"),
-        "read_500_2/1:end:5": ("mPing", "+"),
-        "read_500_2/2:start:3": ("mPing", "-"),
+
+def test_pair_planner_ports_complete_relocate2_state_machine(tmp_path: Path):
+    """Exercise J/J, J/M, J/U, J/N, M/M, M/U, and M/N together."""
+    bases = ("jj", "jm", "ju", "jn", "mm", "mu", "mn")
+    r1 = tmp_path / "reads_R1.fq"
+    r2 = tmp_path / "reads_R2.fq"
+    _write_fastq(
+        r1,
+        [(f"{base}/1", "ACAC" if base == "jn" else "AAAA") for base in bases],
+    )
+    _write_fastq(
+        r2,
+        [(f"{base}/2", "GTGT" if base == "mn" else "TTTT") for base in bases],
+    )
+    reads = ReadLibrary([str(r1), str(r2)], "sample")
+
+    left = tmp_path / "sample.left.flankingReads.fq"
+    right = tmp_path / "sample.right.flankingReads.fq"
+    _write_fastq(
+        left,
+        [
+            ("jj/1:end:5", "JJJ1"),
+            ("jm/1:end:5", "JMJ1"),
+            ("ju/1:end:5", "JUJ1"),
+            ("mm/1:middle", "MMM1"),
+            ("mu/1:middle", "MUM1"),
+            ("mn/1:middle", "MNM1"),
+        ],
+    )
+    _write_fastq(
+        right,
+        [
+            ("jj/2:start:3", "JJJ2"),
+            ("jm/2:middle", "JMM2"),
+            ("jn/2:start:3", "JNJ2"),
+            ("mm/2:middle", "MMM2"),
+        ],
+    )
+    all_te_hits = {
+        "jj/1",
+        "jj/2",
+        "jm/1",
+        "jm/2",
+        "ju/1",
+        "ju/2",
+        "jn/2",
+        "mm/1",
+        "mm/2",
+        "mu/1",
+        "mu/2",
+        "mn/1",
     }
-    out_fq = tmp_path / "support.fq"
-    n = recover_support_mates(read_repeat, reads, out_fq)
-    assert n == 1
-    contents = out_fq.read_text()
-    assert "read_500_1/2" in contents
-    assert "read_500_2/2" not in contents  # mate also matched the TE
+    pair1 = tmp_path / "paired_R1.fq"
+    pair2 = tmp_path / "paired_R2.fq"
+    junctions = tmp_path / "junctions.fq"
+    support = tmp_path / "support.fq"
 
-
-def test_recover_support_mates_single_end(tmp_path: Path):
-    reads = ReadLibrary([str(R1)], "HEG4")
-    out_fq = tmp_path / "support.fq"
-    assert (
-        recover_support_mates({"read_500_1/1:end:5": ("mPing", "+")}, reads, out_fq)
-        == 0
+    plan = plan_genome_alignment_inputs(
+        [str(left), str(right)],
+        all_te_hits,
+        reads,
+        pair1,
+        pair2,
+        junctions,
+        support,
     )
 
-
-def test_build_flank_pairs_pairs_flank_with_genomic_mate(tmp_path: Path):
-    """A junction flank whose mate did NOT match the TE is paired with that mate
-    (flank -> R1 keeping its tag; genomic mate -> R2), so the aligner can anchor
-    an ambiguous flank to the mate's unique locus."""
-    reads = ReadLibrary([str(R1), str(R2)], "HEG4")
-    flank_fq = tmp_path / "HEG4.left.flankingReads.fq"
-    flank_fq.write_text("@read_500_1/1:end:5\nACGTACGTAC\n+\nIIIIIIIIII\n")
-    read_repeat = {"read_500_1/1:end:5": ("mPing", "+")}  # /1 matched; /2 is genomic mate
-    r1, r2, se = tmp_path / "r1.fq", tmp_path / "r2.fq", tmp_path / "se.fq"
-    n_pair, n_se, retag = build_flank_pairs([str(flank_fq)], read_repeat, reads, r1, r2, se)
-    assert (n_pair, n_se) == (1, 0)
-    # aligned with neutral matching names; real names restored post-alignment
-    assert "@read_500_1/1\n" in r1.read_text()
-    assert "@read_500_1/2\n" in r2.read_text()
-    assert retag == {"read_500_1": ("read_500_1/1:end:5", "read_500_1/2")}
-    assert se.read_text() == ""
-
-
-def test_build_flank_pairs_se_when_mate_also_matched_te(tmp_path: Path):
-    """A junction flank whose mate ALSO matched the TE has no genomic mate to
-    anchor it, so it falls back to the single-end file (unchanged behavior)."""
-    reads = ReadLibrary([str(R1), str(R2)], "HEG4")
-    flank_fq = tmp_path / "HEG4.left.flankingReads.fq"
-    flank_fq.write_text("@read_500_2/1:end:5\nACGTACGTAC\n+\nIIIIIIIIII\n")
-    read_repeat = {
-        "read_500_2/1:end:5": ("mPing", "+"),
-        "read_500_2/2:start:3": ("mPing", "-"),  # mate also matched -> no anchor
+    assert (plan.paired, plan.single_junctions, plan.support_reads) == (2, 2, 1)
+    assert plan.retag == {
+        "jj": ("jj/1:end:5", "jj/2:start:3"),
+        "jn": ("jn/1", "jn/2:start:3"),
     }
-    r1, r2, se = tmp_path / "r1.fq", tmp_path / "r2.fq", tmp_path / "se.fq"
-    n_pair, n_se, retag = build_flank_pairs([str(flank_fq)], read_repeat, reads, r1, r2, se)
-    assert (n_pair, n_se) == (0, 1)
-    assert retag == {}
-    assert "read_500_2/1:end:5" in se.read_text()
-    assert r1.read_text() == "" and r2.read_text() == ""
+    assert plan.junction_bases == frozenset({"jj", "jm", "ju", "jn"})
+
+    pair1_text, pair2_text = pair1.read_text(), pair2.read_text()
+    assert "JJJ1" in pair1_text and "JJJ2" in pair2_text
+    # J/N with the junction in R2 must retain original mate order.
+    assert "ACAC" in pair1_text and "JNJ2" in pair2_text
+    assert "JMJ1" in junctions.read_text() and "JUJ1" in junctions.read_text()
+    assert "GTGT" in support.read_text()
+    combined = pair1_text + pair2_text + junctions.read_text() + support.read_text()
+    assert "MMM1" not in combined and "MUM1" not in combined
 
 
-def test_build_flank_pairs_skips_te_internal_middle_reads(tmp_path: Path):
-    """``:middle`` reads must never reach the genome aligner (RelocaTE2 parity).
+def test_pair_planner_rejects_inconsistent_step3_artifacts(tmp_path: Path):
+    reads_fq = tmp_path / "reads.fq"
+    flank_fq = tmp_path / "flanks.fq"
+    _write_fastq(reads_fq, [("read", "AAAA")])
+    _write_fastq(flank_fq, [("read:end:5", "AA")])
+    reads = ReadLibrary([str(reads_fq)], "sample")
 
-    A ``:middle`` read lies entirely inside the TE, so it carries no flank and
-    cannot mark a breakpoint -- it is pure transposon sequence that maps to every
-    reference copy of its family. RelocaTE2 drops these before alignment and
-    keeps only their genomic mates (``clean_pairs_memory.py``: "...but not reads
-    themselve as they are part of repeat").
+    with pytest.raises(ValueError, match="absent from the all-TE-hit artifact"):
+        plan_genome_alignment_inputs(
+            [str(flank_fq)],
+            set(),
+            reads,
+            tmp_path / "p1.fq",
+            tmp_path / "p2.fq",
+            tmp_path / "j.fq",
+            tmp_path / "s.fq",
+        )
 
-    RelocaTE3 used to align them: on riceTElib cov30x_rep1, 2,546,333 of
-    3,942,639 genome-BAM records (64.6%) were ``:middle`` where RelocaTE2's
-    equivalent inputs held 0. In ``_stream_clusters`` each one extends its
-    cluster and counts as a supporting read, so they glued unrelated breakpoints
-    together and inflated support at every reference TE copy.
-    """
-    reads = ReadLibrary([str(R1), str(R2)], "HEG4")
-    flank_fq = tmp_path / "HEG4.left.flankingReads.fq"
-    flank_fq.write_text(
-        "@read_500_1/1:end:5\nACGTACGTAC\n+\nIIIIIIIIII\n"      # junction: keep
-        "@read_500_3/1:middle\nTTTTTTTTTT\n+\nIIIIIIIIII\n"      # TE-internal: drop
-    )
-    read_repeat = {
-        "read_500_1/1:end:5": ("mPing", "+"),
-        "read_500_3/1:middle": ("mPing", "+"),
+
+def test_collect_junction_fullreads_uses_tagged_flanks_and_original_records(
+    tmp_path: Path,
+):
+    r1 = tmp_path / "reads_R1.fq"
+    r2 = tmp_path / "reads_R2.fq"
+    r1.write_text("@keep\nAACCGG\n+\nABCDEF\n@middle\nTTTTTT\n+\nGHIJKL\n")
+    r2.write_text("@other\nCCGGTT\n+\nMNOPQR\n")
+    reads = ReadLibrary([str(r1), str(r2)], "sample")
+
+    left = tmp_path / "sample.left.flankingReads.fq"
+    right = tmp_path / "sample.right.flankingReads.fq"
+    left.write_text("@keep/1:end:5\nAAC\n+\nABC\n@middle/1:middle\nTTTTTT\n+\nGHIJKL\n")
+    right.write_text("@other/2:start:3\nGTT\n+\nPQR\n")
+    out = tmp_path / "junction.fullreads.fq"
+
+    count = collect_junction_fullreads([str(left), str(right)], reads, out)
+
+    with pysam.FastxFile(str(out)) as records:
+        observed = {rec.name: (rec.sequence, rec.quality) for rec in records}
+    assert count == 2
+    assert observed == {
+        "keep/1": ("AACCGG", "ABCDEF"),
+        "other/2": ("CCGGTT", "MNOPQR"),
     }
-    r1, r2, se = tmp_path / "r1.fq", tmp_path / "r2.fq", tmp_path / "se.fq"
-    n_pair, n_se, retag = build_flank_pairs(
-        [str(flank_fq)], read_repeat, reads, r1, r2, se
+
+
+def test_collect_junction_fullreads_preserves_pairs_for_mate_anchoring(
+    tmp_path: Path,
+):
+    r1 = tmp_path / "reads_R1.fq"
+    r2 = tmp_path / "reads_R2.fq"
+    _write_fastq(r1, [("pair/1", "AAAACCCC")])
+    _write_fastq(r2, [("pair/2", "GGGGTTTT")])
+    reads = ReadLibrary([str(r1), str(r2)], "sample")
+    flank = tmp_path / "sample.left.flankingReads.fq"
+    _write_fastq(flank, [("pair/2:start:3", "TTTT")])
+    out_r1 = tmp_path / "junction.fullreads.R1.fq"
+    out_r2 = tmp_path / "junction.fullreads.R2.fq"
+
+    count = collect_junction_fullreads(
+        [str(flank)], reads, out_r1, mate_fastq=out_r2
     )
-    written = r1.read_text() + r2.read_text() + se.read_text()
-    assert ":middle" not in written
-    assert "TTTTTTTTTT" not in written, "the TE-internal sequence must not be aligned"
-    # only the junction flank survives, still paired with its genomic mate
-    assert (n_pair, n_se) == (1, 0)
-    assert retag == {"read_500_1": ("read_500_1/1:end:5", "read_500_1/2")}
 
-
-def test_middle_read_mate_is_still_recovered_as_support(tmp_path: Path):
-    """Dropping the middle read must not drop its genomic mate.
-
-    RelocaTE2 keeps that mate -- it lands in unique genome sequence and brackets
-    the insertion, which is exactly what a supporting read is.
-    ``recover_support_mates`` reads the same ``read_repeat`` table, so the mate is
-    picked up there once the middle read is no longer paired with it.
-    """
-    reads = ReadLibrary([str(R1), str(R2)], "HEG4")
-    read_repeat = {"read_500_3/1:middle": ("mPing", "+")}
-    out_fq = tmp_path / "support.fq"
-    n = recover_support_mates(read_repeat, reads, out_fq, exclude=set())
-    assert n == 1, "the middle read's genomic mate must still be aligned"
-    assert "read_500_3/2" in out_fq.read_text()
+    assert count == 1
+    assert "@pair/1\nAAAACCCC" in out_r1.read_text()
+    assert "@pair/2\nGGGGTTTT" in out_r2.read_text()
 
 
 @pytest.mark.skipif(shutil.which("bwa") is None, reason="bwa not available")
-def test_align_to_genome_anchors_ambiguous_flank_to_mate(tmp_path: Path):
-    """An ambiguous junction flank (maps to two identical loci) must be placed at
-    the locus its uniquely-mapping mate anchors, not scattered to the other copy.
-
-    Genome has a duplicated 100 bp block at pos 500 and pos 1500. The flank equals
-    that block (ambiguous). Its mate is unique and sits just past the 1500 copy.
-    Single-end, the flank lands on the first (500) copy; paired with its mate it is
-    anchored to the true (1500) copy.
-    """
+@pytest.mark.parametrize("genome_aligner", ["bwa", "bwaaln"])
+def test_align_to_genome_anchors_ambiguous_flank_to_mate(
+    tmp_path: Path, genome_aligner: str
+):
     rng = random.Random(7)
-    g = [rng.choice("ACGT") for _ in range(2200)]
-    block = "".join(rng.choice("ACGT") for _ in range(100))  # the duplicated repeat
-    g[500:600] = list(block)
-    g[1500:1600] = list(block)
-    anchor = "".join(g[1650:1750])  # unique sequence right of the 1500 copy
-    genome_seq = "".join(g)
-
-    gdir = tmp_path / "g"
-    gdir.mkdir()
-    genome = gdir / "g.fa"
-    genome.write_text(f">chr1\n{genome_seq}\n")
+    genome_bases = [rng.choice("ACGT") for _ in range(2200)]
+    block = "".join(rng.choice("ACGT") for _ in range(100))
+    genome_bases[500:600] = list(block)
+    genome_bases[1500:1600] = list(block)
+    anchor = "".join(genome_bases[1650:1750])
+    genome = tmp_path / "genome.fa"
+    genome.write_text(f">chr1\n{''.join(genome_bases)}\n")
 
     out = tmp_path / "out"
     (out / "flanking").mkdir(parents=True)
-    (out / "flanking" / "S.left.flankingReads.fq").write_text(
-        f"@r1/1:end:5\n{block}\n+\n{'I' * 100}\n"
+    _write_fastq(
+        out / "flanking" / "S.left.flankingReads.fq",
+        [("r1/1:end:5", block)],
     )
-    (out / "te_containing").mkdir(parents=True)
-    (out / "te_containing" / "S.read_repeat_name.txt").write_text("r1/1:end:5\tmPing\t+\n")
+    (out / "te_containing").mkdir()
+    (out / "te_containing" / "S.read_repeat_name.txt").write_text("r1/1\tmPing\t+\n")
+    (out / "te_containing" / "S.te_hit_names.txt").write_text("r1/1\n")
 
-    # ReadLibrary whose R2 holds the flank's genomic mate (reverse-comp of the
-    # unique anchor, so it maps in proper FR orientation just past pos 1500).
-    r1fq = tmp_path / "reads_1.fq"
-    r2fq = tmp_path / "reads_2.fq"
-    r1fq.write_text(f"@r1/1\n{block}\n+\n{'I' * 100}\n")
-    r2fq.write_text(f"@r1/2\n{_rc(anchor)}\n+\n{'I' * 100}\n")
-    reads = ReadLibrary([str(r1fq), str(r2fq)], "S")
+    r1 = tmp_path / "reads_1.fq"
+    r2 = tmp_path / "reads_2.fq"
+    _write_fastq(r1, [("r1/1", block)])
+    _write_fastq(r2, [("r1/2", _rc(anchor))])
+    reads = ReadLibrary([str(r1), str(r2)], "S")
 
-    bam, _ = align_to_genome(reads, str(genome), out, threads=1, genome_aligner="bwa")
-    with pysam.AlignmentFile(str(bam), "rb") as bf:
+    bam, fullreads_bam = align_to_genome(
+        reads, str(genome), out, threads=1, genome_aligner=genome_aligner
+    )
+    with pysam.AlignmentFile(str(bam), "rb") as alignments:
         flank = next(
-            (r for r in bf.fetch(until_eof=True) if r.query_name == "r1/1:end:5"), None
+            rec
+            for rec in alignments.fetch(until_eof=True)
+            if rec.query_name == "r1/1:end:5"
         )
-    assert flank is not None and not flank.is_unmapped
-    # The fix aligns the flank paired with its mate: single-end it carries no mate
-    # (is_paired False) and its placement among identical copies is unanchored.
-    assert flank.is_paired, "flank was not aligned paired with its mate"
-    # and the unique mate anchors it to the 1500 copy, not the 500 copy
-    assert flank.reference_start > 1000, (
-        f"flank landed at {flank.reference_start}; expected near 1500 (mate-anchored)"
-    )
+    assert flank.is_paired and flank.reference_start > 1000
+    assert fullreads_bam is not None
+    with pysam.AlignmentFile(str(fullreads_bam), "rb") as fullread_alignments:
+        fullread = next(
+            rec for rec in fullread_alignments.fetch(until_eof=True) if rec.is_read1
+        )
+    assert fullread.is_paired and fullread.reference_start > 1000
 
 
 @pytest.mark.skipif(shutil.which("bwa") is None, reason="bwa not available")
-def test_align_genome_subcommand_anchors_with_mate(tmp_path: Path):
-    """The `align-genome` CLI subcommand (used by the benchmark) must mate-anchor
-    when given the original reads (-1/-2), matching align_to_genome."""
+def test_align_genome_subcommand_consumes_all_hit_artifact(tmp_path: Path):
     from RelocaTE3.cli import main
 
     rng = random.Random(7)
-    g = [rng.choice("ACGT") for _ in range(2200)]
+    genome_bases = [rng.choice("ACGT") for _ in range(2200)]
     block = "".join(rng.choice("ACGT") for _ in range(100))
-    g[500:600] = list(block)
-    g[1500:1600] = list(block)
-    anchor = "".join(g[1650:1750])
-    genome = tmp_path / "g.fa"
-    genome.write_text(f">chr1\n{''.join(g)}\n")
-
+    genome_bases[500:600] = list(block)
+    genome_bases[1500:1600] = list(block)
+    anchor = "".join(genome_bases[1650:1750])
+    genome = tmp_path / "genome.fa"
+    genome.write_text(f">chr1\n{''.join(genome_bases)}\n")
     (tmp_path / "flanking").mkdir()
     flank = tmp_path / "flanking" / "S.left.flankingReads.fq"
-    flank.write_text(f"@r1/1:end:5\n{block}\n+\n{'I' * 100}\n")
+    _write_fastq(flank, [("r1/1:end:5", block)])
     (tmp_path / "te_containing").mkdir()
-    (tmp_path / "te_containing" / "S.read_repeat_name.txt").write_text(
-        "r1/1:end:5\tmPing\t+\n"
-    )
-    r1fq = tmp_path / "reads_1.fq"
-    r2fq = tmp_path / "reads_2.fq"
-    r1fq.write_text(f"@r1/1\n{block}\n+\n{'I' * 100}\n")
-    r2fq.write_text(f"@r1/2\n{_rc(anchor)}\n+\n{'I' * 100}\n")
+    (tmp_path / "te_containing" / "S.te_hit_names.txt").write_text("r1/1\n")
+    r1, r2 = tmp_path / "reads_1.fq", tmp_path / "reads_2.fq"
+    _write_fastq(r1, [("r1/1", block)])
+    _write_fastq(r2, [("r1/2", _rc(anchor))])
 
-    rc = main([
-        "align-genome", "-g", str(genome), "-f", str(flank),
-        "-n", "S", "-o", str(tmp_path), "--genome-aligner", "bwa", "--threads", "1",
-        "-1", str(r1fq), "-2", str(r2fq),
-    ])
-    assert rc == 0
-    bam = tmp_path / "S.repeat.bwa.sorted.bam"
-    with pysam.AlignmentFile(str(bam), "rb") as bf:
-        f = next((r for r in bf.fetch(until_eof=True) if r.query_name == "r1/1:end:5"), None)
-    assert f is not None and not f.is_unmapped
-    assert f.is_paired, "align-genome subcommand did not mate-anchor the flank"
-    assert f.reference_start > 1000  # anchored to the true (1500) copy
+    assert (
+        main(
+            [
+                "align-genome",
+                "-g",
+                str(genome),
+                "-f",
+                str(flank),
+                "-n",
+                "S",
+                "-o",
+                str(tmp_path),
+                "--genome-aligner",
+                "bwa",
+                "--threads",
+                "1",
+                "-1",
+                str(r1),
+                "-2",
+                str(r2),
+            ]
+        )
+        == 0
+    )
+    with pysam.AlignmentFile(str(tmp_path / "S.repeat.bwa.sorted.bam"), "rb") as bam:
+        record = next(
+            rec for rec in bam.fetch(until_eof=True) if ":end:5" in rec.query_name
+        )
+    assert record.is_paired and record.reference_start > 1000
+
+    fullreads = tmp_path / "genome_aln" / "S.fullreads.genome.bam"
+    assert fullreads.is_file() and fullreads.with_suffix(".bam.bai").is_file()
+    with pysam.AlignmentFile(str(fullreads), "rb") as bam:
+        records = list(bam.fetch(until_eof=True))
+    assert len(records) == 2
+    junction_fullread = next(rec for rec in records if rec.is_read1)
+    assert junction_fullread.is_paired
+    assert junction_fullread.query_sequence == block
+    assert junction_fullread.reference_start > 1000
 
 
 @pytest.mark.skipif(shutil.which("bwa") is None, reason="bwa not available")
 def test_align_flanks_anchored_moves_single_bam_across_devices(
     tmp_path: Path, monkeypatch
 ):
-    """When only one part BAM is produced (all flanks single-end, e.g. the bwa
-    TE-aligner strips mate suffixes), the result must be moved to out_bam even
-    when tmp and out_bam are on different filesystems. Path.replace() raises
-    EXDEV across devices; align_flanks_anchored must move, not rename.
-    """
     rng = random.Random(1)
-    genome = tmp_path / "g.fa"
-    genome.write_text(">chr1\n" + "".join(rng.choice("ACGT") for _ in range(1000)) + "\n")
-
-    flank = tmp_path / "S.left.flankingReads.fq"
-    flank.write_text("@read_500_2/1:end:5\nACGTACGTACGTACGT\n+\nIIIIIIIIIIIIIIII\n")
-    # mate ALSO matched the TE -> flank goes single-end -> exactly one part BAM
-    read_repeat = {
-        "read_500_2/1:end:5": ("mPing", "+"),
-        "read_500_2/2:start:3": ("mPing", "-"),
-    }
-    reads = ReadLibrary([str(R1), str(R2)], "S")
-
-    tmp = tmp_path / "scratch"
-    tmp.mkdir()
+    genome = tmp_path / "genome.fa"
+    genome.write_text(
+        ">chr1\n" + "".join(rng.choice("ACGT") for _ in range(1000)) + "\n"
+    )
+    flank = tmp_path / "flank.fq"
+    _write_fastq(flank, [("read/1:end:5", "ACGTACGTACGTACGT")])
+    reads1, reads2 = tmp_path / "r1.fq", tmp_path / "r2.fq"
+    _write_fastq(reads1, [("read/1", "ACGTACGTACGTACGT")])
+    _write_fastq(reads2, [("read/2", "TGCATGCATGCATGCA")])
+    reads = ReadLibrary([str(reads1), str(reads2)], "S")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
     out_bam = tmp_path / "out" / "S.repeat.bwa.sorted.bam"
-
-    # Simulate a cross-device move only for the final out_bam rename.
     real_replace = Path.replace
 
     def _exdev(self, target):
@@ -289,26 +331,14 @@ def test_align_flanks_anchored_moves_single_bam_across_devices(
         return real_replace(self, target)
 
     monkeypatch.setattr(Path, "replace", _exdev)
-
     result = align_flanks_anchored(
-        get_aligner("bwa", 1), str(genome), [str(flank)], read_repeat, reads,
-        out_bam, threads=1, tmp=str(tmp),
+        get_aligner("bwa", 1),
+        str(genome),
+        [str(flank)],
+        {"read/1", "read/2"},
+        reads,
+        out_bam,
+        threads=1,
+        tmp=str(scratch),
     )
     assert Path(result).exists() and Path(result).stat().st_size > 0
-
-
-def test_collect_junction_fullreads(tmp_path: Path):
-    """Full (untrimmed) sequences are pulled only for 5'/3' junction reads."""
-    reads = ReadLibrary([str(R1), str(R2)], "HEG4")
-    read_repeat = {
-        "read_500_1/1:end:5": ("mPing", "+"),  # junction -> pulled
-        "read_500_2/2:start:3": ("mPing", "-"),  # junction -> pulled
-        "read_500_3/1:middle": ("mPing", "+"),  # middle -> not pulled
-    }
-    out_fq = tmp_path / "full.fq"
-    n = collect_junction_fullreads(read_repeat, reads, out_fq)
-    assert n == 2
-    contents = out_fq.read_text()
-    assert "read_500_1/1" in contents
-    assert "read_500_2/2" in contents
-    assert "read_500_3/1" not in contents

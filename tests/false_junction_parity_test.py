@@ -30,18 +30,19 @@ same information for a few hundred small queries.
 
 from __future__ import annotations
 
-import pytest
-
 from RelocaTE3.insertions import _fullread_false_junction
 from RelocaTE3.models import Insertion
 
 
 class FakeRec:
-    def __init__(self, name, start, end):
+    def __init__(self, name, start, end, *, mate=None):
         self.query_name = name
         self.reference_start = start - 1  # pysam is 0-based
         self.reference_end = end
         self.is_unmapped = False
+        self.is_paired = mate is not None
+        self.is_read1 = mate == 1
+        self.is_read2 = mate == 2
 
 
 class FakeBam:
@@ -132,3 +133,15 @@ def test_mate_suffix_is_stripped_when_matching_full_reads():
     bam = FakeBam([FakeRec("readX", 900, 1100)])
     ins = _ins(1000, 1000, 1, 0, ["readX/2:end:5"])
     assert _fullread_false_junction(bam, ins)
+
+
+def test_paired_fullread_lookup_uses_the_junction_end_not_its_mate():
+    """A spanning non-junction mate must not reject the junction candidate."""
+    bam = FakeBam(
+        [
+            FakeRec("readX", 900, 1100, mate=1),
+            FakeRec("readX", 1200, 1300, mate=2),
+        ]
+    )
+    ins = _ins(1000, 1000, 1, 0, ["readX/2:end:5"])
+    assert not _fullread_false_junction(bam, ins)

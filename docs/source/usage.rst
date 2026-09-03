@@ -25,6 +25,7 @@ chains the stages:
    relocaTE3 align-genome \
      -g reference.fa \
      -f HEG4_out/flanking/HEG4.left.flankingReads.fq HEG4_out/flanking/HEG4.right.flankingReads.fq \
+     -1 reads_1.fq.gz -2 reads_2.fq.gz \
      -n HEG4 -o HEG4_out --threads 8
 
    # 5. call non-reference insertions
@@ -32,6 +33,7 @@ chains the stages:
      -b HEG4_out/HEG4.repeat.minimap.sorted.bam \
      --read-repeat HEG4_out/te_containing/HEG4.read_repeat_name.txt \
      --tsd TTA --target ALL --name HEG4 --outdir HEG4_out --te-name mping \
+     --fullreads-bam HEG4_out/genome_aln/HEG4.fullreads.genome.bam \
      --reference-ins reference.fa.RepeatMasker.out
 
    # 7. genotype the insertions from a reads-to-genome BAM/CRAM

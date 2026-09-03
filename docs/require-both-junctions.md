@@ -39,10 +39,9 @@ Default flipped to **on** in `288cdb1`.
 > mPing `cov30x_rep1`: 407 + 32 + 16 + 5 → 412 = 407 + 5.
 >
 > So `--require-both-junctions` is **RelocaTE2's own behaviour**, not a
-> RelocaTE3 policy layered on top of it. The one thing RelocaTE3 is still
-> missing is RelocaTE2's `supporting_junction` exception — see
-> `todo/supporting-read-counts-not-r2-equivalent.md` for why it cannot be
-> ported yet.
+> RelocaTE3 policy layered on top of it. As of 2026-08-28, RelocaTE3 also
+> retains RelocaTE2's narrow `supporting_junction` exception after correcting
+> the supporting-read population described below.
 
 ## What the measurements say
 
@@ -174,21 +173,17 @@ Two distinct causes, then:
 
 ## Remaining known parity gaps
 
-- RelocaTE3 emits **zero** `supporting_junction` rows on any dataset, so it
-  loses the one class of one-sided call RelocaTE2 keeps (5 calls at mPing 30x,
-  3 at riceTElib 30x — all true positives). The exemption cannot be ported
-  until RelocaTE3's supporting-read counts mean what RelocaTE2's mean.
-  Measured on riceTElib `cov30x_rep1`, restricted to one-sided calls: RelocaTE2
-  has supporting reads on both ends at **1 of 64** sites, RelocaTE3 at
-  **3562 of 4873**. Applying RelocaTE2's rule to RelocaTE3's counts reclassified
-  4441 of 5264 calls as `supporting_junction`, which would sail through the
-  corrected characterize gate and re-create the collapse it was fixed to
-  prevent — so the port was attempted and reverted. `ST:` being hardcoded to 0
-  also makes RelocaTE2's singleton test (`t_supporting + t_count == 1`)
-  unevaluable. Local tracking item:
-  `todo/supporting-read-counts-not-r2-equivalent.md` (that directory is
-  gitignored).
-- `ST` is hardcoded to `ST:0` in the RelocaTE3 writer.
+- **Resolved 2026-08-28:** RelocaTE2 adds only unpaired, non-junction BAM
+  records to `teSupportingReads`; RelocaTE3 added every non-junction record.
+  Applying the legacy predicate reduced eligible one-sided
+  `supporting_junction` candidates from 18 to 6 in riceTElib `cov5x_rep1`,
+  while retaining all 185 two-sided calls. The six comprise all five truth
+  events RelocaTE2 detected alone plus one additional false positive.
+  RelocaTE3 now emits the sentinel class and coordinates, and `ST:` is the real
+  sum of `SR:` and `SL:` rather than a hardcoded zero.
+- Secondary TE-family labels inferred only from supporting reads are still not
+  appended to the primary junction family. This affects exact label strings,
+  not the primary family used by the benchmark scorer.
 - `--mismatch_junction` is collapsed into `--mismatch`.
 - `pipeline.run_sample` and `InsertionFinder` are separate code paths; five
   behavioural differences have hidden in that split so far. Collapsing them is

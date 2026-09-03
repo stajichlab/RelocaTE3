@@ -37,7 +37,7 @@ def _reverse_complement(seq: str) -> str:
 
 
 def _write_bam(tmp_path: Path) -> Path:
-    """One reverse-strand read; TE portion at stored-frame start, flank at end."""
+    """Write one junction plus one admitted but unclassified TE hit."""
     header = {
         "HD": {"VN": "1.6", "SO": "coordinate"},
         "SQ": [{"LN": TE_LEN, "SN": "mping"}],
@@ -58,6 +58,18 @@ def _write_bam(tmp_path: Path) -> Path:
         r.query_qualities = pysam.qualitystring_to_array("I" * READ_LEN)
         r.set_tag("NM", 0)
         bam.write(r)
+
+        weak = pysam.AlignedSegment(bam.header)
+        weak.query_name = "weak_hit"
+        weak.flag = 0
+        weak.reference_id = 0
+        weak.reference_start = 100
+        weak.mapping_quality = 20
+        weak.cigartuples = [(4, 10), (0, 31), (4, 110)]
+        weak.query_sequence = "T" * READ_LEN
+        weak.query_qualities = pysam.qualitystring_to_array("I" * READ_LEN)
+        weak.set_tag("NM", 0)
+        bam.write(weak)
     sorted_bam = tmp_path / "syn.bam"
     pysam.sort("-o", str(sorted_bam), str(raw))
     pysam.index(str(sorted_bam))
@@ -90,3 +102,65 @@ def test_reverse_strand_three_prime_junction_emits_flank(tmp_path):
     expected_flank = _reverse_complement("C" * FLANK_LEN)
     assert len(lines[1]) == FLANK_LEN, len(lines[1])
     assert lines[1] == expected_flank, lines[1]
+
+    # The weak hit satisfies no junction/middle trim branch. RelocaTE2 still
+    # exposes it at the step-3/step-4 seam so it cannot be mistaken for a
+    # genome-only mate.
+    hit_names = outdir / "te_containing" / "syn.te_hit_names.txt"
+    assert set(hit_names.read_text().splitlines()) == {"read1", "weak_hit"}
+    containing = outdir / "te_containing" / "syn.left.ContainingReads.fq"
+    with pysam.FastxFile(str(containing)) as records:
+        assert {record.name for record in records} == {"read1:end:3", "weak_hit"}
+    read_repeat = outdir / "te_containing" / "syn.read_repeat_name.txt"
+    assert [line.split("\t")[0] for line in read_repeat.read_text().splitlines()] == [
+        "read1"
+    ]
+
+
+def test_original_fastq_quality_replaces_synthetic_blat_quality(tmp_path):
+    """Step 3 must trim the original quality string, as RelocaTE2 does."""
+    bam = _write_bam(tmp_path)
+    source = tmp_path / "R1.fastq"
+    original_seq = "G" * FLANK_LEN + "T" * MATCH_LEN
+    original_qual = "!" * FLANK_LEN + "J" * MATCH_LEN
+    source.write_text(
+        f"@read1\n{original_seq}\n+\n{original_qual}\n"
+        f"@weak_hit\n{'T' * READ_LEN}\n+\n{'#' * READ_LEN}\n"
+    )
+
+    outdir = tmp_path / "restored"
+    RelocaTE().write_trimmed_reads(
+        name="syn",
+        direction_bams=[("left", bam)],
+        outdir=outdir,
+        source_fastqs=[source],
+        minimum_match_length=10,
+        minimum_trimmed_length=10,
+        mismatch_allowance=2,
+    )
+
+    flank = outdir / "flanking" / "syn.left.flankingReads.fq"
+    with pysam.FastxFile(str(flank)) as records:
+        record = next(records)
+        assert record.name == "read1:end:3"
+        assert record.sequence == "G" * FLANK_LEN
+        assert record.quality == "!" * FLANK_LEN
+
+    containing = outdir / "te_containing" / "syn.left.ContainingReads.fq"
+    with pysam.FastxFile(str(containing)) as records:
+        by_name = {record.name: record for record in records}
+    assert by_name["read1:end:3"].quality == original_qual
+    assert by_name["weak_hit"].quality == "#" * READ_LEN
+
+
+def test_quality_restoration_uses_source_mate_for_unsuffixed_names(tmp_path):
+    """Illumina-style equal R1/R2 names still resolve to the correct TE BAM."""
+    source = tmp_path / "R2.fastq"
+    source.write_text("@shared 2:N:0:ACGT\nACGT\n+\n!#%J\n")
+    coord = {"shared/2": {"seq": "ACGT", "qual": "IIII"}}
+
+    restored = RelocaTE._restore_original_fastq(coord, source, mate="2")
+
+    assert restored == 1
+    assert coord["shared/2"]["seq"] == "ACGT"
+    assert coord["shared/2"]["qual"] == "!#%J"

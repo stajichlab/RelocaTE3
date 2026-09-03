@@ -34,6 +34,28 @@ def test_main_map(monkeypatch: Generator):
     assert mockreturn.args.te_library == "te.fa"
 
 
+def test_main_trim_accepts_original_fastqs(monkeypatch: Generator):
+    """The staged trim command can restore FASTQ qualities after BLAT mapping."""
+    monkeypatch.setattr(cli, "cmd_trim", mockreturn)
+    assert (
+        main(
+            [
+                "trim",
+                "-b",
+                "left.bam",
+                "right.bam",
+                "-f",
+                "R1.fastq.gz",
+                "R2.fastq.gz",
+                "-n",
+                "HEG4",
+            ]
+        )
+        == 0
+    )
+    assert mockreturn.args.fastq == ["R1.fastq.gz", "R2.fastq.gz"]
+
+
 def test_main_map_verbose(monkeypatch: Generator, caplog: pytest.LogCaptureFixture):
     monkeypatch.setattr(cli, "cmd_map", mockreturn)
     with caplog.at_level(logging.DEBUG):
@@ -94,21 +116,44 @@ def test_te_and_genome_opts_are_parsed_and_shlex_split():
     parser = build_parser()
 
     te = parser.parse_args(
-        ["run", "-l", "r1.fq", "-T", "te.fa", "-n", "s", "-o", "out",
-         "--te-aligner", "blat", "--te-opts=-minIdentity=80"]
+        [
+            "run",
+            "-l",
+            "r1.fq",
+            "-T",
+            "te.fa",
+            "-n",
+            "s",
+            "-o",
+            "out",
+            "--te-aligner",
+            "blat",
+            "--te-opts=-minIdentity=80",
+        ]
     )
     assert split_aligner_opts(te.te_opts) == ["-minIdentity=80"]
 
     # multi-token values must split on whitespace, not be passed as one arg
     mapped = parser.parse_args(
-        ["map", "-l", "r1.fq", "-T", "te.fa", "-n", "s", "-o", "out",
-         "--te-opts=-B 4"]
+        ["map", "-l", "r1.fq", "-T", "te.fa", "-n", "s", "-o", "out", "--te-opts=-B 4"]
     )
     assert split_aligner_opts(mapped.te_opts) == ["-B", "4"]
 
     genome = parser.parse_args(
-        ["align-genome", "-g", "ref.fa", "-f", "f.fq", "-n", "s", "-o", "out",
-         "--genome-aligner", "bwaaln", "--genome-opts=-n 0.10"]
+        [
+            "align-genome",
+            "-g",
+            "ref.fa",
+            "-f",
+            "f.fq",
+            "-n",
+            "s",
+            "-o",
+            "out",
+            "--genome-aligner",
+            "bwaaln",
+            "--genome-opts=-n 0.10",
+        ]
     )
     assert split_aligner_opts(genome.genome_opts) == ["-n", "0.10"]
 
@@ -128,11 +173,16 @@ def test_main_find_reference_parses_args(monkeypatch: Generator):
         main(
             [
                 "find-reference",
-                "-b", "g.bam",
-                "-R", "read_repeat.txt",
-                "--repeatmasker", "rm.out",
-                "-n", "HEG4",
-                "-o", "out",
+                "-b",
+                "g.bam",
+                "-R",
+                "read_repeat.txt",
+                "--repeatmasker",
+                "rm.out",
+                "-n",
+                "HEG4",
+                "-o",
+                "out",
             ]
         )
         == 0
@@ -184,11 +234,16 @@ def test_find_reference_writes_ref_insert_outputs(tmp_path):
     rc = main(
         [
             "find-reference",
-            "-b", str(bam_path),
-            "-R", str(read_repeat),
-            "--repeatmasker", str(rm),
-            "-n", "HEG4",
-            "-o", str(outdir),
+            "-b",
+            str(bam_path),
+            "-R",
+            str(read_repeat),
+            "--repeatmasker",
+            str(rm),
+            "-n",
+            "HEG4",
+            "-o",
+            str(outdir),
         ]
     )
     assert rc == 0
@@ -216,19 +271,33 @@ def test_main_run_all_parses_args(monkeypatch: Generator):
         main(
             [
                 "run-all",
-                "-1", "r1.fq", "-2", "r2.fq",
-                "-T", "te.fa",
-                "-g", "ref.fa",
-                "-n", "HEG4",
-                "-o", "out",
-                "--threads", "4",
-                "--te-aligner", "blat",
-                "--genome-aligner", "bwaaln",
-                "--tsd", "UNK",
-                "--mismatch", "2",
-                "--min-mapq", "1",
+                "-1",
+                "r1.fq",
+                "-2",
+                "r2.fq",
+                "-T",
+                "te.fa",
+                "-g",
+                "ref.fa",
+                "-n",
+                "HEG4",
+                "-o",
+                "out",
+                "--threads",
+                "4",
+                "--te-aligner",
+                "blat",
+                "--genome-aligner",
+                "bwaaln",
+                "--tsd",
+                "UNK",
+                "--mismatch",
+                "2",
+                "--min-mapq",
+                "1",
                 "--require-both-junctions",
-                "--repeatmasker", "rm.out",
+                "--repeatmasker",
+                "rm.out",
                 "--genotype",
             ]
         )
@@ -252,9 +321,14 @@ def _fake_stage_outputs(outdir, sample: str, aligner: str = "bwaaln"):
     (outdir / "te_containing" / f"{sample}.read_repeat_name.txt").write_text(
         "r1\tmPing\t+\n"
     )
+    (outdir / "te_containing" / f"{sample}.te_hit_names.txt").write_text("r1\n")
     (outdir / "flanking").mkdir(parents=True, exist_ok=True)
-    (outdir / "flanking" / f"{sample}.left.flankingReads.fq").write_text("@r1\nA\n+\nI\n")
+    (outdir / "flanking" / f"{sample}.left.flankingReads.fq").write_text(
+        "@r1\nA\n+\nI\n"
+    )
     (outdir / f"{sample}.repeat.{aligner}.sorted.bam").write_bytes(b"")
+    (outdir / "genome_aln").mkdir(parents=True, exist_ok=True)
+    (outdir / "genome_aln" / f"{sample}.fullreads.genome.bam").write_bytes(b"")
     (outdir / "results").mkdir(parents=True, exist_ok=True)
 
 
@@ -274,6 +348,7 @@ def test_run_all_delegates_to_the_staged_commands(monkeypatch, tmp_path):
         def _inner(args):
             calls.append((tag, args))
             return 0
+
         return _inner
 
     monkeypatch.setattr(cli, "cmd_index_genome", rec("index-genome"))
@@ -288,20 +363,35 @@ def test_run_all_delegates_to_the_staged_commands(monkeypatch, tmp_path):
     rc = main(
         [
             "run-all",
-            "-1", "r1.fq", "-2", "r2.fq",
-            "-T", "te.fa",
-            "-g", "ref.fa",
-            "-n", "HEG4",
-            "-o", str(tmp_path),
-            "--threads", "4",
-            "--te-aligner", "blat",
-            "--genome-aligner", "bwaaln",
-            "--tsd", "UNK",
-            "--te-name", "riceTElib",
-            "--mismatch", "2",
-            "--min-mapq", "1",
+            "-1",
+            "r1.fq",
+            "-2",
+            "r2.fq",
+            "-T",
+            "te.fa",
+            "-g",
+            "ref.fa",
+            "-n",
+            "HEG4",
+            "-o",
+            str(tmp_path),
+            "--threads",
+            "4",
+            "--te-aligner",
+            "blat",
+            "--genome-aligner",
+            "bwaaln",
+            "--tsd",
+            "UNK",
+            "--te-name",
+            "riceTElib",
+            "--mismatch",
+            "2",
+            "--min-mapq",
+            "1",
             "--require-both-junctions",
-            "--repeatmasker", "rm.out",
+            "--repeatmasker",
+            "rm.out",
         ]
     )
     assert rc == 0
@@ -330,6 +420,9 @@ def test_run_all_delegates_to_the_staged_commands(monkeypatch, tmp_path):
     # the default (which is 0 -- see relocate2_defaults_test.py).
     assert fi.require_both_junctions is True and fi.min_mapq == 1
     assert fi.reference_ins == "rm.out"
+    assert fi.fullreads_bam == str(
+        tmp_path / "genome_aln" / "HEG4.fullreads.genome.bam"
+    )
 
 
 def test_run_all_skips_optional_stages_when_not_requested(monkeypatch, tmp_path):
@@ -340,6 +433,7 @@ def test_run_all_skips_optional_stages_when_not_requested(monkeypatch, tmp_path)
         def _inner(args):
             calls.append(tag)
             return 0
+
         return _inner
 
     for name, tag in [
@@ -355,8 +449,19 @@ def test_run_all_skips_optional_stages_when_not_requested(monkeypatch, tmp_path)
     _fake_stage_outputs(tmp_path, "S", aligner="minimap")
 
     rc = main(
-        ["run-all", "-1", "r1.fq", "-T", "te.fa", "-g", "ref.fa",
-         "-n", "S", "-o", str(tmp_path)]
+        [
+            "run-all",
+            "-1",
+            "r1.fq",
+            "-T",
+            "te.fa",
+            "-g",
+            "ref.fa",
+            "-n",
+            "S",
+            "-o",
+            str(tmp_path),
+        ]
     )
     assert rc == 0
     assert "find-reference" not in calls
@@ -386,8 +491,22 @@ def _sheet(tmp_path, n=2):
 def test_main_run_batch_parses_args(monkeypatch: Generator, tmp_path):
     monkeypatch.setattr(cli, "cmd_run_batch", mockreturn)
     sheet = _sheet(tmp_path)
-    assert main(["run-batch", "--samples", str(sheet), "-T", "te.fa",
-                 "-g", "ref.fa", "-o", str(tmp_path / "out")]) == 0
+    assert (
+        main(
+            [
+                "run-batch",
+                "--samples",
+                str(sheet),
+                "-T",
+                "te.fa",
+                "-g",
+                "ref.fa",
+                "-o",
+                str(tmp_path / "out"),
+            ]
+        )
+        == 0
+    )
     assert mockreturn.args.samples == str(sheet)
     assert mockreturn.args.te_library == "te.fa"
 
@@ -399,16 +518,33 @@ def test_run_batch_runs_each_sample_in_its_own_subdir(monkeypatch, tmp_path):
     def fake_run_all(args):
         seen.append(args)
         Path(args.outdir, "results").mkdir(parents=True, exist_ok=True)
-        Path(args.outdir, "results", "ALL.repeat.all_nonref_insert.txt").write_text("x\n")
+        Path(args.outdir, "results", "ALL.repeat.all_nonref_insert.txt").write_text(
+            "x\n"
+        )
         return 0
 
     monkeypatch.setattr(cli, "cmd_run_all", fake_run_all)
     sheet = _sheet(tmp_path, n=3)
     out = tmp_path / "out"
 
-    rc = main(["run-batch", "--samples", str(sheet), "-T", "te.fa", "-g", "ref.fa",
-               "-o", str(out), "--threads", "4", "--te-aligner", "blat",
-               "--require-both-junctions"])
+    rc = main(
+        [
+            "run-batch",
+            "--samples",
+            str(sheet),
+            "-T",
+            "te.fa",
+            "-g",
+            "ref.fa",
+            "-o",
+            str(out),
+            "--threads",
+            "4",
+            "--te-aligner",
+            "blat",
+            "--require-both-junctions",
+        ]
+    )
     assert rc == 0
     assert [a.name for a in seen] == ["S0", "S1", "S2"]
     assert [Path(a.outdir).name for a in seen] == ["S0", "S1", "S2"]
@@ -429,8 +565,19 @@ def test_run_batch_per_row_overrides_beat_the_global_flags(monkeypatch, tmp_path
     sheet = tmp_path / "s.csv"
     sheet.write_text(f"sample_id,r1_fq,te_library\nX,{r1},{te}\n")
 
-    main(["run-batch", "--samples", str(sheet), "-T", "global_TE.fa",
-          "-g", "ref.fa", "-o", str(tmp_path / "out")])
+    main(
+        [
+            "run-batch",
+            "--samples",
+            str(sheet),
+            "-T",
+            "global_TE.fa",
+            "-g",
+            "ref.fa",
+            "-o",
+            str(tmp_path / "out"),
+        ]
+    )
     assert seen[0].te_library == str(te)
 
 
@@ -445,13 +592,36 @@ def test_run_batch_skips_completed_samples_and_force_reruns(monkeypatch, tmp_pat
     done.mkdir(parents=True)
     (done / "ALL.repeat.all_nonref_insert.txt").write_text("already done\n")
 
-    main(["run-batch", "--samples", str(sheet), "-T", "te.fa", "-g", "ref.fa",
-          "-o", str(out)])
+    main(
+        [
+            "run-batch",
+            "--samples",
+            str(sheet),
+            "-T",
+            "te.fa",
+            "-g",
+            "ref.fa",
+            "-o",
+            str(out),
+        ]
+    )
     assert calls == ["S1"], "completed sample should be skipped"
 
     calls.clear()
-    main(["run-batch", "--samples", str(sheet), "-T", "te.fa", "-g", "ref.fa",
-          "-o", str(out), "--force"])
+    main(
+        [
+            "run-batch",
+            "--samples",
+            str(sheet),
+            "-T",
+            "te.fa",
+            "-g",
+            "ref.fa",
+            "-o",
+            str(out),
+            "--force",
+        ]
+    )
     assert calls == ["S0", "S1"], "--force should redo everything"
 
 
@@ -467,12 +637,26 @@ def test_run_batch_reports_failures_and_exits_nonzero(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli, "cmd_run_all", flaky)
     sheet = _sheet(tmp_path, n=3)
-    rc = main(["run-batch", "--samples", str(sheet), "-T", "te.fa", "-g", "ref.fa",
-               "-o", str(tmp_path / "out"), "--keep-going"])
-    assert rc != 0, "batch with a failed sample must exit non-zero"
-    assert attempted == ["S0", "S1", "S2"], (
-        "--keep-going must carry on past the failure, not stop at it"
+    rc = main(
+        [
+            "run-batch",
+            "--samples",
+            str(sheet),
+            "-T",
+            "te.fa",
+            "-g",
+            "ref.fa",
+            "-o",
+            str(tmp_path / "out"),
+            "--keep-going",
+        ]
     )
+    assert rc != 0, "batch with a failed sample must exit non-zero"
+    assert attempted == [
+        "S0",
+        "S1",
+        "S2",
+    ], "--keep-going must carry on past the failure, not stop at it"
 
 
 def test_run_batch_stops_at_first_failure_by_default(monkeypatch, tmp_path):
@@ -484,8 +668,19 @@ def test_run_batch_stops_at_first_failure_by_default(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli, "cmd_run_all", flaky)
     sheet = _sheet(tmp_path, n=3)
-    rc = main(["run-batch", "--samples", str(sheet), "-T", "te.fa", "-g", "ref.fa",
-               "-o", str(tmp_path / "out")])
+    rc = main(
+        [
+            "run-batch",
+            "--samples",
+            str(sheet),
+            "-T",
+            "te.fa",
+            "-g",
+            "ref.fa",
+            "-o",
+            str(tmp_path / "out"),
+        ]
+    )
     assert rc != 0
     assert attempted == ["S0"], "should stop rather than burn the whole cohort"
 
@@ -501,8 +696,19 @@ def test_run_batch_accepts_a_fastq_directory(monkeypatch, tmp_path):
         for mate in ("R1", "R2"):
             (fq / f"{base}_{mate}.fastq.gz").write_text("@r\nACGT\n+\nIIII\n")
 
-    rc = main(["run-batch", "--fq-dir", str(fq), "-T", "te.fa", "-g", "ref.fa",
-               "-o", str(tmp_path / "out")])
+    rc = main(
+        [
+            "run-batch",
+            "--fq-dir",
+            str(fq),
+            "-T",
+            "te.fa",
+            "-g",
+            "ref.fa",
+            "-o",
+            str(tmp_path / "out"),
+        ]
+    )
     assert rc == 0
     assert seen == ["alpha", "beta"]
 

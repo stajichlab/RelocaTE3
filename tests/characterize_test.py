@@ -250,6 +250,60 @@ class TestCharacterizer(unittest.TestCase):
             # only the header should be present
             self.assertEqual(len(Path(txt_path).read_text().splitlines()), 1)
 
+    def test_preserves_te_family_evidence_metadata(self):
+        """Step 7 appends family evidence without changing its first eight columns."""
+        with tempfile.TemporaryDirectory() as workdir:
+            bam_path = os.path.join(workdir, "reads.bam")
+            _write_bam(bam_path, "Chr1", 2000, [])
+
+            sites_file = os.path.join(workdir, "HEG4.mping.all_nonref.txt")
+            with open(sites_file, "w") as fh:
+                fh.write(
+                    "mPing\tTTA\tHEG4\tChr1\t998..1000\t+\tT:3\tR:2\tL:1\t"
+                    "ST:0\tSR:0\tSL:0\t"
+                    "TE_family_support:mPing=2,RIRE3=1\t"
+                    "TE_family_confidence:0.666667\t"
+                    "TE_family_status:dominant\t"
+                    "TE_supporting_family_support:RIRE3=2\t"
+                    "TE_supporting_family_confidence:1.000000\t"
+                    "TE_supporting_family_status:unique\t"
+                    "TE_family_concordance:discordant\n"
+                )
+
+            txt_path, gff_path = Characterizer().characterize(
+                sites_file=Path(sites_file),
+                bam_files=[Path(bam_path)],
+                outdir=Path(workdir),
+            )
+
+            header, row = Path(txt_path).read_text().splitlines()
+            assert header.split("\t")[-7:] == [
+                "TE_family_support",
+                "TE_family_confidence",
+                "TE_family_status",
+                "TE_supporting_family_support",
+                "TE_supporting_family_confidence",
+                "TE_supporting_family_status",
+                "TE_family_concordance",
+            ]
+            assert row.split("\t")[-7:] == [
+                "mPing=2,RIRE3=1",
+                "0.666667",
+                "dominant",
+                "RIRE3=2",
+                "1.000000",
+                "unique",
+                "discordant",
+            ]
+            gff = Path(gff_path).read_text()
+            assert "TE_family_support=mPing=2,RIRE3=1;" in gff
+            assert "TE_family_confidence=0.666667;" in gff
+            assert "TE_family_status=dominant;" in gff
+            assert "TE_supporting_family_support=RIRE3=2;" in gff
+            assert "TE_supporting_family_confidence=1.000000;" in gff
+            assert "TE_supporting_family_status=unique;" in gff
+            assert "TE_family_concordance=discordant" in gff
+
 
 if __name__ == "__main__":
     unittest.main()

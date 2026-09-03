@@ -129,6 +129,7 @@ relocaTE3 run \
 relocaTE3 align-genome \
   -g reference.fa \
   -f HEG4_out/flanking/HEG4.left.flankingReads.fq HEG4_out/flanking/HEG4.right.flankingReads.fq \
+  -1 reads_1.fq.gz -2 reads_2.fq.gz \
   -n HEG4 -o HEG4_out --threads 8
 
 # 5. cluster junction/supporting reads into non-reference insertions
@@ -136,6 +137,7 @@ relocaTE3 find-insertions \
   -b HEG4_out/HEG4.repeat.bwaaln.sorted.bam \
   --read-repeat HEG4_out/te_containing/HEG4.read_repeat_name.txt \
   --target ALL --name HEG4 --outdir HEG4_out --te-name mping \
+  --fullreads-bam HEG4_out/genome_aln/HEG4.fullreads.genome.bam \
   --reference-ins reference.fa.RepeatMasker.out
 
 # 7. genotype the insertions from a reads-to-genome BAM/CRAM
@@ -188,6 +190,9 @@ Under `--outdir` (example for `--name HEG4`, and `find-insertions --te-name mpin
 HEG4.left.bam / HEG4.right.bam            reads aligned to the TE library (map)
 HEG4.repeat.bwaaln.sorted.bam            flanking reads aligned to the genome (align-genome;
                                           named for the aligner, minimap2 abbreviates to "minimap")
+genome_aln/
+  HEG4.fullreads.genome.bam              original junction reads aligned with the same genome
+                                          aligner for RelocaTE2 false-junction filtering
 flanking/
   HEG4.left.flankingReads.fq             trimmed flanking reads (5'/3')
   HEG4.right.flankingReads.fq
@@ -216,8 +221,15 @@ existingTE.bed                                           reference TE copies (fi
 > may still differ byte-for-byte between runs; the tables under `results/` are
 > the reproducible artifacts.
 
-The characterized GFF carries the RelocaTE2 attribute set: `TSD`, `Name` (TE
-family), `Note`, and `Left/Right_junction_reads` and `Left/Right_support_reads`.
+The characterized GFF carries the RelocaTE2 attribute set: `TSD`, `Name` (the
+single primary TE family), `Note`, and `Left/Right_junction_reads` and
+`Left/Right_support_reads`. RelocaTE3 appends junction-read family evidence as
+`TE_family_support`, `TE_family_confidence`, and `TE_family_status`. It reports
+the weaker, indirect mate evidence separately as `TE_supporting_family_support`,
+`TE_supporting_family_confidence`, and `TE_supporting_family_status`, with
+`TE_family_concordance` describing whether the two evidence classes agree. The
+single primary family remains junction-driven rather than joining disagreeing
+assignments into a compound family name.
 
 ## Migrating from RelocaTE2
 

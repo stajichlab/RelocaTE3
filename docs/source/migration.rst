@@ -67,10 +67,15 @@ Output differences
 ------------------
 
 - Output files use hyphens in file names where RelocaTE2 used underscores.
-- The GFF ``attributes`` field is identical so the same downstream parsers work.
-- The ``.txt`` summary is tab-delimited (same schema as RelocaTE2).
-- A ``<sample>.fullreads.genome.bam`` is now written alongside the flanking BAM
-  and is used for false-junction filtering (not present in RelocaTE2).
+- The original RelocaTE2 GFF attributes keep the same names and positions;
+  RelocaTE3 appends separate junction- and supporting-family evidence plus a
+  concordance attribute. The primary family remains junction-driven rather
+  than using RelocaTE2's slash-joined compound label.
+- The ``.txt`` summary keeps the RelocaTE2 columns in place and appends the
+  same family-evidence metadata.
+- A junction-only ``genome_aln/<sample>.fullreads.genome.bam`` is written with
+  the same genome aligner as the flanking BAM and is used for RelocaTE2's
+  full-read false-junction filter.
 
 Multi-sample runs
 -----------------
