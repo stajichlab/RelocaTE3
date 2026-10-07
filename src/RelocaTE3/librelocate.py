@@ -213,6 +213,10 @@ class RelocaTE:
                     minimum_trimmed_length,
                     mismatch_allowance,
                 )
+                # The next assignment evaluates _parse_te_bam before replacing
+                # coord. Release this completed mate now so both mates' large
+                # record dictionaries are never retained at the same time.
+                del coord
         logger.info(
             "Wrote %d flanking reads; read_repeat table at %s",
             flank_written,

@@ -6,6 +6,7 @@
 
 # generated test output
 tests/results/
+results/memory-profile/
 .DS_Store
 # Byte-compiled / optimized / DLL files
 __pycache__/

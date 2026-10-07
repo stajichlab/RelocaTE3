@@ -22,7 +22,7 @@ import subprocess
 import tempfile
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 import pysam
@@ -519,7 +519,16 @@ def _revcomp(seq: str) -> str:
 
 
 def psl_to_sam(psl_lines, sequences=None):
-    """Convert headerless BLAT PSL records to SAM alignment lines.
+    """Return SAM lines as a list, preserving the existing converter interface.
+
+    Production file writing uses ``_iter_psl_to_sam`` directly to avoid
+    retaining every converted alignment. Both paths share conversion logic.
+    """
+    return list(_iter_psl_to_sam(psl_lines, sequences=sequences))
+
+
+def _iter_psl_to_sam(psl_lines, sequences=None):
+    """Yield SAM lines in input order, retaining only the current alignment.
 
     Handles the common short-read case (single or multi-block, ungapped or with
     small gaps). CIGAR is soft-clip + M/I/D from block coordinates; ``NM`` is the
@@ -536,7 +545,6 @@ def psl_to_sam(psl_lines, sequences=None):
     trim step can emit flanking reads, since BLAT's PSL carries no sequence. When
     omitted, SEQ is ``*``.
     """
-    out = []
     for line in psl_lines:
         f = line.rstrip("\n").split("\t")
         if len(f) < 21 or not f[0].isdigit():
@@ -589,10 +597,9 @@ def psl_to_sam(psl_lines, sequences=None):
             s = sequences.get(qname)
             if s:
                 seq_field = _revcomp(s) if strand == "-" else s
-        out.append(
+        yield (
             f"{qname}\t{flag}\t{tname}\t{pos}\t255\t{cigar_str}\t*\t0\t0\t{seq_field}\t*\tNM:i:{nm}"
         )
-    return out
 
 
 class BlatBackend(AlignerBackend):
@@ -748,9 +755,11 @@ class BlatBackend(AlignerBackend):
         """Load sequences for just the reads BLAT matched.
 
         BLAT's PSL carries no sequence, so the PSL->SAM conversion needs the
-        query sequences to fill SEQ. Only matched reads are needed -- a few
-        thousand out of tens of millions -- so pull those by name rather than
-        holding the whole library in memory.
+        query sequences to fill SEQ. Retain only matched reads, which can still
+        number in the millions for a complex TE library. Stream the selected
+        FASTA without retaining an additional whole-output string/line list.
+        The seqtk path spools to a temporary file so subprocess failure is
+        checked before parsing, without buffering its stdout in Python memory.
         """
         names: set[str] = set()
         with open(psl) as ph:
@@ -762,26 +771,28 @@ class BlatBackend(AlignerBackend):
             return {}
 
         seqs: dict[str, str] = {}
-        if shutil.which("seqtk") is not None:
-            names_file = os.path.join(tmpdir, "matched.names")
-            with open(names_file, "w") as fh:
-                fh.write("\n".join(names) + "\n")
-            proc = subprocess.run(
-                ["seqtk", "subseq", str(query_fa), names_file],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            stream = proc.stdout.splitlines()
-        else:
-            with open(query_fa) as fh:
-                stream = fh.read().splitlines()
-        name = None
-        for line in stream:
-            if line.startswith(">"):
-                name = line[1:].split()[0]
-            elif name is not None and name in names:
-                seqs[name] = seqs.get(name, "") + line.strip()
+        with ExitStack() as stack:
+            if shutil.which("seqtk") is not None:
+                names_file = os.path.join(tmpdir, "matched.names")
+                with open(names_file, "w") as fh:
+                    fh.writelines(f"{name}\n" for name in names)
+                stream = stack.enter_context(
+                    tempfile.TemporaryFile(mode="w+t", dir=tmpdir)
+                )
+                subprocess.run(
+                    ["seqtk", "subseq", str(query_fa), names_file],
+                    stdout=stream,
+                    check=True,
+                )
+                stream.seek(0)
+            else:
+                stream = stack.enter_context(open(query_fa))
+            name = None
+            for line in stream:
+                if line.startswith(">"):
+                    name = line[1:].split()[0]
+                elif name is not None and name in names:
+                    seqs[name] = seqs.get(name, "") + line.strip()
         return seqs
 
     def _blat_side(self, te_library, read_file, out_bam, threads, tmpdir):
@@ -830,8 +841,11 @@ class BlatBackend(AlignerBackend):
             for r, ln in ref_lengths.items():
                 fh.write(f"@SQ\tSN:{r}\tLN:{ln}\n")
             with open(psl) as ph:
-                for rec in psl_to_sam(ph, sequences=seqs):
+                for rec in _iter_psl_to_sam(ph, sequences=seqs):
                     fh.write(rec + "\n")
+        # SAM now owns the sequences; sorting must not overlap its buffers
+        # with the no-longer-needed query-sequence dictionary.
+        del seqs
         return _sam_to_sorted_mapped_bam(sam, out_bam, threads)
 
     def map_te_library(
