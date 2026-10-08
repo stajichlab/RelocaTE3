@@ -1921,15 +1921,25 @@ def _maps_through(
 FULLREAD_WINDOW = 500
 
 
+def _is_intact_fullread(record) -> bool:
+    """At most ten query bases unaligned, following R2's intact-read rule."""
+    sequence = getattr(record, "query_sequence", None)
+    if getattr(record, "is_unmapped", False) or sequence is None:
+        return False
+    aligned = sum(
+        length for op, length in record.cigartuples or () if op in (0, 1, 7, 8)
+    )
+    return aligned >= len(sequence) - 10
 
 
 def _fullread_false_junction(fullreads_bam, ins: Insertion) -> bool:
-    """True when the untrimmed reads map straight through the breakpoint.
+    """Reject junctions opposed by spanning or locally intact original reads.
 
-    RelocaTE2's rule (relocaTE_insertionFinder.py:212-221): if at least 30% of a
-    side's junction reads have a *full* (untrimmed) alignment spanning the
-    breakpoint, the read never crossed a junction and the site is a reference
-    locus, not an insertion.
+    Reject if >=30% on each side span the breakpoint, OR >=30% on each side
+    align nearly completely within the same-contig FULLREAD_WINDOW fetch.
+    These are separate tests; evidence types are not pooled across sides.
+    Intact coverage counts M/I/=/X, with at most ten query bases unaligned.
+    Remote intact alignments do not veto genuine junctions at another locus.
 
     Two differences from the older ``_is_false_junction``:
 
@@ -1940,7 +1950,7 @@ def _fullread_false_junction(fullreads_bam, ins: Insertion) -> bool:
     * **The lookup is region-scoped.** ``_load_fullread_spans`` builds a dict of
       every read name in the BAM, which is 74.6M entries for the shipped
       ``original_reads`` BAM and never completes. One bounded fetch per
-      candidate answers the same question.
+      candidate bounds both spanning and intact-read evidence.
     """
     if fullreads_bam is None:
         return False
@@ -1952,28 +1962,46 @@ def _fullread_false_junction(fullreads_bam, ins: Insertion) -> bool:
     lo = max(0, min(ins.start, ins.end) - FULLREAD_WINDOW)
     hi = max(ins.start, ins.end) + FULLREAD_WINDOW
     spans: dict[str, list[tuple[str, int, int]]] = {}
+    intact: set[str] = set()
     try:
         records = fullreads_bam.fetch(ins.chrom, lo, hi)
     except (ValueError, KeyError):  # contig absent from the full-reads BAM
         return False
     for rec in records:
+        key = _fullread_record_key(rec)
+        if getattr(rec, "query_sequence", None) is not None:
+            if _is_intact_fullread(rec):
+                intact.add(key)
+            else:
+                intact.discard(key)
         if getattr(rec, "is_unmapped", False):
             continue
-        spans.setdefault(_fullread_record_key(rec), []).append(
+        spans.setdefault(key, []).append(
             (ins.chrom, rec.reference_start + 1, rec.reference_end)
         )
 
     left_names = ins.read_names[:left_total]
     right_names = ins.read_names[left_total:]
     left_full = sum(
-        1 for t in left_names
+        1
+        for t in left_names
         if _maps_through(_matching_fullread_spans(spans, t), ins.chrom, ins.end)
     )
     right_full = sum(
-        1 for t in right_names
+        1
+        for t in right_names
         if _maps_through(_matching_fullread_spans(spans, t), ins.chrom, ins.start)
     )
-    return left_full >= 0.3 * left_total and right_full >= 0.3 * right_total
+
+    def locally_intact(name):
+        key = _junction_fullread_key(name)
+        return key in intact or _fullread_key(key) in intact
+
+    left_intact = sum(locally_intact(name) for name in left_names)
+    right_intact = sum(locally_intact(name) for name in right_names)
+    return (left_full >= 0.3 * left_total and right_full >= 0.3 * right_total) or (
+        left_intact >= 0.3 * left_total and right_intact >= 0.3 * right_total
+    )
 
 
 def find_insertions(
