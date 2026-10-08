@@ -1,5 +1,11 @@
 # Future Features Roadmap — Post-Parity Capabilities
 
+Current maintainer direction (2026-10-02): see
+[`docs/2026-10-02-release-first-direction.md`](../docs/2026-10-02-release-first-direction.md).
+Stabilize and validate short-read RelocaTE2 utility before executing this roadmap.
+That note supersedes speculative biological/implementation claims below; retain
+this document as planning history, not a statement of validated capabilities.
+
 > **For Claude / a future maintainer:** This is a **roadmap** document for capability work that lands *after* R3 has closed the parity gap and gained a simulated benchmark (see `plans/PERFORMANCE.md`). Do NOT attempt to execute this file task-by-task. When a feature is ready to work on, write a dated implementation plan alongside it (e.g. `plans/2026-08-XX-rust-hotspot.md`) with failing-test → fix → measurement structure, using `superpowers:writing-plans`.
 
 ## Ordering rule
