@@ -1,0 +1,768 @@
+{
+  "sample": "div005_rep03_cov30x",
+  "event_id": "TE000172",
+  "read_names": [
+    "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-12990/2",
+    "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2",
+    "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-249706/2",
+    "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2",
+    "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2",
+    "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1",
+    "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2",
+    "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2",
+    "div005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2",
+    "div005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1",
+    "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2"
+  ],
+  "R2_mapping": {
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/te_containing_fq/Chr1.read_repeat_name.split.txt": [
+      {
+        "line_number": 312,
+        "line": "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\tOs3328#LINE/unknown\t-\tChr1"
+      },
+      {
+        "line_number": 2366,
+        "line": "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\tOs3328#LINE/unknown\t-\tChr1"
+      },
+      {
+        "line_number": 4264,
+        "line": "div005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\tOs3328#LINE/unknown\t-\tChr1"
+      },
+      {
+        "line_number": 4829,
+        "line": "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\tOs0596#LINE/unknown\t+\tChr1"
+      },
+      {
+        "line_number": 5464,
+        "line": "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\tOs3328#LINE/unknown\t-\tChr1"
+      },
+      {
+        "line_number": 17713,
+        "line": "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-12990/2\tOs3328#LINE/unknown\t-\tChr1"
+      },
+      {
+        "line_number": 28421,
+        "line": "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\tOs3328#LINE/unknown\t-\tChr1"
+      },
+      {
+        "line_number": 28516,
+        "line": "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\tOs3328#LINE/unknown\t-\tChr1"
+      },
+      {
+        "line_number": 30692,
+        "line": "div005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\tOs3328#LINE/unknown\t-\tChr1"
+      },
+      {
+        "line_number": 39436,
+        "line": "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-249706/2\tOs3328#LINE/unknown\t-\tChr1"
+      },
+      {
+        "line_number": 42171,
+        "line": "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\tOs3328#LINE/unknown\t+\tChr1"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/te_containing_fq/p00.div005_rep03_cov30x_R2.te_repeat.read_repeat_name.txt": [
+      {
+        "line_number": 1493,
+        "line": "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\tOs0596#LINE/unknown\t+"
+      },
+      {
+        "line_number": 5020,
+        "line": "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\tOs3328#LINE/unknown\t-"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/te_containing_fq/p05.div005_rep03_cov30x_R2.te_repeat.read_repeat_name.txt": [
+      {
+        "line_number": 6678,
+        "line": "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-249706/2\tOs3328#LINE/unknown\t-"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/te_containing_fq/p06.div005_rep03_cov30x_R2.te_repeat.read_repeat_name.txt": [
+      {
+        "line_number": 3715,
+        "line": "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-12990/2\tOs3328#LINE/unknown\t-"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/te_containing_fq/p113.div005_rep03_cov30x_R1.te_repeat.read_repeat_name.txt": [
+      {
+        "line_number": 6804,
+        "line": "div005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\tOs3328#LINE/unknown\t-"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/te_containing_fq/p132.div005_rep03_cov30x_R2.te_repeat.read_repeat_name.txt": [
+      {
+        "line_number": 2092,
+        "line": "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\tOs3328#LINE/unknown\t-"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/te_containing_fq/p150.div005_rep03_cov30x_R2.te_repeat.read_repeat_name.txt": [
+      {
+        "line_number": 2516,
+        "line": "div005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\tOs3328#LINE/unknown\t-"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/te_containing_fq/p56.div005_rep03_cov30x_R2.te_repeat.read_repeat_name.txt": [
+      {
+        "line_number": 5472,
+        "line": "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\tOs3328#LINE/unknown\t-"
+      },
+      {
+        "line_number": 5985,
+        "line": "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\tOs3328#LINE/unknown\t-"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/te_containing_fq/p57.div005_rep03_cov30x_R1.te_repeat.read_repeat_name.txt": [
+      {
+        "line_number": 1548,
+        "line": "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\tOs3328#LINE/unknown\t-"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/te_containing_fq/p57.div005_rep03_cov30x_R2.te_repeat.read_repeat_name.txt": [
+      {
+        "line_number": 1915,
+        "line": "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\tOs3328#LINE/unknown\t+"
+      }
+    ]
+  },
+  "R3_mapping": {
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate3-blat-bwaaln/div005_rep03_cov30x/raw/te_containing/div005_rep03_cov30x.read_repeat_name.txt": [
+      {
+        "line_number": 579722,
+        "line": "div005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\tOs0596#LINE/unknown\t-"
+      },
+      {
+        "line_number": 775495,
+        "line": "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\tOs0596#LINE/unknown\t-"
+      },
+      {
+        "line_number": 1421623,
+        "line": "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\tOs0596#LINE/unknown\t-"
+      },
+      {
+        "line_number": 1451072,
+        "line": "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\tOs0596#LINE/unknown\t-"
+      },
+      {
+        "line_number": 1716125,
+        "line": "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\tOs0596#LINE/unknown\t+"
+      },
+      {
+        "line_number": 1716135,
+        "line": "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\tOs0596#LINE/unknown\t-"
+      },
+      {
+        "line_number": 1846930,
+        "line": "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\tOs0596#LINE/unknown\t-"
+      },
+      {
+        "line_number": 1857092,
+        "line": "div005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\tOs0596#LINE/unknown\t-"
+      },
+      {
+        "line_number": 1903871,
+        "line": "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\tOs0596#LINE/unknown\t+"
+      },
+      {
+        "line_number": 2245573,
+        "line": "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-249706/2\tOs3328#LINE/unknown\t-"
+      },
+      {
+        "line_number": 2245574,
+        "line": "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-12990/2\tOs3328#LINE/unknown\t-"
+      }
+    ]
+  },
+  "R2_psl": {
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/blat_output/p00.div005_rep03_cov30x_R2.te_repeat.blatout": [
+      {
+        "line_number": 64664,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t150\t61\t71\tOs3551#DNAnona/CACTA\t1612\t315\t325\t1\t10,\t61,\t315,"
+      },
+      {
+        "line_number": 64665,
+        "line": "68\t2\t0\t0\t0\t0\t1\t15\t+\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t150\t0\t70\tOs3328#LINE/unknown\t1666\t1581\t1666\t2\t7,63,\t0,7,\t1581,1603,"
+      },
+      {
+        "line_number": 64666,
+        "line": "16\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t150\t64\t80\tOs3065#DNAnona/Helitron\t3738\t1091\t1107\t1\t16,\t64,\t1091,"
+      },
+      {
+        "line_number": 64667,
+        "line": "11\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t150\t60\t71\tOs1909#DNAnona/MULE\t1193\t151\t162\t1\t11,\t60,\t151,"
+      },
+      {
+        "line_number": 64668,
+        "line": "39\t3\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t150\t26\t68\tOs1673#LINE/unknown\t1851\t734\t776\t1\t42,\t26,\t734,"
+      },
+      {
+        "line_number": 64669,
+        "line": "12\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t150\t68\t80\tOs1278#DNAnona/CACTA\t2234\t541\t553\t1\t12,\t68,\t541,"
+      },
+      {
+        "line_number": 64670,
+        "line": "66\t2\t0\t0\t1\t1\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t150\t1\t70\tOs0596#LINE/unknown\t1507\t1439\t1507\t2\t6,62,\t1,8,\t1439,1445,"
+      },
+      {
+        "line_number": 64671,
+        "line": "14\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t150\t61\t75\tOs0303_complete#LTR/Gypsy\t13743\t5778\t5792\t1\t14,\t61,\t5778,"
+      },
+      {
+        "line_number": 64672,
+        "line": "11\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t150\t58\t69\tOs3432#DNAnona/CACTA\t1420\t1223\t1234\t1\t11,\t81,\t1223,"
+      },
+      {
+        "line_number": 64673,
+        "line": "14\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t150\t61\t75\tOs0546#DNAnona/PILE\t758\t73\t87\t1\t14,\t75,\t73,"
+      },
+      {
+        "line_number": 207981,
+        "line": "12\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t150\t114\t126\tOs0678#DNAauto/POLE\t4568\t4336\t4348\t1\t12,\t114,\t4336,"
+      },
+      {
+        "line_number": 207982,
+        "line": "12\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t150\t118\t130\tOs3746#SINE/unknown\t253\t241\t253\t1\t12,\t20,\t241,"
+      },
+      {
+        "line_number": 207983,
+        "line": "33\t1\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t150\t116\t150\tOs3328#LINE/unknown\t1666\t1632\t1666\t1\t34,\t0,\t1632,"
+      },
+      {
+        "line_number": 207984,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t150\t140\t150\tOs2969#DNAnona/Helitron\t2713\t2284\t2294\t1\t10,\t0,\t2284,"
+      },
+      {
+        "line_number": 207985,
+        "line": "29\t3\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t150\t118\t150\tOs1673#LINE/unknown\t1851\t744\t776\t1\t32,\t0,\t744,"
+      },
+      {
+        "line_number": 207986,
+        "line": "11\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t150\t109\t120\tOs1100#LINE/unknown\t4740\t4556\t4567\t1\t11,\t30,\t4556,"
+      },
+      {
+        "line_number": 207987,
+        "line": "33\t1\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t150\t116\t150\tOs0596#LINE/unknown\t1507\t1473\t1507\t1\t34,\t0,\t1473,"
+      },
+      {
+        "line_number": 207988,
+        "line": "11\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t150\t118\t129\tOs0144#LINE/unknown\t2254\t2243\t2254\t1\t11,\t21,\t2243,"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/blat_output/p05.div005_rep03_cov30x_R2.te_repeat.blatout": [
+      {
+        "line_number": 272904,
+        "line": "41\t2\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-249706/2\t150\t1\t44\tOs3328#LINE/unknown\t1666\t0\t43\t1\t43,\t106,\t0,"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/blat_output/p06.div005_rep03_cov30x_R2.te_repeat.blatout": [
+      {
+        "line_number": 155097,
+        "line": "35\t1\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-12990/2\t150\t0\t36\tOs3328#LINE/unknown\t1666\t0\t36\t1\t36,\t114,\t0,"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/blat_output/p113.div005_rep03_cov30x_R1.te_repeat.blatout": [
+      {
+        "line_number": 248586,
+        "line": "14\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t150\t105\t119\tOs0546#DNAnona/PILE\t758\t73\t87\t1\t14,\t105,\t73,"
+      },
+      {
+        "line_number": 248587,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t150\t109\t119\tOs3518_complete#LTR/Copia\t5216\t647\t657\t1\t10,\t31,\t647,"
+      },
+      {
+        "line_number": 248588,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t150\t108\t118\tOs3475_complete#LTR/Gypsy\t14848\t10730\t10740\t1\t10,\t32,\t10730,"
+      },
+      {
+        "line_number": 248589,
+        "line": "39\t1\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t150\t110\t150\tOs3328#LINE/unknown\t1666\t1626\t1666\t1\t40,\t0,\t1626,"
+      },
+      {
+        "line_number": 248590,
+        "line": "11\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t150\t109\t120\tOs1909#DNAnona/MULE\t1193\t151\t162\t1\t11,\t30,\t151,"
+      },
+      {
+        "line_number": 248591,
+        "line": "35\t3\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t150\t112\t150\tOs1673#LINE/unknown\t1851\t738\t776\t1\t38,\t0,\t738,"
+      },
+      {
+        "line_number": 248592,
+        "line": "39\t1\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t150\t110\t150\tOs0596#LINE/unknown\t1507\t1467\t1507\t1\t40,\t0,\t1467,"
+      },
+      {
+        "line_number": 248593,
+        "line": "14\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t150\t105\t119\tOs0303_complete#LTR/Gypsy\t13743\t5778\t5792\t1\t14,\t31,\t5778,"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/blat_output/p132.div005_rep03_cov30x_R2.te_repeat.blatout": [
+      {
+        "line_number": 94248,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t150\t115\t125\tOs3287#DNAauto/hAT\t6090\t1204\t1214\t1\t10,\t115,\t1204,"
+      },
+      {
+        "line_number": 94249,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t150\t110\t120\tOs3475_complete#LTR/Gypsy\t14848\t175\t185\t1\t10,\t30,\t175,"
+      },
+      {
+        "line_number": 94250,
+        "line": "36\t2\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t150\t112\t150\tOs3328#LINE/unknown\t1666\t1628\t1666\t1\t38,\t0,\t1628,"
+      },
+      {
+        "line_number": 94251,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t150\t129\t139\tOs3266#DNAnona/MLE\t2301\t458\t468\t1\t10,\t11,\t458,"
+      },
+      {
+        "line_number": 94252,
+        "line": "16\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t150\t102\t118\tOs3065#DNAnona/Helitron\t3738\t1091\t1107\t1\t16,\t32,\t1091,"
+      },
+      {
+        "line_number": 94253,
+        "line": "12\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t150\t109\t121\tOs2317#DNAnona/PILE\t530\t144\t156\t1\t12,\t29,\t144,"
+      },
+      {
+        "line_number": 94254,
+        "line": "24\t1\t0\t0\t0\t0\t1\t1\t-\tdiv005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t150\t47\t72\tOs1675#DNAauto/CACTA\t11201\t1577\t1603\t2\t4,21,\t78,82,\t1577,1582,"
+      },
+      {
+        "line_number": 94255,
+        "line": "33\t3\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t150\t114\t150\tOs1673#LINE/unknown\t1851\t740\t776\t1\t36,\t0,\t740,"
+      },
+      {
+        "line_number": 94256,
+        "line": "36\t2\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t150\t112\t150\tOs0596#LINE/unknown\t1507\t1469\t1507\t1\t38,\t0,\t1469,"
+      },
+      {
+        "line_number": 94257,
+        "line": "12\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t150\t25\t37\tOs0411#DNAauto/hAT\t3776\t2861\t2873\t1\t12,\t113,\t2861,"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/blat_output/p150.div005_rep03_cov30x_R2.te_repeat.blatout": [
+      {
+        "line_number": 86229,
+        "line": "12\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t150\t111\t123\tOs3325#LINE/unknown\t2790\t514\t526\t1\t12,\t111,\t514,"
+      },
+      {
+        "line_number": 86230,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t150\t115\t125\tOs3287#DNAauto/hAT\t6090\t1204\t1214\t1\t10,\t115,\t1204,"
+      },
+      {
+        "line_number": 86231,
+        "line": "14\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t150\t107\t121\tOs0546#DNAnona/PILE\t758\t73\t87\t1\t14,\t107,\t73,"
+      },
+      {
+        "line_number": 86232,
+        "line": "37\t1\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t150\t112\t150\tOs3328#LINE/unknown\t1666\t1628\t1666\t1\t38,\t0,\t1628,"
+      },
+      {
+        "line_number": 86233,
+        "line": "16\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t150\t102\t118\tOs3065#DNAnona/Helitron\t3738\t1091\t1107\t1\t16,\t32,\t1091,"
+      },
+      {
+        "line_number": 86234,
+        "line": "12\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t150\t109\t121\tOs2317#DNAnona/PILE\t530\t144\t156\t1\t12,\t29,\t144,"
+      },
+      {
+        "line_number": 86235,
+        "line": "33\t3\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t150\t114\t150\tOs1673#LINE/unknown\t1851\t740\t776\t1\t36,\t0,\t740,"
+      },
+      {
+        "line_number": 86236,
+        "line": "37\t1\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t150\t112\t150\tOs0596#LINE/unknown\t1507\t1469\t1507\t1\t38,\t0,\t1469,"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/blat_output/p56.div005_rep03_cov30x_R2.te_repeat.blatout": [
+      {
+        "line_number": 254822,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t150\t125\t135\tOs3287#DNAauto/hAT\t6090\t1204\t1214\t1\t10,\t125,\t1204,"
+      },
+      {
+        "line_number": 254823,
+        "line": "14\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t150\t117\t131\tOs0546#DNAnona/PILE\t758\t73\t87\t1\t14,\t117,\t73,"
+      },
+      {
+        "line_number": 254824,
+        "line": "27\t1\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t150\t122\t150\tOs3328#LINE/unknown\t1666\t1638\t1666\t1\t28,\t0,\t1638,"
+      },
+      {
+        "line_number": 254825,
+        "line": "16\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t150\t112\t128\tOs3065#DNAnona/Helitron\t3738\t1091\t1107\t1\t16,\t22,\t1091,"
+      },
+      {
+        "line_number": 254826,
+        "line": "12\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t150\t119\t131\tOs2317#DNAnona/PILE\t530\t144\t156\t1\t12,\t19,\t144,"
+      },
+      {
+        "line_number": 254827,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t150\t4\t14\tOs0906#DNAauto/Helitron\t16547\t9733\t9743\t1\t10,\t136,\t9733,"
+      },
+      {
+        "line_number": 254828,
+        "line": "27\t1\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t150\t122\t150\tOs0596#LINE/unknown\t1507\t1479\t1507\t1\t28,\t0,\t1479,"
+      },
+      {
+        "line_number": 254829,
+        "line": "14\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t150\t117\t131\tOs0303_complete#LTR/Gypsy\t13743\t5778\t5792\t1\t14,\t19,\t5778,"
+      },
+      {
+        "line_number": 278573,
+        "line": "12\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t150\t10\t22\tOs3321#LINE/unknown\t6727\t2049\t2061\t1\t12,\t10,\t2049,"
+      },
+      {
+        "line_number": 278574,
+        "line": "14\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t150\t94\t108\tOs0546#DNAnona/PILE\t758\t73\t87\t1\t14,\t94,\t73,"
+      },
+      {
+        "line_number": 278575,
+        "line": "11\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t150\t98\t109\tOs0148#DNAauto/MULE\t7371\t5975\t5986\t1\t11,\t98,\t5975,"
+      },
+      {
+        "line_number": 278576,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t150\t98\t108\tOs3518_complete#LTR/Copia\t5216\t647\t657\t1\t10,\t42,\t647,"
+      },
+      {
+        "line_number": 278577,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t150\t97\t107\tOs3475_complete#LTR/Gypsy\t14848\t10730\t10740\t1\t10,\t43,\t10730,"
+      },
+      {
+        "line_number": 278578,
+        "line": "49\t2\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t150\t99\t150\tOs3328#LINE/unknown\t1666\t1615\t1666\t1\t51,\t0,\t1615,"
+      },
+      {
+        "line_number": 278579,
+        "line": "11\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t150\t98\t109\tOs1909#DNAnona/MULE\t1193\t151\t162\t1\t11,\t41,\t151,"
+      },
+      {
+        "line_number": 278580,
+        "line": "39\t3\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t150\t101\t143\tOs1673#LINE/unknown\t1851\t734\t776\t1\t42,\t7,\t734,"
+      },
+      {
+        "line_number": 278581,
+        "line": "49\t2\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t150\t99\t150\tOs0596#LINE/unknown\t1507\t1456\t1507\t1\t51,\t0,\t1456,"
+      },
+      {
+        "line_number": 278582,
+        "line": "14\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t150\t94\t108\tOs0303_complete#LTR/Gypsy\t13743\t5778\t5792\t1\t14,\t42,\t5778,"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/blat_output/p57.div005_rep03_cov30x_R1.te_repeat.blatout": [
+      {
+        "line_number": 71346,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t150\t95\t105\tOs3287#DNAauto/hAT\t6090\t1204\t1214\t1\t10,\t95,\t1204,"
+      },
+      {
+        "line_number": 71347,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t150\t140\t150\tOs3750#SINE/unknown\t231\t142\t152\t1\t10,\t0,\t142,"
+      },
+      {
+        "line_number": 71348,
+        "line": "56\t2\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t150\t92\t150\tOs3328#LINE/unknown\t1666\t1608\t1666\t1\t58,\t0,\t1608,"
+      },
+      {
+        "line_number": 71349,
+        "line": "16\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t150\t82\t98\tOs3065#DNAnona/Helitron\t3738\t1091\t1107\t1\t16,\t52,\t1091,"
+      },
+      {
+        "line_number": 71350,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t150\t116\t126\tOs2969#DNAnona/Helitron\t2713\t2284\t2294\t1\t10,\t24,\t2284,"
+      },
+      {
+        "line_number": 71351,
+        "line": "39\t3\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t150\t94\t136\tOs1673#LINE/unknown\t1851\t734\t776\t1\t42,\t14,\t734,"
+      },
+      {
+        "line_number": 71352,
+        "line": "56\t2\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t150\t92\t150\tOs0596#LINE/unknown\t1507\t1449\t1507\t1\t58,\t0,\t1449,"
+      }
+    ],
+    "../../relocate_benchmark/relocate-benchmark/runs/ricetelib_divergence/relocate2/div005_rep03_cov30x/raw/repeat/blat_output/p57.div005_rep03_cov30x_R2.te_repeat.blatout": [
+      {
+        "line_number": 88902,
+        "line": "46\t1\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t150\t0\t47\tOs3328#LINE/unknown\t1666\t1619\t1666\t1\t47,\t0,\t1619,"
+      },
+      {
+        "line_number": 88903,
+        "line": "16\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t150\t41\t57\tOs3065#DNAnona/Helitron\t3738\t1091\t1107\t1\t16,\t41,\t1091,"
+      },
+      {
+        "line_number": 88904,
+        "line": "12\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t150\t38\t50\tOs2317#DNAnona/PILE\t530\t144\t156\t1\t12,\t38,\t144,"
+      },
+      {
+        "line_number": 88905,
+        "line": "39\t3\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t150\t3\t45\tOs1673#LINE/unknown\t1851\t734\t776\t1\t42,\t3,\t734,"
+      },
+      {
+        "line_number": 88906,
+        "line": "11\t0\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t150\t0\t11\tOs0652#LINE/unknown\t1498\t1450\t1461\t1\t11,\t0,\t1450,"
+      },
+      {
+        "line_number": 88907,
+        "line": "46\t1\t0\t0\t0\t0\t0\t0\t+\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t150\t0\t47\tOs0596#LINE/unknown\t1507\t1460\t1507\t1\t47,\t0,\t1460,"
+      },
+      {
+        "line_number": 88908,
+        "line": "10\t0\t0\t0\t0\t0\t0\t0\t-\tdiv005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t150\t34\t44\tOs3287#DNAauto/hAT\t6090\t1204\t1214\t1\t10,\t106,\t1204,"
+      }
+    ]
+  },
+  "R3_alignments": {
+    "left": {
+      "header": {
+        "HD": {
+          "VN": "1.6",
+          "SO": "coordinate"
+        },
+        "SQ": [
+          {
+            "SN": "Os0303_complete#LTR/Gypsy",
+            "LN": 13743
+          },
+          {
+            "SN": "Os0546#DNAnona/PILE",
+            "LN": 758
+          },
+          {
+            "SN": "Os0596#LINE/unknown",
+            "LN": 1507
+          },
+          {
+            "SN": "Os1673#LINE/unknown",
+            "LN": 1851
+          },
+          {
+            "SN": "Os1909#DNAnona/MULE",
+            "LN": 1193
+          },
+          {
+            "SN": "Os2969#DNAnona/Helitron",
+            "LN": 2713
+          },
+          {
+            "SN": "Os3065#DNAnona/Helitron",
+            "LN": 3738
+          },
+          {
+            "SN": "Os3287#DNAauto/hAT",
+            "LN": 6090
+          },
+          {
+            "SN": "Os3328#LINE/unknown",
+            "LN": 1666
+          },
+          {
+            "SN": "Os3475_complete#LTR/Gypsy",
+            "LN": 14848
+          },
+          {
+            "SN": "Os3518_complete#LTR/Copia",
+            "LN": 5216
+          },
+          {
+            "SN": "Os3750#SINE/unknown",
+            "LN": 231
+          }
+        ]
+      },
+      "sam": [
+        "div005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t16\tOs0303_complete#LTR/Gypsy\t5779\t255\t31S14M105S\t*\t0\t0\tAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t0\tOs0546#DNAnona/PILE\t74\t255\t105S14M31S\t*\t0\t0\tTCTCTTCCCCCTCAATCTCTTCTGCAGTGATGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCTTCCCCCACCTGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCAGGAGAGCTGCATTTCATTT\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t16\tOs0596#LINE/unknown\t1450\t255\t58M92S\t*\t0\t0\tTTTTTCTTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAG\t*\tNM:i:2",
+        "div005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t16\tOs0596#LINE/unknown\t1468\t255\t40M110S\t*\t0\t0\tAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGA\t*\tNM:i:1",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t16\tOs1673#LINE/unknown\t735\t255\t14S42M94S\t*\t0\t0\tTTTTTCTTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAG\t*\tNM:i:3",
+        "div005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t16\tOs1673#LINE/unknown\t739\t255\t38M112S\t*\t0\t0\tAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGA\t*\tNM:i:3",
+        "div005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t16\tOs1909#DNAnona/MULE\t152\t255\t30S11M109S\t*\t0\t0\tAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t16\tOs2969#DNAnona/Helitron\t2285\t255\t24S10M116S\t*\t0\t0\tTTTTTCTTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t16\tOs3065#DNAnona/Helitron\t1092\t255\t52S16M82S\t*\t0\t0\tTTTTTCTTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t0\tOs3287#DNAauto/hAT\t1205\t255\t95S10M45S\t*\t0\t0\tCTTCTGCAGTGATGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCTTCCCCCACCTGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCAGGAGAGCTGCATTTCATTTCATTAAGCGGAAGAAAAA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t16\tOs3328#LINE/unknown\t1609\t255\t58M92S\t*\t0\t0\tTTTTTCTTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAG\t*\tNM:i:2",
+        "div005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t16\tOs3328#LINE/unknown\t1627\t255\t40M110S\t*\t0\t0\tAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGA\t*\tNM:i:1",
+        "div005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t16\tOs3475_complete#LTR/Gypsy\t10731\t255\t32S10M108S\t*\t0\t0\tAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:clone40:h1:s1083698938:Chr1-155027/1\t16\tOs3518_complete#LTR/Copia\t648\t255\t31S10M109S\t*\t0\t0\tAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2127736/1\t16\tOs3750#SINE/unknown\t143\t255\t10M140S\t*\t0\t0\tTTTTTCTTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAG\t*\tNM:i:0"
+      ]
+    },
+    "right": {
+      "header": {
+        "HD": {
+          "VN": "1.6",
+          "SO": "coordinate"
+        },
+        "SQ": [
+          {
+            "SN": "Os0144#LINE/unknown",
+            "LN": 2254
+          },
+          {
+            "SN": "Os0148#DNAauto/MULE",
+            "LN": 7371
+          },
+          {
+            "SN": "Os0303_complete#LTR/Gypsy",
+            "LN": 13743
+          },
+          {
+            "SN": "Os0411#DNAauto/hAT",
+            "LN": 3776
+          },
+          {
+            "SN": "Os0546#DNAnona/PILE",
+            "LN": 758
+          },
+          {
+            "SN": "Os0596#LINE/unknown",
+            "LN": 1507
+          },
+          {
+            "SN": "Os0652#LINE/unknown",
+            "LN": 1498
+          },
+          {
+            "SN": "Os0678#DNAauto/POLE",
+            "LN": 4568
+          },
+          {
+            "SN": "Os0906#DNAauto/Helitron",
+            "LN": 16547
+          },
+          {
+            "SN": "Os1100#LINE/unknown",
+            "LN": 4740
+          },
+          {
+            "SN": "Os1278#DNAnona/CACTA",
+            "LN": 2234
+          },
+          {
+            "SN": "Os1673#LINE/unknown",
+            "LN": 1851
+          },
+          {
+            "SN": "Os1675#DNAauto/CACTA",
+            "LN": 11201
+          },
+          {
+            "SN": "Os1909#DNAnona/MULE",
+            "LN": 1193
+          },
+          {
+            "SN": "Os2317#DNAnona/PILE",
+            "LN": 530
+          },
+          {
+            "SN": "Os2969#DNAnona/Helitron",
+            "LN": 2713
+          },
+          {
+            "SN": "Os3065#DNAnona/Helitron",
+            "LN": 3738
+          },
+          {
+            "SN": "Os3266#DNAnona/MLE",
+            "LN": 2301
+          },
+          {
+            "SN": "Os3287#DNAauto/hAT",
+            "LN": 6090
+          },
+          {
+            "SN": "Os3321#LINE/unknown",
+            "LN": 6727
+          },
+          {
+            "SN": "Os3325#LINE/unknown",
+            "LN": 2790
+          },
+          {
+            "SN": "Os3328#LINE/unknown",
+            "LN": 1666
+          },
+          {
+            "SN": "Os3432#DNAnona/CACTA",
+            "LN": 1420
+          },
+          {
+            "SN": "Os3475_complete#LTR/Gypsy",
+            "LN": 14848
+          },
+          {
+            "SN": "Os3518_complete#LTR/Copia",
+            "LN": 5216
+          },
+          {
+            "SN": "Os3551#DNAnona/CACTA",
+            "LN": 1612
+          },
+          {
+            "SN": "Os3746#SINE/unknown",
+            "LN": 253
+          }
+        ]
+      },
+      "sam": [
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t16\tOs0144#LINE/unknown\t2244\t255\t21S11M118S\t*\t0\t0\tAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGAAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGAAAGG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t0\tOs0148#DNAauto/MULE\t5976\t255\t98S11M41S\t*\t0\t0\tTCAATCTCTTCTGCAGTGATGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCTTCCCCCACCAGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCAGGAGAGCTGCATTTCATTTCATTAAGCGGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t0\tOs0303_complete#LTR/Gypsy\t5779\t255\t61S14M75S\t*\t0\t0\tCTTTGTATTTGTTTTTTCTTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t16\tOs0303_complete#LTR/Gypsy\t5779\t255\t19S14M117S\t*\t0\t0\tGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGAAAGGATATTG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t16\tOs0303_complete#LTR/Gypsy\t5779\t255\t42S14M94S\t*\t0\t0\tTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCTGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t16\tOs0411#DNAauto/hAT\t2862\t255\t113S12M25S\t*\t0\t0\tATGAAATGCAGCTCTCCGGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTTCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t0\tOs0546#DNAnona/PILE\t74\t255\t117S14M19S\t*\t0\t0\tCAATATCCTTTCTCTCTTCCCCCTCAATCTCTTCTGCAGTGATGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCTTCCCCCACCTGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCAGGAGAGC\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t0\tOs0546#DNAnona/PILE\t74\t255\t94S14M42S\t*\t0\t0\tTCAATCTCTTCTGCAGTGATGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCTTCCCCCACCAGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCAGGAGAGCTGCATTTCATTTCATTAAGCGGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t0\tOs0546#DNAnona/PILE\t74\t255\t107S14M29S\t*\t0\t0\tTCCCTCTTCCCCCTCAATCTCTTCTGCAGTGATGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCGTCCCCCACCTGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCAGGAGAGCTGCATTTCAT\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t16\tOs0546#DNAnona/PILE\t74\t255\t75S14M61S\t*\t0\t0\tTGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCTTCCCCCACCTGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCAGGAGAGCTGCATTTCATTTCATTAAGCGGAAGAAAAAACAAATACAAAG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t0\tOs0596#LINE/unknown\t1440\t255\t1S6M1I62M80S\t*\t0\t0\tCTTTGTATTTGTTTTTTCTTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCA\t*\tNM:i:3",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t16\tOs0596#LINE/unknown\t1457\t255\t51M99S\t*\t0\t0\tTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCTGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGA\t*\tNM:i:2",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t0\tOs0596#LINE/unknown\t1461\t255\t47M103S\t*\t0\t0\tCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGTGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATAACTGCAGAAGAGATTGAGGGG\t*\tNM:i:1",
+        "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t16\tOs0596#LINE/unknown\t1470\t255\t38M112S\t*\t0\t0\tATGAAATGCAGCTCTCCGGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTTCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGA\t*\tNM:i:2",
+        "div005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t16\tOs0596#LINE/unknown\t1470\t255\t38M112S\t*\t0\t0\tATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGACGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGGGA\t*\tNM:i:1",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t16\tOs0596#LINE/unknown\t1474\t255\t34M116S\t*\t0\t0\tAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGAAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGAAAGG\t*\tNM:i:1",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t16\tOs0596#LINE/unknown\t1480\t255\t28M122S\t*\t0\t0\tGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGAAAGGATATTG\t*\tNM:i:1",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t0\tOs0652#LINE/unknown\t1451\t255\t11M139S\t*\t0\t0\tCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGTGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATAACTGCAGAAGAGATTGAGGGG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t0\tOs0678#DNAauto/POLE\t4337\t255\t114S12M24S\t*\t0\t0\tCCTTTCTCTCTTCCCCCTCAATCTCTTCTGCAGTGATGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCTTCCCCCACCTGGCCACCTCCCTCTTCTTTTTTTTTTTCGAAAACGCAGGAGAGCTGCATT\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t16\tOs0906#DNAauto/Helitron\t9734\t255\t136S10M4S\t*\t0\t0\tGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGAAAGGATATTG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t16\tOs1100#LINE/unknown\t4557\t255\t30S11M109S\t*\t0\t0\tAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGAAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGAAAGG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t0\tOs1278#DNAnona/CACTA\t542\t255\t68S12M70S\t*\t0\t0\tCTTTGTATTTGTTTTTTCTTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t0\tOs1673#LINE/unknown\t735\t255\t26S42M82S\t*\t0\t0\tCTTTGTATTTGTTTTTTCTTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCA\t*\tNM:i:3",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t0\tOs1673#LINE/unknown\t735\t255\t3S42M105S\t*\t0\t0\tCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGTGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATAACTGCAGAAGAGATTGAGGGG\t*\tNM:i:3",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t16\tOs1673#LINE/unknown\t735\t255\t7S42M101S\t*\t0\t0\tTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCTGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGA\t*\tNM:i:3",
+        "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t16\tOs1673#LINE/unknown\t741\t255\t36M114S\t*\t0\t0\tATGAAATGCAGCTCTCCGGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTTCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGA\t*\tNM:i:3",
+        "div005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t16\tOs1673#LINE/unknown\t741\t255\t36M114S\t*\t0\t0\tATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGACGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGGGA\t*\tNM:i:3",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t16\tOs1673#LINE/unknown\t745\t255\t32M118S\t*\t0\t0\tAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGAAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGAAAGG\t*\tNM:i:3",
+        "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t16\tOs1675#DNAauto/CACTA\t1578\t255\t78S4M1D21M47S\t*\t0\t0\tATGAAATGCAGCTCTCCGGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTTCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGA\t*\tNM:i:2",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t0\tOs1909#DNAnona/MULE\t152\t255\t60S11M79S\t*\t0\t0\tCTTTGTATTTGTTTTTTCTTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t16\tOs1909#DNAnona/MULE\t152\t255\t41S11M98S\t*\t0\t0\tTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCTGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t0\tOs2317#DNAnona/PILE\t145\t255\t38S12M100S\t*\t0\t0\tCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGTGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATAACTGCAGAAGAGATTGAGGGG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t16\tOs2317#DNAnona/PILE\t145\t255\t19S12M119S\t*\t0\t0\tGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGAAAGGATATTG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t16\tOs2317#DNAnona/PILE\t145\t255\t29S12M109S\t*\t0\t0\tATGAAATGCAGCTCTCCGGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTTCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t16\tOs2317#DNAnona/PILE\t145\t255\t29S12M109S\t*\t0\t0\tATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGACGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGGGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t16\tOs2969#DNAnona/Helitron\t2285\t255\t10M140S\t*\t0\t0\tAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGAAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGAAAGG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t0\tOs3065#DNAnona/Helitron\t1092\t255\t64S16M70S\t*\t0\t0\tCTTTGTATTTGTTTTTTCTTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t0\tOs3065#DNAnona/Helitron\t1092\t255\t41S16M93S\t*\t0\t0\tCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGTGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATAACTGCAGAAGAGATTGAGGGG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t16\tOs3065#DNAnona/Helitron\t1092\t255\t22S16M112S\t*\t0\t0\tGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGAAAGGATATTG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t16\tOs3065#DNAnona/Helitron\t1092\t255\t32S16M102S\t*\t0\t0\tATGAAATGCAGCTCTCCGGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTTCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t16\tOs3065#DNAnona/Helitron\t1092\t255\t32S16M102S\t*\t0\t0\tATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGACGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGGGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t16\tOs3266#DNAnona/MLE\t459\t255\t11S10M129S\t*\t0\t0\tATGAAATGCAGCTCTCCGGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTTCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t0\tOs3287#DNAauto/hAT\t1205\t255\t125S10M15S\t*\t0\t0\tCAATATCCTTTCTCTCTTCCCCCTCAATCTCTTCTGCAGTGATGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCTTCCCCCACCTGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCAGGAGAGC\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t0\tOs3287#DNAauto/hAT\t1205\t255\t115S10M25S\t*\t0\t0\tTCTCTCTTCCCCCTCAATCTCTTCTGCAGTGATGACGGCGTGCTCCCCAACAATGTGAAACCCTTCTCCAGCAAGACCCCCTTCCTTCCCCCACCTGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCCGGAGAGCTGCATTTCAT\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t0\tOs3287#DNAauto/hAT\t1205\t255\t115S10M25S\t*\t0\t0\tTCCCTCTTCCCCCTCAATCTCTTCTGCAGTGATGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCGTCCCCCACCTGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCAGGAGAGCTGCATTTCAT\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t16\tOs3287#DNAauto/hAT\t1205\t255\t106S10M34S\t*\t0\t0\tCCCCTCAATCTCTTCTGCAGTTATGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCTTCACCCACCTGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCAGGAGAGCTGCATTTCATTTCATTAAG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t0\tOs3321#LINE/unknown\t2050\t255\t10S12M128S\t*\t0\t0\tTCAATCTCTTCTGCAGTGATGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCTTCCCCCACCAGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCAGGAGAGCTGCATTTCATTTCATTAAGCGGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t0\tOs3325#LINE/unknown\t515\t255\t111S12M27S\t*\t0\t0\tTCCCTCTTCCCCCTCAATCTCTTCTGCAGTGATGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCGTCCCCCACCTGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCAGGAGAGCTGCATTTCAT\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-249706/2\t16\tOs3328#LINE/unknown\t1\t255\t106S43M1S\t*\t0\t0\tTGTTGAAAAATCCAGAACTTCTTGTGGCAAAACTATGTACTTTCGTGCAGTGTTGTGAAGCCTTCCTACGCGAGGTGGGAGCTCATCGCCGGAGAGGGAGGTGGCCGAAATGAGTCGCATGCCTTTTTGTAGTCCTGAATGCATCAATAA\t*\tNM:i:2",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-12990/2\t16\tOs3328#LINE/unknown\t1\t255\t114S36M\t*\t0\t0\tTCCAGCCATGTTGAAAAATCCAGAACTTCTTGTGGCAAAACTATGTACTTTCGTGCAGTGTTGTGAAGCCTTCCTACGCGAGGTGGGAGCTCATCGCCGGAGAGGGAGGTGGCCGAAATGAGTCGCATGCCTTTTTGTAGTCCTGAATGC\t*\tNM:i:1",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t16\tOs3328#LINE/unknown\t1616\t255\t51M99S\t*\t0\t0\tTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCTGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGA\t*\tNM:i:2",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2100560/2\t0\tOs3328#LINE/unknown\t1620\t255\t47M103S\t*\t0\t0\tCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGTGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATAACTGCAGAAGAGATTGAGGGG\t*\tNM:i:1",
+        "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t16\tOs3328#LINE/unknown\t1629\t255\t38M112S\t*\t0\t0\tATGAAATGCAGCTCTCCGGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTTCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGA\t*\tNM:i:2",
+        "div005_rep03:cov30x_rep3:clone20:h1:s1438376892:Chr1-73235/2\t16\tOs3328#LINE/unknown\t1629\t255\t38M112S\t*\t0\t0\tATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGACGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGGGA\t*\tNM:i:1",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t16\tOs3328#LINE/unknown\t1633\t255\t34M116S\t*\t0\t0\tAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGAAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGAAAGG\t*\tNM:i:1",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2273024/2\t16\tOs3328#LINE/unknown\t1639\t255\t28M122S\t*\t0\t0\tGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGAAAGGATATTG\t*\tNM:i:1",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t16\tOs3432#DNAnona/CACTA\t1224\t255\t81S11M58S\t*\t0\t0\tTGACGGCGTGCTCCCCAACAATGTGGAACCCTTCTCCAGCAAGACCCCCTTCCTTCCCCCACCTGGCCACCTCCCTCTCCTTTTTTTTTTTCGAAAACGCAGGAGAGCTGCATTTCATTTCATTAAGCGGAAGAAAAAACAAATACAAAG\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:clone40:h2:s627593561:Chr1-221884/2\t16\tOs3475_complete#LTR/Gypsy\t176\t255\t30S10M110S\t*\t0\t0\tATGAAATGCAGCTCTCCGGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTTCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t16\tOs3475_complete#LTR/Gypsy\t10731\t255\t43S10M97S\t*\t0\t0\tTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCTGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h2:s774302197:Chr1-2239524/2\t16\tOs3518_complete#LTR/Copia\t648\t255\t42S10M98S\t*\t0\t0\tTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCTGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2537982/2\t0\tOs3551#DNAnona/CACTA\t316\t255\t61S10M79S\t*\t0\t0\tCTTTGTATTTGTTTTTTCTTCCGCTTAATGAAATGAAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGGAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCA\t*\tNM:i:0",
+        "div005_rep03:cov30x_rep3:baseline:h1:s1393587094:Chr1-2339484/2\t16\tOs3746#SINE/unknown\t242\t255\t20S12M118S\t*\t0\t0\tAATGCAGCTCTCCTGCGTTTTCGAAAAAAAAAAAGAAGAGGGAGGTGGCCAGGTGGGGGAAGGAAGGGGGTCTTGCTGGAGAAGGGTTCCACATTGTTGGGGAGCACGCCGTCATCACTGCAGAAGAGATTGAGGGGGAAGAGAGAAAGG\t*\tNM:i:0"
+      ]
+    }
+  },
+  "source_evidence_sha256": "668d39798201c9b9379623a9ac725ca11f4ee7aed1adc40705399ee6845f1ed7",
+  "note": "Observed family disagreement; fixture does not assert biological correctness of R3 labels."
+}

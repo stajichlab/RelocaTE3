@@ -258,22 +258,19 @@ class Characterizer:
         }
         return {
             "family_support": values.get("TE_family_support", ""),
-            "family_confidence": values.get(
-                "TE_family_confidence", "0.000000"
-            ),
+            "family_confidence": values.get("TE_family_confidence", "0.000000"),
             "family_status": values.get("TE_family_status", "unassigned"),
-            "supporting_family_support": values.get(
-                "TE_supporting_family_support", ""
-            ),
+            "supporting_family_support": values.get("TE_supporting_family_support", ""),
             "supporting_family_confidence": values.get(
                 "TE_supporting_family_confidence", "0.000000"
             ),
             "supporting_family_status": values.get(
                 "TE_supporting_family_status", "unassigned"
             ),
-            "family_concordance": values.get(
-                "TE_family_concordance", "unassigned"
-            ),
+            "family_concordance": values.get("TE_family_concordance", "unassigned"),
+            "family_ambiguous_reads": values.get("TE_family_ambiguous_reads", "0"),
+            "family_candidate_support": values.get("TE_family_candidate_support", ""),
+            "family_resolution": values.get("TE_family_resolution", "selected_votes"),
         }
 
     def _count_spanners(self, alignments, chromosome, pos, site, indel_reads) -> int:
@@ -497,7 +494,8 @@ class Characterizer:
                 "strain\tTE\tTSD\tchromosome.pos\tstrand\tavg_flankers\tspanners\t"
                 "status\tTE_family_support\tTE_family_confidence\tTE_family_status\t"
                 "TE_supporting_family_support\tTE_supporting_family_confidence\t"
-                "TE_supporting_family_status\tTE_family_concordance\n"
+                "TE_supporting_family_status\tTE_family_concordance\t"
+                "TE_family_candidate_support\tTE_family_ambiguous_reads\tTE_family_resolution\n"
             )
             gff_out.write("##gff-version 3\n")
 
@@ -517,7 +515,9 @@ class Characterizer:
                             f"{rec['family_status']}\t{rec['supporting_family_support']}\t"
                             f"{rec['supporting_family_confidence']}\t"
                             f"{rec['supporting_family_status']}\t"
-                            f"{rec['family_concordance']}\n"
+                            f"{rec['family_concordance']}\t"
+                            f"{rec['family_candidate_support']}\t"
+                            f"{rec['family_ambiguous_reads']}\t{rec['family_resolution']}\n"
                         )
                         gff_out.write(
                             f"{chrom}\t{rec['strain']}\ttransposable_element_attribute\t"
@@ -533,7 +533,10 @@ class Characterizer:
                             f"{rec['supporting_family_confidence']};"
                             "TE_supporting_family_status="
                             f"{rec['supporting_family_status']};"
-                            f"TE_family_concordance={rec['family_concordance']}\n"
+                            f"TE_family_concordance={rec['family_concordance']};"
+                            f"TE_family_candidate_support={rec['family_candidate_support']};"
+                            f"TE_family_ambiguous_reads={rec['family_ambiguous_reads']};"
+                            f"TE_family_resolution={rec['family_resolution']}\n"
                         )
 
 
@@ -618,7 +621,8 @@ def write_characterized(
             "strain\tTE\tTSD\tchromosome.pos\tstrand\tavg_flankers\tspanners\t"
             "status\tTE_family_support\tTE_family_confidence\tTE_family_status\t"
             "TE_supporting_family_support\tTE_supporting_family_confidence\t"
-            "TE_supporting_family_status\tTE_family_concordance\n"
+            "TE_supporting_family_status\tTE_family_concordance\t"
+            "TE_family_candidate_support\tTE_family_ambiguous_reads\tTE_family_resolution\n"
         )
         for ins in insertions:
             if not ins.status:
@@ -630,7 +634,9 @@ def write_characterized(
                 f"{ins.te_family_confidence:.6f}\t{ins.te_family_status}\t"
                 f"{_format_family_support(ins.te_supporting_family_support)}\t"
                 f"{ins.te_supporting_family_confidence:.6f}\t"
-                f"{ins.te_supporting_family_status}\t{ins.te_family_concordance}\n"
+                f"{ins.te_supporting_family_status}\t{ins.te_family_concordance}\t"
+                f"{_format_family_support(ins.te_family_candidate_support)}\t"
+                f"{ins.te_family_ambiguous_reads}\t{ins.te_family_resolution}\n"
             )
 
     with open(gff_path, "w") as gff:
@@ -649,7 +655,10 @@ def write_characterized(
                 "TE_supporting_family_confidence="
                 f"{ins.te_supporting_family_confidence:.6f};"
                 f"TE_supporting_family_status={ins.te_supporting_family_status};"
-                f"TE_family_concordance={ins.te_family_concordance}"
+                f"TE_family_concordance={ins.te_family_concordance};"
+                f"TE_family_candidate_support={_format_family_support(ins.te_family_candidate_support)};"
+                f"TE_family_ambiguous_reads={ins.te_family_ambiguous_reads};"
+                f"TE_family_resolution={ins.te_family_resolution}"
             )
             gff.write(
                 f"{ins.chrom}\t{sample}\ttransposable_element_attribute\t"

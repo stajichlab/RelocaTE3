@@ -6,15 +6,17 @@ used by the pipeline code.
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter, defaultdict
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 
 import pysam
 
 from RelocaTE3 import logger
 from RelocaTE3.models import Insertion, JunctionObservation
+from RelocaTE3.family import TEFamilyEvidence, resolve_family
 
 # junction-read name suffix: "<read>:start|end:5|3"
 _JUNCTION = re.compile(r"(.*):(start|end):([53])")
@@ -102,8 +104,14 @@ class InsertionFinder:
         """
         if re.search(r"UNK|UKN|unknown", tsd, re.IGNORECASE):
             return self._find_insertions_unknown_tsd(
-                bam_file, read_repeat_file, target, sample, outdir, te_name,
-                reference_ins, fullreads_bam=fullreads_bam,
+                bam_file,
+                read_repeat_file,
+                target,
+                sample,
+                outdir,
+                te_name,
+                reference_ins,
+                fullreads_bam=fullreads_bam,
             )
 
         read_repeat = self._load_read_repeat(read_repeat_file)
@@ -217,16 +225,18 @@ class InsertionFinder:
                     candidates.append(ins)
 
                 wrote_any = False
-                for ins in _arbitrate_cluster(
-                    candidates, existing_te[cluster.chrom]
-                ):
+                for ins in _arbitrate_cluster(candidates, existing_te[cluster.chrom]):
                     supporting_junction = _as_supporting_junction(ins, cluster)
                     if supporting_junction is not None:
                         ins = supporting_junction
-                    if self.require_both_junctions and (
-                        ins.left_junction_reads == 0
-                        or ins.right_junction_reads == 0
-                    ) and ins.tsd != "supporting_junction":
+                    if (
+                        self.require_both_junctions
+                        and (
+                            ins.left_junction_reads == 0
+                            or ins.right_junction_reads == 0
+                        )
+                        and ins.tsd != "supporting_junction"
+                    ):
                         continue
                     family_columns = _te_family_metadata_columns(ins)
                     out.write(
@@ -283,6 +293,20 @@ class InsertionFinder:
                     if len(unit) >= 3
                     else [unit[1] if len(unit) > 1 else "NA", ""]
                 )
+                if len(unit) >= 4 and unit[3].startswith("TE_best_families:"):
+                    evidence = json.loads(unit[3].partition(":")[2])
+                    families = evidence["families"]
+                    if (
+                        not isinstance(families, list)
+                        or not families
+                        or not all(isinstance(name, str) and name for name in families)
+                        or unit[1] not in families
+                        or not isinstance(evidence.get("compatible", True), bool)
+                    ):
+                        raise ValueError(f"Invalid best-family evidence for {unit[0]}")
+                    data[unit[0]].extend(
+                        (tuple(sorted(set(families))), evidence.get("compatible", True))
+                    )
         return data
 
     # ------------------------------------------------------------------
@@ -723,7 +747,10 @@ class InsertionFinder:
             "TE_supporting_family_support:\t"
             "TE_supporting_family_confidence:0.000000\t"
             "TE_supporting_family_status:unassigned\t"
-            f"TE_family_concordance:{_te_family_concordance(family.primary, 'NA')}\n"
+            f"TE_family_concordance:{_te_family_concordance(family.primary, 'NA')}\t"
+            f"TE_family_candidate_support:{_format_te_family_support(family.candidate_support)}\t"
+            f"TE_family_ambiguous_reads:{family.ambiguous_reads}\t"
+            f"TE_family_resolution:{family.resolution}\n"
         )
 
     @staticmethod
@@ -734,13 +761,7 @@ class InsertionFinder:
     @staticmethod
     def _insertion_family_evidence(reads, read_repeat) -> "TEFamilyEvidence":
         """Return the primary family and all family votes for legacy clusters."""
-        families: list[str] = []
-        for read in reads:
-            m = _JUNCTION.search(read)
-            real = m.group(1) if m else None
-            if real and real in read_repeat:
-                families.append(read_repeat[real][0])
-        evidence = _te_family_evidence(families)
+        evidence = _mapping_family_evidence(read_repeat, reads)
         if evidence.primary == "NA":
             return TEFamilyEvidence("", {}, 0.0, "unassigned")
         return evidence
@@ -797,6 +818,40 @@ def _te_family(read_repeat: dict[str, tuple[str, str]], read_name: str) -> str:
     if real_name in read_repeat:
         return read_repeat[real_name][0]
     return "NA"
+
+
+def _read_family_evidence(read_repeat, read_name):
+    real_name = _JUNCTION_RE.sub("", read_name)
+    row = read_repeat.get(real_name, ("NA", ""))
+    return row[0], row[2] if len(row) > 2 else (), row[3] if len(row) > 3 else True
+
+
+def _mapping_family_evidence(read_repeat, names):
+    names = list(names)
+    entries = [_read_family_evidence(read_repeat, name) for name in names]
+    fallback = None
+    if any(len(entry[1]) > 1 for entry in entries):
+        fallback = _te_family_evidence(entry[0] for entry in entries).primary
+        entries = list(
+            {
+                _JUNCTION_RE.sub("", name): entry for name, entry in zip(names, entries)
+            }.values()
+        )
+    return resolve_family(entries, fallback_primary=fallback)
+
+
+def _junction_family_evidence(junctions):
+    junctions = list(junctions)
+    fallback = None
+    if any(len(j.te_families) > 1 for j in junctions):
+        fallback = _te_family_evidence(j.te_name for j in junctions).primary
+        junctions = list(
+            {_JUNCTION_RE.sub("", j.read_name): j for j in junctions}.values()
+        )
+    return resolve_family(
+        ((j.te_name, j.te_families, j.family_ties_compatible) for j in junctions),
+        fallback_primary=fallback,
+    )
 
 
 class _Cluster:
@@ -869,6 +924,8 @@ def _stream_clusters(
                         gstart,
                         gend,
                         InsertionFinder._is_low_quality(rec),
+                        _read_family_evidence(read_repeat, name)[1],
+                        _read_family_evidence(read_repeat, name)[2],
                     )
                 )
             elif not rec.is_paired:
@@ -1008,9 +1065,7 @@ def _call_validated_by_high_quality(left_reads: list, right_reads: list) -> bool
 MIN_ONE_SIDED_JUNCTIONS = 3
 
 
-def _arbitrate_cluster(
-    candidates: list[Insertion], edges: dict
-) -> list[Insertion]:
+def _arbitrate_cluster(candidates: list[Insertion], edges: dict) -> list[Insertion]:
     """Choose which of a cluster's candidate insertions to report.
 
     Port of RelocaTE2's cluster-level arbitration (write_output:257-330).
@@ -1163,16 +1218,6 @@ def _majority_te_name(te_names: list[str]) -> str:
     return _te_family_evidence(te_names).primary
 
 
-@dataclass(frozen=True)
-class TEFamilyEvidence:
-    """One primary TE family plus transparent read-level vote evidence."""
-
-    primary: str
-    support: dict[str, int]
-    confidence: float
-    status: str
-
-
 def _te_family_evidence(te_names: list[str]) -> TEFamilyEvidence:
     """Summarize TE-family votes without creating compound family labels.
 
@@ -1184,25 +1229,7 @@ def _te_family_evidence(te_names: list[str]) -> TEFamilyEvidence:
     deterministic lexicographic primary used by :func:`_majority_te_name` so
     existing callers of that function remain reproducible and compatible.
     """
-    counts = Counter(name for name in te_names if name and name != "NA")
-    if not counts:
-        return TEFamilyEvidence("NA", {}, 0.0, "unassigned")
-
-    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
-    primary, primary_count = ordered[0]
-    if len(ordered) == 1:
-        status = "unique"
-    elif primary_count > sum(counts.values()) / 2:
-        status = "dominant"
-    else:
-        status = "ambiguous"
-    support = dict(ordered)
-    return TEFamilyEvidence(
-        primary,
-        support,
-        primary_count / sum(counts.values()),
-        status,
-    )
+    return resolve_family((name, (), True) for name in te_names)
 
 
 def _format_te_family_support(support: dict[str, int]) -> str:
@@ -1248,10 +1275,12 @@ def _te_family_metadata_columns(ins: Insertion) -> tuple[str, ...]:
         f"TE_family_status:{ins.te_family_status}",
         "TE_supporting_family_support:"
         f"{_format_te_family_support(ins.te_supporting_family_support)}",
-        "TE_supporting_family_confidence:"
-        f"{ins.te_supporting_family_confidence:.6f}",
+        f"TE_supporting_family_confidence:{ins.te_supporting_family_confidence:.6f}",
         f"TE_supporting_family_status:{ins.te_supporting_family_status}",
         f"TE_family_concordance:{ins.te_family_concordance}",
+        f"TE_family_candidate_support:{_format_te_family_support(ins.te_family_candidate_support)}",
+        f"TE_family_ambiguous_reads:{ins.te_family_ambiguous_reads}",
+        f"TE_family_resolution:{ins.te_family_resolution}",
     )
 
 
@@ -1351,7 +1380,7 @@ def _make_insertion(
             i_start = i_end = bp
 
     junctions = left_reads + right_reads
-    family = _te_family_evidence([j.te_name for j in junctions])
+    family = _junction_family_evidence(junctions)
 
     orients = [j.te_orientation for j in junctions]
     strand = "+" if orients.count("+") >= orients.count("-") else "-"
@@ -1371,6 +1400,9 @@ def _make_insertion(
         te_family_support=family.support,
         te_family_confidence=family.confidence,
         te_family_status=family.status,
+        te_family_ambiguous_reads=family.ambiguous_reads,
+        te_family_resolution=family.resolution,
+        te_family_candidate_support=family.candidate_support,
     )
 
 
@@ -1412,9 +1444,7 @@ def _candidate_junctions(
     )
 
 
-def _as_supporting_junction(
-    ins: Insertion, cluster: _Cluster
-) -> Insertion | None:
+def _as_supporting_junction(ins: Insertion, cluster: _Cluster) -> Insertion | None:
     """Return RelocaTE2's admissible one-sided call, or ``None``.
 
     ``supporting_junction`` is the only one-sided class retained by RelocaTE2's
@@ -1496,15 +1526,16 @@ def _consolidate_same_start(
             )
         read_names = left_names + right_names
 
-        family = _te_family_evidence(
-            [_te_family(read_repeat, name) for name in read_names]
-        )
+        family = _mapping_family_evidence(read_repeat, read_names)
         if family.primary == "NA":
             family = TEFamilyEvidence(
                 dominant.te_name,
                 dominant.te_family_support,
                 dominant.te_family_confidence,
                 dominant.te_family_status,
+                dominant.te_family_ambiguous_reads,
+                dominant.te_family_resolution,
+                dominant.te_family_candidate_support,
             )
 
         orientations = [
@@ -1532,6 +1563,9 @@ def _consolidate_same_start(
             te_family_support=family.support,
             te_family_confidence=family.confidence,
             te_family_status=family.status,
+            te_family_ambiguous_reads=family.ambiguous_reads,
+            te_family_resolution=family.resolution,
+            te_family_candidate_support=family.candidate_support,
         )
         _count_support(merged, cluster, read_repeat)
         consolidated.append(merged)
@@ -1638,10 +1672,7 @@ def _count_support(
     ins.left_support_reads = left
     ins.right_support_reads = right
     family = _te_family_evidence(
-        [
-            _supporting_te_family(read_repeat, name)
-            for name in supporting_names
-        ]
+        [_supporting_te_family(read_repeat, name) for name in supporting_names]
         if read_repeat
         else []
     )
@@ -1890,6 +1921,8 @@ def _maps_through(
 FULLREAD_WINDOW = 500
 
 
+
+
 def _fullread_false_junction(fullreads_bam, ins: Insertion) -> bool:
     """True when the untrimmed reads map straight through the breakpoint.
 
@@ -1968,9 +2001,7 @@ def find_insertions(
     with pysam.FastaFile(genome_fasta) as genome:
         for cluster in _stream_clusters(genome_bam, read_repeat):
             calls = []
-            raw_candidates = _call_insertions(
-                cluster, genome, read_repeat=read_repeat
-            )
+            raw_candidates = _call_insertions(cluster, genome, read_repeat=read_repeat)
             pooled_candidates = _consolidate_same_start(
                 raw_candidates, cluster, read_repeat
             )
@@ -2031,6 +2062,9 @@ def write_insertions_gff(
                 f"{ins.te_supporting_family_confidence:.6f};"
                 f"TE_supporting_family_status={ins.te_supporting_family_status};"
                 f"TE_family_concordance={ins.te_family_concordance};"
+                f"TE_family_candidate_support={_format_te_family_support(ins.te_family_candidate_support)};"
+                f"TE_family_ambiguous_reads={ins.te_family_ambiguous_reads};"
+                f"TE_family_resolution={ins.te_family_resolution};"
             )
             fh.write(
                 f"{ins.chrom}\t{source}\t{sample}\t{ins.start}\t{ins.end}\t.\t{ins.strand}\t.\t{attrs}\n"
@@ -2087,9 +2121,7 @@ def read_insertions_gff(path: str | Path) -> list[Insertion]:
                     te_family_confidence=_float_or_default(
                         _gff_attr(attrs, "TE_family_confidence", "0")
                     ),
-                    te_family_status=_gff_attr(
-                        attrs, "TE_family_status", "unassigned"
-                    ),
+                    te_family_status=_gff_attr(attrs, "TE_family_status", "unassigned"),
                     te_supporting_family_support=_parse_te_family_support(
                         _gff_attr(attrs, "TE_supporting_family_support", "")
                     ),
@@ -2101,6 +2133,15 @@ def read_insertions_gff(path: str | Path) -> list[Insertion]:
                     ),
                     te_family_concordance=_gff_attr(
                         attrs, "TE_family_concordance", "unassigned"
+                    ),
+                    te_family_ambiguous_reads=int(
+                        _gff_attr(attrs, "TE_family_ambiguous_reads", "0")
+                    ),
+                    te_family_resolution=_gff_attr(
+                        attrs, "TE_family_resolution", "selected_votes"
+                    ),
+                    te_family_candidate_support=_parse_te_family_support(
+                        _gff_attr(attrs, "TE_family_candidate_support", "")
                     ),
                 )
             )
@@ -2127,6 +2168,9 @@ def write_insertions_txt(insertions: list[Insertion], path: str | Path) -> None:
         "TE_supporting_family_confidence",
         "TE_supporting_family_status",
         "TE_family_concordance",
+        "TE_family_candidate_support",
+        "TE_family_ambiguous_reads",
+        "TE_family_resolution",
     ]
     with open(path, "w") as fh:
         fh.write("\t".join(header) + "\n")
@@ -2152,6 +2196,9 @@ def write_insertions_txt(insertions: list[Insertion], path: str | Path) -> None:
                         f"{ins.te_supporting_family_confidence:.6f}",
                         ins.te_supporting_family_status,
                         ins.te_family_concordance,
+                        _format_te_family_support(ins.te_family_candidate_support),
+                        ins.te_family_ambiguous_reads,
+                        ins.te_family_resolution,
                     )
                 )
                 + "\n"
@@ -2265,8 +2312,7 @@ def _load_te_boundaries(reference_ins: Path | str) -> dict[str, set[int]]:
 
     table = ReferenceTEAnnotator.load_existing_te(reference_ins, "ALL")
     return {
-        chrom: set(sides["start"]) | set(sides["end"])
-        for chrom, sides in table.items()
+        chrom: set(sides["start"]) | set(sides["end"]) for chrom, sides in table.items()
     }
 
 
@@ -2294,7 +2340,9 @@ def _at_te_boundary(
     )
 
 
-def _row_to_gff(fields: list[str], sample: str, source: str = "RelocaTE3") -> str | None:
+def _row_to_gff(
+    fields: list[str], sample: str, source: str = "RelocaTE3"
+) -> str | None:
     """Render one table row as GFF3 with RelocaTE2's attribute set."""
     if len(fields) < 12:
         return None
@@ -2317,9 +2365,7 @@ def _row_to_gff(fields: list[str], sample: str, source: str = "RelocaTE3") -> st
     supporting_family_confidence = optional.get(
         "TE_supporting_family_confidence", "0.000000"
     )
-    supporting_family_status = optional.get(
-        "TE_supporting_family_status", "unassigned"
-    )
+    supporting_family_status = optional.get("TE_supporting_family_status", "unassigned")
     family_concordance = optional.get("TE_family_concordance", "unassigned")
     attrs = (
         f"ID={chrom}.{start}.spanners;Name={te_name};TSD={tsd};"
@@ -2333,6 +2379,9 @@ def _row_to_gff(fields: list[str], sample: str, source: str = "RelocaTE3") -> st
         f"TE_supporting_family_confidence={supporting_family_confidence};"
         f"TE_supporting_family_status={supporting_family_status};"
         f"TE_family_concordance={family_concordance};"
+        f"TE_family_candidate_support={optional.get('TE_family_candidate_support', '')};"
+        f"TE_family_ambiguous_reads={optional.get('TE_family_ambiguous_reads', '0')};"
+        f"TE_family_resolution={optional.get('TE_family_resolution', 'selected_votes')};"
     )
     return f"{chrom}\t{source}\t{sample}\t{start}\t{end}\t.\t{strand}\t.\t{attrs}"
 
@@ -2388,11 +2437,7 @@ def write_insertion_tiers(
     """
     table = Path(table)
     stem = _table_stem(table)
-    rows = [
-        line.split("\t")
-        for line in table.read_text().splitlines()
-        if line.strip()
-    ]
+    rows = [line.split("\t") for line in table.read_text().splitlines() if line.strip()]
 
     raw = rows
     if reference_ins:

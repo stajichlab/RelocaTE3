@@ -277,7 +277,7 @@ class TestCharacterizer(unittest.TestCase):
             )
 
             header, row = Path(txt_path).read_text().splitlines()
-            assert header.split("\t")[-7:] == [
+            assert header.split("\t")[8:15] == [
                 "TE_family_support",
                 "TE_family_confidence",
                 "TE_family_status",
@@ -286,7 +286,7 @@ class TestCharacterizer(unittest.TestCase):
                 "TE_supporting_family_status",
                 "TE_family_concordance",
             ]
-            assert row.split("\t")[-7:] == [
+            assert row.split("\t")[8:15] == [
                 "mPing=2,RIRE3=1",
                 "0.666667",
                 "dominant",

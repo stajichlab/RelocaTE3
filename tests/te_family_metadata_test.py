@@ -52,7 +52,7 @@ def test_family_metadata_is_appended_to_structured_txt(tmp_path):
     write_insertions_txt([_insertion()], path)
 
     header, row = [line.split("\t") for line in path.read_text().splitlines()]
-    assert header[-7:] == [
+    assert header[10:17] == [
         "TE_family_support",
         "TE_family_confidence",
         "TE_family_status",
@@ -61,7 +61,7 @@ def test_family_metadata_is_appended_to_structured_txt(tmp_path):
         "TE_supporting_family_status",
         "TE_family_concordance",
     ]
-    assert row[-7:] == [
+    assert row[10:17] == [
         "mPing=2,RIRE3=1",
         "0.666667",
         "dominant",
@@ -128,7 +128,7 @@ def test_supporting_family_metadata_survives_object_characterization(tmp_path):
     write_characterized([ins], gff, txt, sample="HEG4")
 
     header, row = [line.split("\t") for line in txt.read_text().splitlines()]
-    assert header[-7:] == [
+    assert header[8:15] == [
         "TE_family_support",
         "TE_family_confidence",
         "TE_family_status",
@@ -137,7 +137,7 @@ def test_supporting_family_metadata_survives_object_characterization(tmp_path):
         "TE_supporting_family_status",
         "TE_family_concordance",
     ]
-    assert row[-4:] == ["RIRE3=2", "1.000000", "unique", "discordant"]
+    assert row[11:15] == ["RIRE3=2", "1.000000", "unique", "discordant"]
     attributes = gff.read_text()
     assert "TE_supporting_family_support=RIRE3=2;" in attributes
     assert "TE_family_concordance=discordant" in attributes
