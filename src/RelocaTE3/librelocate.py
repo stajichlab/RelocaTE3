@@ -32,6 +32,7 @@ RelocaTE2.
 
 from __future__ import annotations
 
+import json
 import os
 from collections import defaultdict
 from pathlib import Path
@@ -368,7 +369,7 @@ class RelocaTE:
                 trimmed_seq, trimmed_qual = seq[0:start], qual[0:start]
                 header = f"{rl_name}:end:5"
             if len(trimmed_seq) >= len_cutoff_l:
-                rr_out.write(f"{rl_name}\t{t_name}\t{strand}\n")
+                self._write_family_mapping(rr_out, rl_name, rec)
                 te5_out.write(
                     self._te_fasta(
                         header, start, end, t_name, t_start, t_end, mismatch, te_subseq
@@ -384,7 +385,7 @@ class RelocaTE:
                 trimmed_seq, trimmed_qual = seq[end + 1 :], qual[end + 1 :]
                 header = f"{rl_name}:start:3"
             if len(trimmed_seq) >= len_cutoff_l:
-                rr_out.write(f"{rl_name}\t{t_name}\t{strand}\n")
+                self._write_family_mapping(rr_out, rl_name, rec)
                 te3_out.write(
                     self._te_fasta(
                         header, start, end, t_name, t_start, t_end, mismatch, te_subseq
@@ -394,7 +395,7 @@ class RelocaTE:
             # read lies fully inside the TE: keep it whole, label :middle
             trimmed_seq, trimmed_qual = seq, qual
             header = f"{rl_name}:middle"
-            rr_out.write(f"{rl_name}\t{t_name}\t{strand}\n")
+            self._write_family_mapping(rr_out, rl_name, rec)
 
         if header is None:
             return None
@@ -431,8 +432,11 @@ class RelocaTE:
         for bam in bamfiles:
             coord = self._parse_te_bam(Path(bam), mismatch_allowance=mismatch_allowance)
             for qname, rec in coord.items():
-                if qname not in merged or self._is_better(rec, merged[qname]):
-                    merged[qname] = rec
+                merged[qname] = (
+                    rec
+                    if qname not in merged
+                    else self._merge_te_hits(merged[qname], rec)
+                )
         trimlib.trimmed_coordinates = merged
         return trimlib
 
@@ -472,13 +476,65 @@ class RelocaTE:
         """
         return RelocaTE._match_rank(new_rec) < RelocaTE._match_rank(old_rec)
 
-    def _parse_te_bam(self, bam: Path, mismatch_allowance: int = 2) -> dict:
+    @staticmethod
+    def _merge_te_hits(old: dict, new: dict) -> dict:
+        """Keep deterministic alignment geometry and compact equally-best families."""
+        old_score = (old["boundary"], old["match"])
+        new_score = (new["boundary"], new["match"])
+        if old_score != new_score:
+            return new if new_score > old_score else old
+
+        def geometry(rec):
+            end = (
+                "5"
+                if rec["tStart"] <= 2
+                else "3"
+                if rec["tEnd"] >= rec["tLen"] - 3
+                else "middle"
+            )
+            return rec["start"], rec["end"], rec["strand"], end, rec["mismatch"]
+
+        compatible = (
+            old.get("family_ties_compatible", True)
+            and new.get("family_ties_compatible", True)
+            and geometry(old) == geometry(new)
+        )
+        families = set(old.get("best_families", (old["tName"],)))
+        families.update(new.get("best_families", (new["tName"],)))
+        winner = new if RelocaTE._is_better(new, old) else old
+        if len(families) > 1:
+            winner["best_families"] = tuple(sorted(families))
+            winner["family_ties_compatible"] = compatible
+        elif not compatible:
+            winner["family_ties_compatible"] = False
+        return winner
+
+    @staticmethod
+    def _write_family_mapping(out, read_name, rec):
+        """Keep three legacy columns; append best-family ties only when present."""
+        extension = ""
+        if len(rec.get("best_families", ())) > 1:
+            extension = "\tTE_best_families:" + json.dumps(
+                {
+                    "families": rec["best_families"],
+                    "compatible": rec.get("family_ties_compatible", True),
+                },
+                separators=(",", ":"),
+            )
+        out.write(f"{read_name}\t{rec['tName']}\t{rec['strand']}{extension}\n")
+
+    def _parse_te_bam(
+        self, bam: Path, mismatch_allowance: int = 2, read_names: set[str] | None = None
+    ) -> dict:
         """Parse one TE-library BAM into ``{read_name: best-match record}``.
 
         Each record stores the read-relative match coordinates, the TE target
         coordinates, the mismatch/match counts, strand, a boundary score used to
         pick the best match, and the read sequence/qualities reconstructed in
         original (FASTQ) orientation.
+
+        ``read_names`` limits retained evidence for stored-alignment replays;
+        it does not alter scoring of the selected reads.
         """
         coord: dict = defaultdict(dict)
         if not os.path.exists(f"{bam}.bai"):
@@ -492,6 +548,8 @@ class RelocaTE:
                 if record.is_unmapped:
                     continue
                 qname = record.query_name
+                if read_names is not None and qname not in read_names:
+                    continue
                 qlen = int(record.query_length)
                 qstart = int(record.query_alignment_start)
                 try:
@@ -558,8 +616,11 @@ class RelocaTE:
                     "seq": seq,
                     "qual": qual,
                 }
-                if qname not in coord or self._is_better(new_rec, coord[qname]):
-                    coord[qname] = new_rec
+                coord[qname] = (
+                    new_rec
+                    if qname not in coord
+                    else self._merge_te_hits(coord[qname], new_rec)
+                )
         finally:
             fbam.close()
         return coord

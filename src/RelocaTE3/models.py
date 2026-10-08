@@ -110,6 +110,8 @@ class JunctionObservation:
     #: to let it validate an insertion on its own
     #: (relocaTE_insertionFinder.py:1523,1539).
     low_quality: bool = False
+    te_families: tuple[str, ...] = ()
+    family_ties_compatible: bool = True
 
     @property
     def te_orientation(self) -> str:
@@ -164,6 +166,9 @@ class Insertion:
     # genotyping (Step 7); populated by characterize.py
     status: str = ""  # homozygous / heterozygous / somatic_insertion / ...
     spanners: int = 0  # reference-allele reads mapping cleanly across the site
+    te_family_ambiguous_reads: int = 0
+    te_family_resolution: str = "selected_votes"
+    te_family_candidate_support: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Default the read-name list to empty."""
