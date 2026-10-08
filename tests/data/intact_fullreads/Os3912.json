@@ -1,0 +1,2297 @@
+{
+  "sample": "cov30x_rep1",
+  "chrom": "Chr4",
+  "start": 19264325,
+  "end": 19264335,
+  "query_0based_half_open": [
+    19263825,
+    19264825
+  ],
+  "alignments": {
+    "R3_junctions": {
+      "path": "../../relocate_benchmark/relocate-benchmark/runs/ricetelib/relocate3-blat-bwaaln/cov30x_rep1/raw/cov30x_rep1.repeat.bwaaln.sorted.bam",
+      "size": 51823955,
+      "index_sha256": "e5bd3ea90e865eafc2575ea75c259eb76f59bfc12aaa0f38708ad34449ba06a2",
+      "header": {
+        "HD": {
+          "VN": "1.5",
+          "SO": "coordinate"
+        },
+        "SQ": [
+          {
+            "SN": "Chr1",
+            "LN": 43270923
+          },
+          {
+            "SN": "Chr2",
+            "LN": 35937250
+          },
+          {
+            "SN": "Chr3",
+            "LN": 36413819
+          },
+          {
+            "SN": "Chr4",
+            "LN": 35502694
+          },
+          {
+            "SN": "Chr5",
+            "LN": 29958434
+          },
+          {
+            "SN": "Chr6",
+            "LN": 31248787
+          },
+          {
+            "SN": "Chr7",
+            "LN": 29697621
+          },
+          {
+            "SN": "Chr8",
+            "LN": 28443022
+          },
+          {
+            "SN": "Chr9",
+            "LN": 23012720
+          },
+          {
+            "SN": "Chr10",
+            "LN": 23207287
+          },
+          {
+            "SN": "Chr11",
+            "LN": 29021106
+          },
+          {
+            "SN": "Chr12",
+            "LN": 27531856
+          }
+        ],
+        "PG": [
+          {
+            "ID": "bwa",
+            "PN": "bwa",
+            "VN": "0.7.19-r1273",
+            "CL": "bwa sampe /bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/input/ref_genome/MSU_r7.fa /scratch/nmath020/28056006/tmpaf6bqv96/r1.sai /scratch/nmath020/28056006/tmpaf6bqv96/r2.sai /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.flank_R1.fq /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.flank_R2.fq"
+          },
+          {
+            "ID": "samtools",
+            "PN": "samtools",
+            "PP": "bwa",
+            "VN": "1.23.1",
+            "CL": "samtools view -b -F 0x4 -o /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.paired.raw.bam.mapped.tmp.bam /scratch/nmath020/28056006/tmpaf6bqv96/bwaaln.sam"
+          },
+          {
+            "ID": "samtools.1",
+            "PN": "samtools",
+            "PP": "samtools",
+            "VN": "1.23.1 (pysam)",
+            "CL": "samtools sort -@ 8 -o /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.paired.raw.bam /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.paired.raw.bam.mapped.tmp.bam"
+          },
+          {
+            "ID": "bwa-23B04DB3",
+            "PN": "bwa",
+            "VN": "0.7.19-r1273",
+            "CL": "bwa samse /bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/input/ref_genome/MSU_r7.fa /scratch/nmath020/28056006/tmpaf6bqv96/se.sai /scratch/nmath020/28056006/tmpaf6bqv96/reads.fq"
+          },
+          {
+            "ID": "samtools-5021C458",
+            "PN": "samtools",
+            "PP": "bwa-23B04DB3",
+            "VN": "1.23.1",
+            "CL": "samtools view -b -F 0x4 -o /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.se.bam.mapped.tmp.bam /scratch/nmath020/28056006/tmpaf6bqv96/bwaaln.sam"
+          },
+          {
+            "ID": "samtools.1-69E2B78C",
+            "PN": "samtools",
+            "PP": "samtools-5021C458",
+            "VN": "1.23.1 (pysam)",
+            "CL": "samtools sort -@ 8 -o /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.se.bam /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.se.bam.mapped.tmp.bam"
+          },
+          {
+            "ID": "samtools.2",
+            "PN": "samtools",
+            "PP": "samtools.1",
+            "VN": "1.23.1 (pysam)",
+            "CL": "samtools merge -f runs/ricetelib/relocate3-blat-bwaaln/cov30x_rep1/raw/cov30x_rep1.repeat.bwaaln.sorted.bam /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.paired.bam /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.se.bam"
+          },
+          {
+            "ID": "samtools.3",
+            "PN": "samtools",
+            "PP": "samtools.1-69E2B78C",
+            "VN": "1.23.1 (pysam)",
+            "CL": "samtools merge -f runs/ricetelib/relocate3-blat-bwaaln/cov30x_rep1/raw/cov30x_rep1.repeat.bwaaln.sorted.bam /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.paired.bam /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.se.bam"
+          }
+        ]
+      },
+      "sam": [
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1317144/2:end:3\t0\tChr4\t19264217\t37\t119M\t*\t0\t0\tATGAGGGGTCATATCCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGGCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\t<AAFFKKKKKKKKKAKKKKFKKKKKKFKAKKKKKKKFKKKKKKKK7KKKKKKKKKKK,,KFKKKKKKKKKKKKKKKKKKK(F,KFKKKKKKAK,KKKKKKKKKK<KAKFKAF<AKF<FK\tXT:A:U\tNM:i:1\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:80T38",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-462520/2:end:3\t0\tChr4\t19264218\t37\t118M\t*\t0\t0\tTGAGGGGTCATATCCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTTGTCGATA\tAA<FFKKKKKKKFKFKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFAFKKKKKFKKKKKKKKKFKKKKKKKKKFAFKKKKKKKFKKKKK,,KKKKKKFKF,7KKFKKKA,K7FFFKK\tXT:A:U\tNM:i:1\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:110A7",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-1979726/2:end:3\t0\tChr4\t19264231\t37\t105M\t*\t0\t0\tCCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tAAFAFKFKKKKKKKKKKKKKKAKKKKKKKKKKKAKAKKKKKKKAKAKKKKAKKKKAFKKKKKKKK7KKKKK7KKFFKKKKFKKKKKKKFKKKKKKKKKKKKKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:105",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-1141904/1:start:3\t83\tChr4\t19264232\t60\t104M\t=\t19264076\t-260\tCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tKKK<,KKK,F,FKKKKKKAFKK,,KKKFKKKKKKKKKKKKKKKFKKKFKKFKKKKKK,KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFKK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:104",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-621782/1:end:3\t0\tChr4\t19264234\t37\t102M\t*\t0\t0\tCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tFAFFFKKKKKKKKKKKKKKKKKK<KKKKFFKKKKKKKKKKKKKKKKKKKKKKKKKKKAKKFKKKKKAK<KKKKFKKKKKKKFKKKKKKKKKKKKKKKKKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:102",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1119866/2:end:3\t0\tChr4\t19264236\t37\t100M\t*\t0\t0\tCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\t<<FFF<KFKKFKKKFKKKKKKKKKKK,KKKKKKKKKKKKKKKKKKKKKKKKKAKFKFFKKKKKKKKKKKKKKAFKKAKKKKKKKKKKKKKKFAKK7K7KK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:100",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-80430/1:start:3\t83\tChr4\t19264237\t60\t99M\t=\t19264064\t-272\tCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\t7FKKKFKFKKK<K<KKKKK,KFKKKKKKFKKKKKFKKKKKKKKKKKKKKKKFKKKKKKKKKKKKKKKKKKKKKKFKKKKK,KKFKKKKKKKKKKKKKKK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:99",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-863918/2:start:3\t147\tChr4\t19264237\t60\t99M\t=\t19264116\t-220\tCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tKFKKKFA<,KKK<AKK<KAKAAAAFKK<KFFKKKKKKKFFKK<F<KKKKKK7KKKKKKKKKKKKKK<F<KAKKKKKKKKKFKKK,KKK<KK<KKKKKK<\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:99",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1360706/2:start:3\t147\tChr4\t19264239\t60\t97M\t=\t19264068\t-268\tATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\t<<<A7,KAKF7A,KK<<F,FKK,(KAAKKK,K,AKK7<<KKFKKK<<KKFKKFKKAKKK,KKFA<KKKKKKKKKKKKKK7KKKFK7KKKKKKKKKKK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:97",
+        "cov30x_rep1:clone40:h2:s623171383:Chr4-136686/2:start:3\t16\tChr4\t19264249\t37\t87M\t*\t0\t0\tTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tAKAKK<KK,FAKK,,,KK<KK,(,FKK,KKKFK<AAAFKKKFKKFKK,K<KKKKKKK7KKKKAKKKKKKAKK7KKFKKKKKKKKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:87",
+        "cov30x_rep1:clone20:h1:s1775520143:Chr4-90872/2:end:3\t0\tChr4\t19264260\t37\t76M\t*\t0\t0\tGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tAAFFFKFKKKKKKKKK,KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFFKKKKKKKK<KKKKKAKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:76",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1267024/2:start:3\t147\tChr4\t19264260\t60\t76M\t=\t19264089\t-247\tGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tFKA,<K<<F,,KAFA<A7KKKKKAFKAKKKFKKKKK,FAKKKF,FAKKKKKKKK,KKKKKKKKKKKKFKKKKKAKK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:76",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-1263146/2:end:3\t0\tChr4\t19264261\t37\t75M\t*\t0\t0\tGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tAAFAFKKKKKKKKKKKKKKKFKKKKFKKKKKKKKKKKKKKKKKKKK<KKKFK<KFKKKKKKKKKKKKKKKKKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:75",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-946228/2:end:3\t0\tChr4\t19264280\t37\t56M\t*\t0\t0\tTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tAA,FFKKKKKKKKKKKKKKKKK7KKF7KKFKKKKKKKKKKKAKKKKKKKKKKAKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:56",
+        "cov30x_rep1:clone10:h2:s497681894:Chr4-276466/2:start:3\t147\tChr4\t19264290\t60\t46M\t=\t19264137\t-199\tCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tF,<AFA,<<KFK,AAK,A,<KAKKKA,KFK77KKAA7FKKKFFKAK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:46",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1872320/2:start:3\t147\tChr4\t19264296\t60\t40M\t=\t19264128\t-208\tGTCAGGTGATTCATTCTTTCATACTAACTCTTAGTCGATA\tKKKKFFFAKAK(FKAAFAKKA<KKK<KKA,K(KFA7K<KK\tXT:A:U\tNM:i:1\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:11G28",
+        "cov30x_rep1:clone40:h1:s1144421779:Chr4-664526/2:start:3\t147\tChr4\t19264298\t60\t38M\t=\t19264117\t-219\tCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\t,KAFKKK7,K777KK,KKKAKFKFKKKFAKKK,KKKK<\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:38",
+        "cov30x_rep1:clone40:h2:s623171383:Chr4-496512/1:end:3\t0\tChr4\t19264299\t37\t37M\t*\t0\t0\tAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tFAFFFKKKKKKKKKKKFKKKKKKKKKFKKKFKKKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:37",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-250432/1:end:3\t0\tChr4\t19264305\t37\t31M\t*\t0\t0\tTTGATTCTTTCATACTAACTCTTAGTCGATA\tFAFFFKKKKKFKKKKFKKKKKKKKKKKKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:31",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-402230/1:start:5\t99\tChr4\t19264325\t29\t12M\t=\t19264626\t451\tCTTAGTCGATAC\tKKKFKKKKK,A<\tXT:A:R\tNM:i:1\tSM:i:0\tAM:i:0\tX0:i:11\tX1:i:584\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:11T0"
+      ]
+    },
+    "R3_fullreads": {
+      "path": "../../relocate_benchmark/relocate-benchmark/runs/ricetelib/relocate3-blat-bwaaln/cov30x_rep1/raw/genome_aln/cov30x_rep1.fullreads.genome.bam",
+      "size": 55302954,
+      "index_sha256": "3c5e8a225d1584284c7b4de172bf7abdb35ecf256d8b1ee43a1cfffb4cf073ec",
+      "header": {
+        "HD": {
+          "VN": "1.5",
+          "SO": "coordinate"
+        },
+        "SQ": [
+          {
+            "SN": "Chr1",
+            "LN": 43270923
+          },
+          {
+            "SN": "Chr2",
+            "LN": 35937250
+          },
+          {
+            "SN": "Chr3",
+            "LN": 36413819
+          },
+          {
+            "SN": "Chr4",
+            "LN": 35502694
+          },
+          {
+            "SN": "Chr5",
+            "LN": 29958434
+          },
+          {
+            "SN": "Chr6",
+            "LN": 31248787
+          },
+          {
+            "SN": "Chr7",
+            "LN": 29697621
+          },
+          {
+            "SN": "Chr8",
+            "LN": 28443022
+          },
+          {
+            "SN": "Chr9",
+            "LN": 23012720
+          },
+          {
+            "SN": "Chr10",
+            "LN": 23207287
+          },
+          {
+            "SN": "Chr11",
+            "LN": 29021106
+          },
+          {
+            "SN": "Chr12",
+            "LN": 27531856
+          }
+        ],
+        "PG": [
+          {
+            "ID": "bwa",
+            "PN": "bwa",
+            "VN": "0.7.19-r1273",
+            "CL": "bwa sampe /bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/input/ref_genome/MSU_r7.fa /scratch/nmath020/28056006/tmpaf6bqv96/r1.sai /scratch/nmath020/28056006/tmpaf6bqv96/r2.sai /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.fullreads.R1.fq /scratch/nmath020/28056006/tmpaf6bqv96/cov30x_rep1.fullreads.R2.fq"
+          },
+          {
+            "ID": "samtools",
+            "PN": "samtools",
+            "PP": "bwa",
+            "VN": "1.23.1",
+            "CL": "samtools view -b -F 0x4 -o runs/ricetelib/relocate3-blat-bwaaln/cov30x_rep1/raw/genome_aln/cov30x_rep1.fullreads.genome.bam.mapped.tmp.bam /scratch/nmath020/28056006/tmpaf6bqv96/bwaaln.sam"
+          },
+          {
+            "ID": "samtools.1",
+            "PN": "samtools",
+            "PP": "samtools",
+            "VN": "1.23.1 (pysam)",
+            "CL": "samtools sort -@ 8 -o runs/ricetelib/relocate3-blat-bwaaln/cov30x_rep1/raw/genome_aln/cov30x_rep1.fullreads.genome.bam runs/ricetelib/relocate3-blat-bwaaln/cov30x_rep1/raw/genome_aln/cov30x_rep1.fullreads.genome.bam.mapped.tmp.bam"
+          }
+        ]
+      },
+      "sam": [
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1317144\t163\tChr4\t19264217\t60\t150M\t=\t19264381\t314\tATGAGGGGTCATATCCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGGCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAA\t<AAFFKKKKKKKKKAKKKKFKKKKKKFKAKKKKKKKFKKKKKKKK7KKKKKKKKKKK,,KFKKKKKKKKKKKKKKKKKKK(F,KFKKKKKKAK,KKKKKKKKKK<KAKFKAF<AKF<FK7K<AK<7,KKKKK,AK7AK,FKAKKFK<KK7\tXT:A:U\tNM:i:1\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:80T69",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-462520\t163\tChr4\t19264218\t60\t150M\t=\t19264396\t328\tTGAGGGGTCATATCCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTTGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAG\tAA<FFKKKKKKKFKFKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFAFKKKKKFKKKKKKKKKFKKKKKKKKKFAFKKKKKKKFKKKKK,,KKKKKKFKF,7KKFKKKA,K7FFFKKK<KKAFK,7FFF,KF7FKFFKKKKFKKKKKFK\tXT:A:U\tNM:i:1\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:110A39",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-1979726\t163\tChr4\t19264231\t60\t150M\t=\t19264393\t312\tCCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAA\tAAFAFKFKKKKKKKKKKKKKKAKKKKKKKKKKKAKAKKKKKKKAKAKKKKAKKKKAFKKKKKKKK7KKKKK7KKFFKKKKFKKKKKKKFKKKKKKKKKKKKKKKKKAFAK<K<K<K,KKAAKK,FKK<KKKK,KKKFK<KAAKF7,K<,K\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-1141904\t83\tChr4\t19264232\t60\t150M\t=\t19264076\t-306\tCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAAC\tKKK<,KKK,F,FKKKKKKAFKK,,KKKFKKKKKKKKKKKKKKKFKKKFKKFKKKKKK,KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFKKKKKKKFK<KKKKKFKKFK<KKKKKKKKKKKKKKKKKKKKKKFFF<F\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-621782\t99\tChr4\t19264234\t60\t150M\t=\t19264438\t354\tCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGT\tFAFFFKKKKKKKKKKKKKKKKKK<KKKKFFKKKKKKKKKKKKKKKKKKKKKKKKKKKAKKFKKKKKAK<KKKKFKKKKKKKFKKKKKKKKKKKKKKKKKKKKAK<KKKKKKKKKKKKKKKKFKKKKKKKKKKKKKK,KKKFKAKFKKKFF\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1119866\t163\tChr4\t19264236\t60\t150M\t=\t19264376\t290\tCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGC\t<<FFF<KFKKFKKKFKKKKKKKKKKK,KKKKKKKKKKKKKKKKKKKKKKKKKAKFKFFKKKKKKKKKKKKKKAFKKAKKKKKKKKKKKKKKFAKK7K7KKKKAKKKF7KKKFFK7KFK,KKK,KKFK,KFKK<KF<AKAKKK,,K,K,,K\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-80430\t83\tChr4\t19264237\t60\t150M\t=\t19264064\t-323\tCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCA\t7FKKKFKFKKK<K<KKKKK,KFKKKKKKFKKKKKFKKKKKKKKKKKKKKKKFKKKKKKKKKKKKKKKKKKKKKKFKKKKK,KKFKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFKKKKKKKKKKKKKKKKKKAKKKKKKKFFFAF\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-863918\t147\tChr4\t19264237\t60\t150M\t=\t19264116\t-271\tCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCA\tKFKKKFA<,KKK<AKK<KAKAAAAFKK<KFFKKKKKKKFFKK<F<KKKKKK7KKKKKKKKKKKKKK<F<KAKKKKKKKKKFKKK,KKK<KK<KKKKKK<KKKKKKKKKKKKKKKK7KKKKAKKFKKK7KKKKKKKKKKKKKKKKFFFFAA\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1360706\t147\tChr4\t19264239\t60\t150M\t=\t19264068\t-321\tATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCCCA\t<<<A7,KAKF7A,KK<<F,FKK,(KAAKKK,K,AKK7<<KKFKKK<<KKFKKFKKAKKK,KKFA<KKKKKKKKKKKKKK7KKKFK7KKKKKKKKKKKKKKKKKKKKKKKKFKFKKKKKKKKK<KKKK,KK,KFFKKKKKFKKKK<FF#A<\tXT:A:U\tNM:i:1\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:147A2",
+        "cov30x_rep1:clone40:h2:s623171383:Chr4-136686\t147\tChr4\t19264249\t60\t150M\t=\t19264060\t-339\tTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTA\tAKAKK<KK,FAKK,,,KK<KK,(,FKK,KKKFK<AAAFKKKFKKFKK,K<KKKKKKK7KKKKAKKKKKKAKK7KKFKKKKKKKKKKKKKKKKKFKKKKKK7KAKKKKKKKKKKKKKKK,KKKKFKKKKKKKKKKKKKFKKKK,KKFF,AA\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:clone20:h1:s1775520143:Chr4-90872\t163\tChr4\t19264260\t60\t150M\t=\t19264438\t328\tGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATAT\tAAFFFKFKKKKKKKKK,KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFFKKKKKKKK<KKKKKAKKKKFKF,FKKKKKKKK<KKKKAFKKFKFAKKKKF<AKAFFKKKKKFFKFKKAKK<F,KKAK7<KFAKKF<<7,,KKF\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1267024\t147\tChr4\t19264260\t60\t150M\t=\t19264089\t-321\tGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATAT\tFKA,<K<<F,,KAFA<A7KKKKKAFKAKKKFKKKKK,FAKKKF,FAKKKKKKKK,KKKKKKKKKKKKFKKKKKAKKKKK,KKKKKK,KK7KKKFKKAFKKKKFKKKKKFKKKKFKKKK7KKKKK,KKKKKKKAKKKKKAKKKKKKFAAAA\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-1263146\t163\tChr4\t19264261\t60\t150M\t=\t19264412\t301\tGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATA\tAAFAFKKKKKKKKKKKKKKKFKKKKFKKKKKKKKKKKKKKKKKKKK<KKKFK<KFKKKKKKKKKKKKKKKKKKKKKKKKKFKKKKKKKKKFKKKFKKKKKKKKKKKKKKFK<<KKKKKFKKKAA,FAK,7KFFFK<KFKKKKKKFAFK7K\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-946228\t163\tChr4\t19264280\t60\t150M\t=\t19264394\t264\tTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATATAAGCATACCCTAACCCTA\tAA,FFKKKKKKKKKKKKKKKKK7KKF7KKFKKKKKKKKKKKAKKKKKKKKKKAKKK<KKKKKKKKKKKKKKKKAKAKKK,KKKKKKKKKKKKFKKKFKKKKFK7KFFKK(K7KKKKA7AKKKAKF,KKF,A7FK<K(FKKFFK7,AK<FK\tXT:A:U\tNM:i:1\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:144T5",
+        "cov30x_rep1:clone10:h2:s497681894:Chr4-276466\t147\tChr4\t19264290\t60\t150M\t=\t19264137\t-303\tCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATATAAGCATACCCTATCCCTATAAGCACTTC\tF,<AFA,<<KFK,AAK,A,<KAKKKA,KFK77KKAA7FKKKFFKAKKKKKFAKKKKKKKKKKKKKKKKKKKK,FKKKKKKKKKKKKKKKFKKK(KKK<KKKFKKKKK7KKKKKKKKKKKKKKKKKKKAKKKKKKKKFKKKKKKKKFAF<A\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1872320\t147\tChr4\t19264296\t60\t150M\t=\t19264128\t-318\tGTCAGGTGATTCATTCTTTCATACTAACTCTTAGTCGATATTTTTGCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATATAAGCATACCCTATCCCTATAAGCACTTCCGAAAT\tKKKKFFFAKAK(FKAAFAKKA<KKK<KKA,K(KFA7K<KKKKKFK(KK,KKKKK7KKKKFK7KKK<KKK,KKKKKKK,KK7KKKKKKKAKKFKK,KKKKKKKKKKKKKKK7K,KKFKKKK<KFKKKFAKKKKKKKKKKKKKAKKKFFFAA\tXT:A:U\tNM:i:2\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:2\tXO:i:0\tXG:i:0\tMD:Z:11G33T104",
+        "cov30x_rep1:clone40:h1:s1144421779:Chr4-664526\t147\tChr4\t19264298\t60\t150M\t=\t19264117\t-331\tCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATATAAGCATACCCTATCCCTATAAGCACTTCCGAAATAT\t,KAFKKK7,K777KK,KKKAKFKFKKKFAKKK,KKKK<KKKFF,FFAKKKKKKKKFFKKKK,KKKKKKKKKKKKKKKKKKKFKK<FKKKKKKAKKAKKKKKKKKKKAKKKKKFKAKKKKKKKKKKKKKKKKKKFKKKKKKKKKKKFFF<A\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:clone40:h2:s623171383:Chr4-496512\t99\tChr4\t19264299\t60\t150M\t=\t19264465\t316\tAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATATAAGCATACCCTATCCCTATAAGCACTTCCGAAATATT\tFAFFFKKKKKKKKKKKFKKKKKKKKKFKKKFKKKKKKKKKFK,KFKKKKKKKKKKKKKKKFKK,KKKKKKKKKKKK,KKKKKKKKKKK,KFAK7AKKKKKKFKFKKKKKKFFKKKKK,KKKKKKKKKKKKKA<KFKKKK7AKAKKKKKKK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-250432\t99\tChr4\t19264305\t60\t150M\t=\t19264487\t332\tTTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATATAAGCATACCCTATCCCTATAAGCACTTCCGAAATATTGGGTCG\tFAFFFKKKKKFKKKKFKKKKKKKKKKKKKKKFKKKKKKKKKK,KKKKKKKKKKKKKK<KKKKKKKKKKKKKFKKKKKKKKKKKKKKKFKFKKKAKKKKKFKKKKKKKKAKKKKKF7KKFAKKKKKFKKKKKK,,KKKAKKKK<KFFKKKK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-402230\t99\tChr4\t19264493\t60\t150M\t=\t19264626\t283\tGCTATTGACGGGTATATCATCTACCACTAAAAGAATAATTAACCAAATACGGGCACCCGTATCAAGTTTAGAACTTGAATCCAGATGTGTTGGTTCCTACACAAGGAACCTAACCAATTGAATTACGCTCACTTCGCTCTTAGTCGATAC\tFAAFFKKKKAKKK<KKKKKKKKK<KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFKKKKKKKKK,KKKKKKKKKFKKK(KKKKKFKKKKK7KKKKKKKAAKKKKKKKFKKKKK,A<\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150"
+      ]
+    },
+    "R2_junctions": {
+      "path": "../../relocate_benchmark/relocate-benchmark/runs/ricetelib/relocate2/cov30x_rep1/raw/repeat/bwa_aln/MSU_r7.repeat.bwa.sorted.bam",
+      "size": 51792201,
+      "index_sha256": "6ea6edba1eb294d1fe754e18b50059aec4be4016ec3c446e3d9d693f2196b04d",
+      "header": {
+        "HD": {
+          "VN": "1.3",
+          "SO": "coordinate"
+        },
+        "SQ": [
+          {
+            "SN": "Chr1",
+            "LN": 43270923
+          },
+          {
+            "SN": "Chr2",
+            "LN": 35937250
+          },
+          {
+            "SN": "Chr3",
+            "LN": 36413819
+          },
+          {
+            "SN": "Chr4",
+            "LN": 35502694
+          },
+          {
+            "SN": "Chr5",
+            "LN": 29958434
+          },
+          {
+            "SN": "Chr6",
+            "LN": 31248787
+          },
+          {
+            "SN": "Chr7",
+            "LN": 29697621
+          },
+          {
+            "SN": "Chr8",
+            "LN": 28443022
+          },
+          {
+            "SN": "Chr9",
+            "LN": 23012720
+          },
+          {
+            "SN": "Chr10",
+            "LN": 23207287
+          },
+          {
+            "SN": "Chr11",
+            "LN": 29021106
+          },
+          {
+            "SN": "Chr12",
+            "LN": 27531856
+          }
+        ],
+        "PG": [
+          {
+            "ID": "bwa",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5195D848",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-CBBA3C9",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-705260A9",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7B672A0D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5698BED3",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1D20B403",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-15DEA570",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-34FDD973",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-55CF4E65",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-781F294C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4BF68636",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-604DCC8",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-37602BDE",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-50D997FC",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6781640",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3DF3C3A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-113BAEFE",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1FB6DAA9",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4F74A207",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5D7B3CB1",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-546CA9F4",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-204503EA",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-60DDEAD0",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6B991C62",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3B39DF85",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-205A6A36",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-769D41E9",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4C8FC681",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-597071D5",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1D884FEA",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-792EDD81",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5BA3D013",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-412A33D6",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1468C969",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-61E76125",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-77B82FE1",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5067674A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-909A35D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5C2F33D3",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-64E54388",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-35821176",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2D02B1C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-61DEDDBC",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-F79D3AE",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1A79B065",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4CCDDB27",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7621479B",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5632E94F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2BF8BAD5",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3BBC0DCC",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3D7455AD",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-78326635",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5D61F4C3",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3CD4F7EB",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-282DF84C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-16897286",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-DCA428E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1EA24DD5",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-16F36C2C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-602AF177",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-32444CA",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7ABE1450",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7720430",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-42EB4F1F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-73ADA6A4",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-23883FB7",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-270476EA",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-17F61966",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7682A8ED",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7B1BE33E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6E6549AE",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2F6F61C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-49BB13C5",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-378D254",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2CBE9351",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-203AA826",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-473C58E5",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2F02B621",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-AF0F083",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7865F5D2",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6C1F5088",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-244B92F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6D6F23C6",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-432B624C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-55C49AF7",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3C790B24",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-29297B0A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-22C5CC2A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-A1950B0",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-25C59EAD",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6E5BB4E7",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-370D2322",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-EBE4B32",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7C93A377",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2441BF76",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-9DB86DB",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6F5EF068",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-14FD5E57",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-36634ACD",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-324C40E0",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1B290AAF",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2626218A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-24EBC915",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7E432BB1",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5AA5D786",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6B8A4716",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5D041649",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-8C238F4",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3ACD16D1",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-20112F4F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-25FCA18C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-40FBE8C9",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-42AD84CA",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4096575",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-77EA9227",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5CECA43B",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4312C885",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6E572C7B",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1DC8021F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-67B20CD2",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-59C7811D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-161FD5E3",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-17CF086F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-26F67345",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7512BB80",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-94064C4",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2448ECE7",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5CB7C74C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-427ABAD4",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3041EED",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-79067FA1",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4E947294",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-A4B9D85",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2DF7CE24",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7BCC2E1B",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-66BDB0CC",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3E7F08ED",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4D809387",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-53CC0FF6",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-53D616DC",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-780AA59E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5C294F14",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-371C54A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-357C1B36",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2BEDD64F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-87BD44",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-53E7A0A4",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-62B9144",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7E33B360",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3C4A8CD1",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-507A369D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-59E2A01",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6324F50B",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3193CE99",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2EF70D18",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-10022BA4",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1EB61629",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1657419B",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-74F4C417",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-75FB276",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7A78999E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5A2A1D1E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-143EB23A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2877ECC5",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-179AFC63",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-50EA1AF0",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-58038ED6",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-506EE3F1",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1B717E2E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-75FBA3CC",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-488663AE",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-BC784A3",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6A3A8AC0",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-24BB1FD5",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-758AA051",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-42C2B81E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6FF42DCB",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-293B8D3F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2C27C910",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6E2D80AD",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5EC49B7D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-48AC9F0D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-60BEDB99",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-77372B3C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3C4E77AD",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2CE4C5F4",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          }
+        ]
+      },
+      "sam": [
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1317144/2:end:3\t0\tChr4\t19264217\t37\t119M\t*\t0\t0\tATGAGGGGTCATATCCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGGCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\t<AAFFKKKKKKKKKAKKKKFKKKKKKFKAKKKKKKKFKKKKKKKK7KKKKKKKKKKK,,KFKKKKKKKKKKKKKKKKKKK(F,KFKKKKKKAK,KKKKKKKKKK<KAKFKAF<AKF<FK\tXT:A:U\tNM:i:1\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:80T38",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-462520/2:end:3\t0\tChr4\t19264218\t37\t118M\t*\t0\t0\tTGAGGGGTCATATCCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTTGTCGATA\tAA<FFKKKKKKKFKFKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFAFKKKKKFKKKKKKKKKFKKKKKKKKKFAFKKKKKKKFKKKKK,,KKKKKKFKF,7KKFKKKA,K7FFFKK\tXT:A:U\tNM:i:1\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:110A7",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-1979726/2:end:3\t0\tChr4\t19264231\t37\t105M\t*\t0\t0\tCCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tAAFAFKFKKKKKKKKKKKKKKAKKKKKKKKKKKAKAKKKKKKKAKAKKKKAKKKKAFKKKKKKKK7KKKKK7KKFFKKKKFKKKKKKKFKKKKKKKKKKKKKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:105",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-1141904/1:start:3\t83\tChr4\t19264232\t60\t104M\t=\t19264076\t-260\tCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tKKK<,KKK,F,FKKKKKKAFKK,,KKKFKKKKKKKKKKKKKKKFKKKFKKFKKKKKK,KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFKK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:104",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-621782/1:end:3\t0\tChr4\t19264234\t37\t102M\t*\t0\t0\tCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tFAFFFKKKKKKKKKKKKKKKKKK<KKKKFFKKKKKKKKKKKKKKKKKKKKKKKKKKKAKKFKKKKKAK<KKKKFKKKKKKKFKKKKKKKKKKKKKKKKKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:102",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1119866/2:end:3\t0\tChr4\t19264236\t37\t100M\t*\t0\t0\tCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\t<<FFF<KFKKFKKKFKKKKKKKKKKK,KKKKKKKKKKKKKKKKKKKKKKKKKAKFKFFKKKKKKKKKKKKKKAFKKAKKKKKKKKKKKKKKFAKK7K7KK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:100",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-863918/2:start:3\t147\tChr4\t19264237\t60\t99M\t=\t19264116\t-220\tCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tKFKKKFA<,KKK<AKK<KAKAAAAFKK<KFFKKKKKKKFFKK<F<KKKKKK7KKKKKKKKKKKKKK<F<KAKKKKKKKKKFKKK,KKK<KK<KKKKKK<\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:99",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-80430/1:start:3\t83\tChr4\t19264237\t60\t99M\t=\t19264064\t-272\tCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\t7FKKKFKFKKK<K<KKKKK,KFKKKKKKFKKKKKFKKKKKKKKKKKKKKKKFKKKKKKKKKKKKKKKKKKKKKKFKKKKK,KKFKKKKKKKKKKKKKKK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:99",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1360706/2:start:3\t147\tChr4\t19264239\t60\t97M\t=\t19264068\t-268\tATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\t<<<A7,KAKF7A,KK<<F,FKK,(KAAKKK,K,AKK7<<KKFKKK<<KKFKKFKKAKKK,KKFA<KKKKKKKKKKKKKK7KKKFK7KKKKKKKKKKK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:97",
+        "cov30x_rep1:clone40:h2:s623171383:Chr4-136686/2:start:3\t16\tChr4\t19264249\t37\t87M\t*\t0\t0\tTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tAKAKK<KK,FAKK,,,KK<KK,(,FKK,KKKFK<AAAFKKKFKKFKK,K<KKKKKKK7KKKKAKKKKKKAKK7KKFKKKKKKKKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:87",
+        "cov30x_rep1:clone20:h1:s1775520143:Chr4-90872/2:end:3\t0\tChr4\t19264260\t37\t76M\t*\t0\t0\tGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tAAFFFKFKKKKKKKKK,KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFFKKKKKKKK<KKKKKAKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:76",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1267024/2:start:3\t147\tChr4\t19264260\t60\t76M\t=\t19264089\t-247\tGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tFKA,<K<<F,,KAFA<A7KKKKKAFKAKKKFKKKKK,FAKKKF,FAKKKKKKKK,KKKKKKKKKKKKFKKKKKAKK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:76",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-1263146/2:end:3\t0\tChr4\t19264261\t37\t75M\t*\t0\t0\tGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tAAFAFKKKKKKKKKKKKKKKFKKKKFKKKKKKKKKKKKKKKKKKKK<KKKFK<KFKKKKKKKKKKKKKKKKKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:75",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-946228/2:end:3\t0\tChr4\t19264280\t37\t56M\t*\t0\t0\tTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tAA,FFKKKKKKKKKKKKKKKKK7KKF7KKFKKKKKKKKKKKAKKKKKKKKKKAKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:56",
+        "cov30x_rep1:clone10:h2:s497681894:Chr4-276466/2:start:3\t147\tChr4\t19264290\t60\t46M\t=\t19264137\t-199\tCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tF,<AFA,<<KFK,AAK,A,<KAKKKA,KFK77KKAA7FKKKFFKAK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:46",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1872320/2:start:3\t147\tChr4\t19264296\t60\t40M\t=\t19264128\t-208\tGTCAGGTGATTCATTCTTTCATACTAACTCTTAGTCGATA\tKKKKFFFAKAK(FKAAFAKKA<KKK<KKA,K(KFA7K<KK\tXT:A:U\tNM:i:1\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:11G28",
+        "cov30x_rep1:clone40:h1:s1144421779:Chr4-664526/2:start:3\t147\tChr4\t19264298\t60\t38M\t=\t19264117\t-219\tCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\t,KAFKKK7,K777KK,KKKAKFKFKKKFAKKK,KKKK<\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:38",
+        "cov30x_rep1:clone40:h2:s623171383:Chr4-496512/1:end:3\t0\tChr4\t19264299\t37\t37M\t*\t0\t0\tAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATA\tFAFFFKKKKKKKKKKKFKKKKKKKKKFKKKFKKKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:37",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-250432/1:end:3\t0\tChr4\t19264305\t37\t31M\t*\t0\t0\tTTGATTCTTTCATACTAACTCTTAGTCGATA\tFAFFFKKKKKFKKKKFKKKKKKKKKKKKKKK\tXT:A:U\tNM:i:0\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:31",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-402230/1:start:5\t99\tChr4\t19264325\t29\t12M\t=\t19264626\t451\tCTTAGTCGATAC\tKKKFKKKKK,A<\tXT:A:R\tNM:i:1\tSM:i:0\tAM:i:0\tX0:i:11\tX1:i:584\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:11T0"
+      ]
+    },
+    "R2_fullreads": {
+      "path": "../../relocate_benchmark/relocate-benchmark/runs/ricetelib/relocate2/cov30x_rep1/raw/repeat/bwa_aln/MSU_r7.repeat.fullreads.bwa.sorted.bam",
+      "size": 55649116,
+      "index_sha256": "6b9bd477cdddee0bf14c983e8fc0df528af9d52a0f7f5105111f177c62b9505a",
+      "header": {
+        "HD": {
+          "VN": "1.3",
+          "SO": "coordinate"
+        },
+        "SQ": [
+          {
+            "SN": "Chr1",
+            "LN": 43270923
+          },
+          {
+            "SN": "Chr2",
+            "LN": 35937250
+          },
+          {
+            "SN": "Chr3",
+            "LN": 36413819
+          },
+          {
+            "SN": "Chr4",
+            "LN": 35502694
+          },
+          {
+            "SN": "Chr5",
+            "LN": 29958434
+          },
+          {
+            "SN": "Chr6",
+            "LN": 31248787
+          },
+          {
+            "SN": "Chr7",
+            "LN": 29697621
+          },
+          {
+            "SN": "Chr8",
+            "LN": 28443022
+          },
+          {
+            "SN": "Chr9",
+            "LN": 23012720
+          },
+          {
+            "SN": "Chr10",
+            "LN": 23207287
+          },
+          {
+            "SN": "Chr11",
+            "LN": 29021106
+          },
+          {
+            "SN": "Chr12",
+            "LN": 27531856
+          }
+        ],
+        "PG": [
+          {
+            "ID": "bwa",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-239D8BD1",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-359C2B1E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-9DE5DDA",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-8A7FDEA",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2F4781EC",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6BDE3BA8",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-68BA4B1",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-49E6EE20",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3B1C8A0E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-B676641",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-10589887",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-60E76F45",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6AB0D917",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-44608F41",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-42B35CA1",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-69C35987",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2EAB56C7",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-744BE13E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7E2E4D78",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1CBCC1CE",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7DA6654D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7037BECF",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-603D3C51",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4B54B64F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-76E1576E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-152FCE6B",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-445C8A7A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-65DFF23E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-601ADF4E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6BFFA26F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7EBC7E22",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-29ADDAA0",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-E75FDF",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-13D09F3E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4196CAD6",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3B89363E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7FDAAAE3",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4AE4E182",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4079E794",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4A1F32B5",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5F8B559F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1FCB0691",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5FB56C8D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4ED068AB",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1B6E6E1E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6C02D8EC",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-234C527C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-62B8B11C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-296CFB1E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-294902E1",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2C058D9E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1475BDD2",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5181509C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-34C00950",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-8011E4D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7E8186F3",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-F40E2F7",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-410EF08A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4E3F513D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4F4BFB4",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-297E2C3",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2E720D55",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-23698951",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6556A42C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-37C68B2D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7BC0A40C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-15878D1B",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5EE29243",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2F84AD06",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5B217E3",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1C1F1EF",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7A80FFC9",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-25AEA06E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-34578C49",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7A81DEA2",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5EB87FA3",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7FA7671E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6DEAFA66",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-46C7FFE4",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7634A81F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-564E6951",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2FE2DCC4",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-71182837",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-424BCC69",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-EA3D750",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-53C9B309",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6A74B58B",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-53499B17",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-669D5999",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6ECABFE2",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-343C7678",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1553D3DF",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-9DD59AB",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-155982FC",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5BEF6917",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-439F6668",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5E99CD71",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-65EF912C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-598A4D7E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2F7F6C3D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2A40F48",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-26B48CAF",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-31EEA5D6",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7ABC8FDE",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-49D1ECAF",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6C1E1F8B",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-724C5E1A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7BBA92F1",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2AA0B58A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1E51FA14",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-615BF56D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1F5AC596",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7E6DB613",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5E71F78A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4B0BA318",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-136560D8",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-74AC255E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1C1AAAE0",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-58AF9120",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-39B0D63F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-62B73286",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-585EB598",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7A6CE680",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6F5D4682",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4CDF7A79",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5A8D6AC9",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5818FB08",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-7D6B7159",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-23BDD05D",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5A396042",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-63C1AED2",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6BD99071",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4749E29E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-795BAFC9",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6C297F5C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5B65AF79",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2651E696",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5B3ACA7C",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-19519447",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1B3C3359",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-455914D7",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3507E059",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-12559DAB",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-58526283",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6356018",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-A13FDD9",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2600FE15",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6717E061",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-26A170B9",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-472E21B6",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-44425A1E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3AA72DEE",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-35FE8EF4",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-694DACCE",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-359A47A9",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-45CC6161",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2252C5A2",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1740AE20",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-707376B8",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3B3A6703",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-44CA27A7",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2CBACF3",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-569E4DEB",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-563A3D22",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-6346C1FC",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-33A0B315",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-448F9497",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-124BD1E",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-75796457",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1FED7941",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2821647F",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-22EA3A0",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-71360A79",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3F1CB79A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-1F0F3D32",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5297A9EB",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-2DD95014",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-49E4BC54",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-31D9B301",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5B48A24A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-5640F956",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-16FD8A72",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-3CBD39A",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-979A9A9",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-52B03A16",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          },
+          {
+            "ID": "bwa-4FFAE2A9",
+            "PN": "bwa",
+            "VN": "0.6.2-r126"
+          }
+        ]
+      },
+      "sam": [
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1317144\t163\tChr4\t19264217\t60\t150M\t=\t19264381\t314\tATGAGGGGTCATATCCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGGCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAA\t<AAFFKKKKKKKKKAKKKKFKKKKKKFKAKKKKKKKFKKKKKKKK7KKKKKKKKKKK,,KFKKKKKKKKKKKKKKKKKKK(F,KFKKKKKKAK,KKKKKKKKKK<KAKFKAF<AKF<FK7K<AK<7,KKKKK,AK7AK,FKAKKFK<KK7\tXT:A:U\tNM:i:1\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:80T69",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-462520\t163\tChr4\t19264218\t60\t150M\t=\t19264396\t328\tTGAGGGGTCATATCCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTTGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAG\tAA<FFKKKKKKKFKFKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFAFKKKKKFKKKKKKKKKFKKKKKKKKKFAFKKKKKKKFKKKKK,,KKKKKKFKF,7KKFKKKA,K7FFFKKK<KKAFK,7FFF,KF7FKFFKKKKFKKKKKFK\tXT:A:U\tNM:i:1\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:110A39",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-1979726\t163\tChr4\t19264231\t60\t150M\t=\t19264393\t312\tCCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAA\tAAFAFKFKKKKKKKKKKKKKKAKKKKKKKKKKKAKAKKKKKKKAKAKKKKAKKKKAFKKKKKKKK7KKKKK7KKFFKKKKFKKKKKKKFKKKKKKKKKKKKKKKKKAFAK<K<K<K,KKAAKK,FKK<KKKK,KKKFK<KAAKF7,K<,K\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-1141904\t83\tChr4\t19264232\t60\t150M\t=\t19264076\t-306\tCTCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAAC\tKKK<,KKK,F,FKKKKKKAFKK,,KKKFKKKKKKKKKKKKKKKFKKKFKKFKKKKKK,KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFKKKKKKKFK<KKKKKFKKFK<KKKKKKKKKKKKKKKKKKKKKKFFF<F\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-621782\t99\tChr4\t19264234\t60\t150M\t=\t19264438\t354\tCTCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGT\tFAFFFKKKKKKKKKKKKKKKKKK<KKKKFFKKKKKKKKKKKKKKKKKKKKKKKKKKKAKKFKKKKKAK<KKKKFKKKKKKKFKKKKKKKKKKKKKKKKKKKKAK<KKKKKKKKKKKKKKKKFKKKKKKKKKKKKKK,KKKFKAKFKKKFF\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1119866\t163\tChr4\t19264236\t60\t150M\t=\t19264376\t290\tCCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGC\t<<FFF<KFKKFKKKFKKKKKKKKKKK,KKKKKKKKKKKKKKKKKKKKKKKKKAKFKFFKKKKKKKKKKKKKKAFKKAKKKKKKKKKKKKKKFAKK7K7KKKKAKKKF7KKKFFK7KFK,KKK,KKFK,KFKK<KF<AKAKKK,,K,K,,K\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-863918\t147\tChr4\t19264237\t60\t150M\t=\t19264116\t-271\tCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCA\tKFKKKFA<,KKK<AKK<KAKAAAAFKK<KFFKKKKKKKFFKK<F<KKKKKK7KKKKKKKKKKKKKK<F<KAKKKKKKKKKFKKK,KKK<KK<KKKKKK<KKKKKKKKKKKKKKKK7KKKKAKKFKKK7KKKKKKKKKKKKKKKKFFFFAA\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-80430\t83\tChr4\t19264237\t60\t150M\t=\t19264064\t-323\tCTATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCA\t7FKKKFKFKKK<K<KKKKK,KFKKKKKKFKKKKKFKKKKKKKKKKKKKKKKFKKKKKKKKKKKKKKKKKKKKKKFKKKKK,KKFKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFKKKKKKKKKKKKKKKKKKAKKKKKKKFFFAF\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1360706\t147\tChr4\t19264239\t60\t150M\t=\t19264068\t-321\tATATTGAGGTTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCCCA\t<<<A7,KAKF7A,KK<<F,FKK,(KAAKKK,K,AKK7<<KKFKKK<<KKFKKFKKAKKK,KKFA<KKKKKKKKKKKKKK7KKKFK7KKKKKKKKKKKKKKKKKKKKKKKKFKFKKKKKKKKK<KKKK,KK,KFFKKKKKFKKKK<FF#A<\tXT:A:U\tNM:i:1\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:147A2",
+        "cov30x_rep1:clone40:h2:s623171383:Chr4-136686\t147\tChr4\t19264249\t60\t150M\t=\t19264060\t-339\tTTTTAGATGGAGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTA\tAKAKK<KK,FAKK,,,KK<KK,(,FKK,KKKFK<AAAFKKKFKKFKK,K<KKKKKKK7KKKKAKKKKKKAKK7KKFKKKKKKKKKKKKKKKKKFKKKKKK7KAKKKKKKKKKKKKKKK,KKKKFKKKKKKKKKKKKKFKKKK,KKFF,AA\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:clone20:h1:s1775520143:Chr4-90872\t163\tChr4\t19264260\t60\t150M\t=\t19264438\t328\tGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATAT\tAAFFFKFKKKKKKKKK,KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFFKKKKKKKK<KKKKKAKKKKFKF,FKKKKKKKK<KKKKAFKKFKFAKKKKF<AKAFFKKKKKFFKFKKAKK<F,KKAK7<KFAKKF<<7,,KKF\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1267024\t147\tChr4\t19264260\t60\t150M\t=\t19264089\t-321\tGGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATAT\tFKA,<K<<F,,KAFA<A7KKKKKAFKAKKKFKKKKK,FAKKKF,FAKKKKKKKK,KKKKKKKKKKKKFKKKKKAKKKKK,KKKKKK,KK7KKKFKKAFKKKKFKKKKKFKKKKFKKKK7KKKKK,KKKKKKKAKKKKKAKKKKKKFAAAA\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h2:s42555551:Chr4-1263146\t163\tChr4\t19264261\t60\t150M\t=\t19264412\t301\tGGAGTAAGTACCATATTTTTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATA\tAAFAFKKKKKKKKKKKKKKKFKKKKFKKKKKKKKKKKKKKKKKKKK<KKKFK<KFKKKKKKKKKKKKKKKKKKKKKKKKKFKKKKKKKKKFKKKFKKKKKKKKKKKKKKFK<<KKKKKFKKKAA,FAK,7KFFFK<KFKKKKKKFAFK7K\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-946228\t163\tChr4\t19264280\t60\t150M\t=\t19264394\t264\tTACGGAATTGCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATATAAGCATACCCTAACCCTA\tAA,FFKKKKKKKKKKKKKKKKK7KKF7KKFKKKKKKKKKKKAKKKKKKKKKKAKKK<KKKKKKKKKKKKKKKKAKAKKK,KKKKKKKKKKKKFKKKFKKKKFK7KFFKK(K7KKKKA7AKKKAKF,KKF,A7FK<K(FKKFFK7,AK<FK\tXT:A:U\tNM:i:1\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:1\tXO:i:0\tXG:i:0\tMD:Z:144T5",
+        "cov30x_rep1:clone10:h2:s497681894:Chr4-276466\t147\tChr4\t19264290\t60\t150M\t=\t19264137\t-303\tCTATTTGTCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATATAAGCATACCCTATCCCTATAAGCACTTC\tF,<AFA,<<KFK,AAK,A,<KAKKKA,KFK77KKAA7FKKKFFKAKKKKKFAKKKKKKKKKKKKKKKKKKKK,FKKKKKKKKKKKKKKKFKKK(KKK<KKKFKKKKK7KKKKKKKKKKKKKKKKKKKAKKKKKKKKFKKKKKKKKFAF<A\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-1872320\t147\tChr4\t19264296\t60\t150M\t=\t19264128\t-318\tGTCAGGTGATTCATTCTTTCATACTAACTCTTAGTCGATATTTTTGCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATATAAGCATACCCTATCCCTATAAGCACTTCCGAAAT\tKKKKFFFAKAK(FKAAFAKKA<KKK<KKA,K(KFA7K<KKKKKFK(KK,KKKKK7KKKKFK7KKK<KKK,KKKKKKK,KK7KKKKKKKAKKFKK,KKKKKKKKKKKKKKK7K,KKFKKKK<KFKKKFAKKKKKKKKKKKKKAKKKFFFAA\tXT:A:U\tNM:i:2\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:2\tXO:i:0\tXG:i:0\tMD:Z:11G33T104",
+        "cov30x_rep1:clone40:h1:s1144421779:Chr4-664526\t147\tChr4\t19264298\t60\t150M\t=\t19264117\t-331\tCAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATATAAGCATACCCTATCCCTATAAGCACTTCCGAAATAT\t,KAFKKK7,K777KK,KKKAKFKFKKKFAKKK,KKKK<KKKFF,FFAKKKKKKKKFFKKKK,KKKKKKKKKKKKKKKKKKKFKK<FKKKKKKAKKAKKKKKKKKKKAKKKKKFKAKKKKKKKKKKKKKKKKKKFKKKKKKKKKKKFFF<A\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:clone40:h2:s623171383:Chr4-496512\t99\tChr4\t19264299\t60\t150M\t=\t19264465\t316\tAGGTGATTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATATAAGCATACCCTATCCCTATAAGCACTTCCGAAATATT\tFAFFFKKKKKKKKKKKFKKKKKKKKKFKKKFKKKKKKKKKFK,KFKKKKKKKKKKKKKKKFKK,KKKKKKKKKKKK,KKKKKKKKKKK,KFAK7AKKKKKKFKFKKKKKKFFKKKKK,KKKKKKKKKKKKKA<KFKKKK7AKAKKKKKKK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-250432\t99\tChr4\t19264305\t60\t150M\t=\t19264487\t332\tTTGATTCTTTCATACTAACTCTTAGTCGATATTTTTTCTTAAAAAAAATACACGGTACAAAAGTAGGCGCTTATAACGTGCACACTAGTCCCTATAGATACATATATAAGCATACCCTATCCCTATAAGCACTTCCGAAATATTGGGTCG\tFAFFFKKKKKFKKKKFKKKKKKKKKKKKKKKFKKKKKKKKKK,KKKKKKKKKKKKKK<KKKKKKKKKKKKKFKKKKKKKKKKKKKKKFKFKKKAKKKKKFKKKKKKKKAKKKKKF7KKFAKKKKKFKKKKKK,,KKKAKKKK<KFFKKKK\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150",
+        "cov30x_rep1:baseline:h1:s547481152:Chr4-402230\t99\tChr4\t19264493\t60\t150M\t=\t19264626\t283\tGCTATTGACGGGTATATCATCTACCACTAAAAGAATAATTAACCAAATACGGGCACCCGTATCAAGTTTAGAACTTGAATCCAGATGTGTTGGTTCCTACACAAGGAACCTAACCAATTGAATTACGCTCACTTCGCTCTTAGTCGATAC\tFAAFFKKKKAKKK<KKKKKKKKK<KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKFKKKKKKKKK,KKKKKKKKKFKKK(KKKKKFKKKKK7KKKKKKKAAKKKKKKKFKKKKK,A<\tXT:A:U\tNM:i:0\tSM:i:37\tAM:i:37\tX0:i:1\tX1:i:0\tXM:i:0\tXO:i:0\tXG:i:0\tMD:Z:150"
+      ]
+    }
+  },
+  "script_sha256": "36a0c282bf6afa89247cba7285e1c9c3cd079c74ca4fb63d99794460215d162b"
+}
