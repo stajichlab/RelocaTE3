@@ -1,5 +1,12 @@
 # Validated development checkpoint
 
+Repository cleanup recorded 2026-10-07 (America/Los_Angeles), after PRs
+#50–#53 merged into `main` at `2d721bb`: local `git_PRs/` drafts/staging aids
+and generated `results/` directories are now ignored. The four tracked PR
+messages were removed from the index with `git rm --cached`; all local copies
+remain available. The existing tracked results audit table remains tracked.
+These changes do not alter production source or benchmark evidence.
+
 Recorded: 2026-10-05 14:27 PDT, America/Los_Angeles.
 Project: RelocaTE3, `main`, base `942a5ea`, after merged PR #49.
 Status: full-suite gate passed; changes remain uncommitted. No push, merge,
