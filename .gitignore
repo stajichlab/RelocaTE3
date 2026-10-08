@@ -7,6 +7,10 @@
 # generated test output
 tests/results/
 results/memory-profile/
+
+# Local PR drafting/staging aids and generated analysis outputs
+/git_PRs/
+/results/
 .DS_Store
 # Byte-compiled / optimized / DLL files
 __pycache__/
