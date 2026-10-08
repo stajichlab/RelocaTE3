@@ -1,0 +1,230 @@
+--- a/scoring/score_calls.py
++++ b/scoring/score_calls.py
+@@ -24,7 +24,35 @@
+         return list(csv.DictReader(fh, delimiter="\t"))
+ 
+ 
+-def score(truth_path, calls_path, sample: str, caller: str, window: int):
++def _truth_interval(event, policy):
++    """Return inclusive matching bounds without modifying the simulator anchor."""
++    anchor = int(event["position"])
++    if policy == "legacy":
++        return anchor, anchor
++    if policy != "tsd-interval":
++        raise ValueError(f"Unknown coordinate policy: {policy}")
++    value = event.get("tsd_length", "")
++    if value == "":
++        # Older truth exports lack a length column. Infer only literal DNA;
++        # unknown/sentinel TSDs cannot justify extending a matching interval.
++        sequence = event.get("tsd", "").upper()
++        length = len(sequence) if sequence and set(sequence) <= set("ACGTN") else 0
++    else:
++        length = int(value)
++    if length < 0 or length > anchor:
++        raise ValueError(f"Invalid TSD length {length} at anchor {anchor}")
++    return (anchor - length + 1, anchor) if length else (anchor, anchor)
++
++
++def _interval_distance(position, bounds):
++    low, high = bounds
++    return max(low - int(position), int(position) - high, 0)
++
++
++def score(truth_path, calls_path, sample: str, caller: str, window: int,
++          coordinate_policy: str = "legacy"):
++    if window < 0:
++        raise ValueError("Matching window must be nonnegative")
+     truth = _load(truth_path)
+     calls = _load(calls_path)
+     by_chrom = defaultdict(list)
+@@ -42,19 +70,28 @@
+             "te_order": ev.get("te_order", ""),
+             "te_superfamily": ev.get("te_superfamily", ""),
+         }
++        bounds = _truth_interval(ev, coordinate_policy)
+         cands = [
+-            (abs(int(ev["position"]) - int(c["position"])), i, c)
++            (_interval_distance(c["position"], bounds),
++             abs(int(ev["position"]) - int(c["position"])), i, c)
+             for i, c in by_chrom[ev["chrom"]]
+             if i not in used
+-            and abs(int(ev["position"]) - int(c["position"])) <= window
++            and _interval_distance(c["position"], bounds) <= window
+             and _norm(ev["te_family"]) == _norm(c["te_family"])
+         ]
++        if coordinate_policy != "legacy":
++            ev = {**ev, "coordinate_policy": coordinate_policy,
++                  "truth_match_start": bounds[0], "truth_match_end": bounds[1]}
+         if not cands:
+             matches.append({"event_id": ev["event_id"], "matched": "0", **ev})
+             continue
+-        dist, i, c = min(cands)
++        dist, anchor_dist, i, c = min(cands)
+         used.add(i)
++        coordinate_metadata = (
++            {"anchor_distance_bp": anchor_dist} if coordinate_policy != "legacy" else {}
++        )
+         matches.append({
++            **coordinate_metadata,
+             "event_id": ev["event_id"], "matched": "1", "call_position": c["position"],
+             "distance_bp": dist, "call_status": c["status"], "call_tsd": c["tsd"],
+             "status_correct": str(int(_norm(ev["biological_class"]) == _norm(c["status"]))),
+@@ -120,6 +157,9 @@
+     ap.add_argument("--caller", required=True)
+     ap.add_argument("--window", type=int, default=10)
+     ap.add_argument("--outdir", required=True, type=Path)
++    ap.add_argument("--coordinate-policy", choices=("legacy", "tsd-interval"), default="legacy",
++                    help="tsd-interval compares calls to [anchor-L+1, anchor]; "
++                         "legacy retains historical anchor-only matching")
+     args = ap.parse_args(argv)
+     if args.outdir.exists() and any(args.outdir.iterdir()):
+         if (args.outdir / ".complete").exists():
+@@ -131,7 +171,7 @@
+             raise FileExistsError(f"Refusing non-empty report dir: {args.outdir}")
+     args.outdir.mkdir(parents=True, exist_ok=True)
+     summary, matches, fps, precision_row = score(
+-        args.truth, args.calls, args.sample, args.caller, args.window)
++        args.truth, args.calls, args.sample, args.caller, args.window, args.coordinate_policy)
+     _write(args.outdir / "matches.tsv", matches)
+     _write(args.outdir / "false_positive_calls.tsv", fps)
+     _write(args.outdir / "correctness.tsv", summary)
+--- /dev/null
++++ b/tests/test_coordinate_policy.py
+@@ -0,0 +1,100 @@
++"""Synthetic matching-contract tests, independent of benchmark outcomes."""
++
++import csv
++import sys
++from pathlib import Path
++
++import pytest
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++from scoring.score_calls import _interval_distance, _truth_interval, score
++
++
++def write(path, rows):
++    with path.open("w", newline="") as handle:
++        writer = csv.DictWriter(handle, list(rows[0]), delimiter="\t")
++        writer.writeheader()
++        writer.writerows(rows)
++
++
++def evaluate(tmp_path, positions, length=20, families=None, policy="tsd-interval",
++             call_tsd="UNK", window=10):
++    truth = tmp_path / "truth.tsv"
++    calls = tmp_path / "calls.tsv"
++    write(truth, [dict(event_id="E1", chrom="Chr1", position=100, tsd_length=length,
++                       tsd="A" * length if length else "NONE", te_family="TE1",
++                       biological_class="somatic_insertion")])
++    write(calls, [dict(chrom="Chr1", position=p, te_family=(families or ["TE1"] * len(positions))[i],
++                       tsd=call_tsd, strand="-", status="heterozygous", caller="R3", sample="S")
++                  for i, p in enumerate(positions)])
++    return score(truth, calls, "S", "R3", window, policy)
++
++
++@pytest.mark.parametrize("position,expected", [(81, 1), (100, 1), (71, 1), (110, 1), (70, 0), (111, 0)])
++def test_interval_and_unchanged_tolerance(tmp_path, position, expected):
++    _, matches, _, precision = evaluate(tmp_path, [position])
++    assert precision["matched_calls"] == expected
++    assert matches[0]["position"] == "100"  # original anchor preserved
++    assert matches[0]["truth_match_start"] == 81
++    assert matches[0]["truth_match_end"] == 100
++
++
++def test_long_tsd_rescue_not_genotype_or_sequence_credit(tmp_path):
++    _, matches, _, precision = evaluate(tmp_path, [81])
++    assert precision["matched_calls"] == 1
++    assert matches[0]["distance_bp"] == 0
++    assert matches[0]["anchor_distance_bp"] == 19
++    assert matches[0]["tsd_exact"] == "0"
++    assert matches[0]["status_correct"] == "0"
++    assert evaluate(tmp_path, [81], policy="legacy")[3]["matched_calls"] == 0
++
++
++def test_duplicate_calls_are_not_both_credited(tmp_path):
++    _, matches, fps, precision = evaluate(tmp_path, [81, 100])
++    assert precision["matched_calls"] == 1
++    assert len(fps) == 1
++    # Original anchor distance is the explicit second tie-breaker.
++    assert matches[0]["call_position"] == "100"
++
++
++def test_wrong_family_stays_false_positive(tmp_path):
++    assert evaluate(tmp_path, [81], families=["TE2"])[3]["matched_calls"] == 0
++
++
++def test_no_tsd_is_a_point_not_length_of_sentinel(tmp_path):
++    assert _truth_interval({"position": 100, "tsd": "NONE", "tsd_length": 0}, "tsd-interval") == (100, 100)
++    assert evaluate(tmp_path, [89], length=0)[3]["matched_calls"] == 0
++    assert evaluate(tmp_path, [90], length=0)[3]["matched_calls"] == 1
++
++
++def test_old_truth_length_inference_is_conservative():
++    assert _truth_interval({"position": 100, "tsd": "ACGT"}, "tsd-interval") == (97, 100)
++    for tsd in ("UNK", "UKN", "NONE", "supporting_junction", ""):
++        assert _truth_interval({"position": 100, "tsd": tsd}, "tsd-interval") == (100, 100)
++
++
++@pytest.mark.parametrize("length", [-1, 101, "bad"])
++def test_bad_truth_length_fails(length):
++    with pytest.raises(ValueError):
++        _truth_interval({"position": 100, "tsd_length": length}, "tsd-interval")
++
++
++def test_one_call_cannot_match_two_truth_events(tmp_path):
++    truth, calls = tmp_path / "truth.tsv", tmp_path / "calls.tsv"
++    write(truth, [dict(event_id=e, chrom="Chr1", position=p, tsd_length=20,
++                      tsd="A"*20, te_family="TE1", biological_class="homozygous")
++                  for e, p in (("E1", 100), ("E2", 105))])
++    write(calls, [dict(chrom="Chr1", position=95, te_family="TE1", tsd="UNK",
++                      strand="+", status="homozygous")])
++    _, matches, _, precision = score(truth, calls, "S", "R3", 10, "tsd-interval")
++    assert sum(r["matched"] == "1" for r in matches) == 1
++    assert precision["matched_calls"] == 1
++
++
++def test_negative_window_fails(tmp_path):
++    with pytest.raises(ValueError):
++        evaluate(tmp_path, [100], window=-1)
++
++
++def test_interval_distance():
++    assert [_interval_distance(p, (81, 100)) for p in (80, 81, 90, 100, 101)] == [1, 0, 0, 0, 1]
+--- a/pipeline/config_env.py
++++ b/pipeline/config_env.py
+@@ -109,6 +109,7 @@
+         f"TRUTH_ROOT={_sq(run.get('truth_root', 'truth'))}",
+         f"THREADS={_sq(run['threads'])}",
+         f"MATCH_WINDOW={_sq(cfg['scoring']['match_window'])}",
++        f"SCORING_COORDINATE_POLICY={_sq(cfg['scoring'].get('coordinate_policy', 'legacy'))}",
+         f"DEFAULT_DATASET={_sq(_default_dataset(cfg))}",
+     ]
+     # Preserve the old one-table shell contract for external scripts that still
+--- a/pipeline/run_benchmark_array.sh
++++ b/pipeline/run_benchmark_array.sh
+@@ -101,6 +101,7 @@
+   --sample "$SAMPLE" \
+   --caller "$CALLER" \
+   --window "$MATCH_WINDOW" \
++  --coordinate-policy "${SCORING_COORDINATE_POLICY:-legacy}" \
+   --outdir "$REPORT_DIR"
+ 
+ echo "[$(date)] parsing resource usage"
+--- a/config/benchmark.full-aligners.toml
++++ b/config/benchmark.full-aligners.toml
+@@ -36,12 +36,13 @@
+ 
+ [run]
+ work_root   = "runs"
+-report_root = "reports"
++report_root = "reports.coordinate-v1"
+ truth_root  = "truth"
+ threads     = 8
+ 
+ [scoring]
+ match_window = 10
++coordinate_policy = "tsd-interval"
+ 
+ [callers.relocate2]
+ enabled  = true

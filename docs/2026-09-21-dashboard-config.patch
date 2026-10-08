@@ -1,0 +1,21 @@
+diff --git a/dashboard/pages/05_provenance.py b/dashboard/pages/05_provenance.py
+--- a/dashboard/pages/05_provenance.py
++++ b/dashboard/pages/05_provenance.py
+@@ -3,6 +3,7 @@
+ from __future__ import annotations
+ 
++import os
+ import sys
+ import tomllib
+ from datetime import datetime
+ from pathlib import Path
+@@ -33,7 +34,8 @@
+         "variable TSD lengths from junction reads."
+     )
+ 
+-    config_path = Path("config/benchmark.toml")
++    config_path = Path(os.environ.get("CONFIG", "config/benchmark.toml"))
++    st.caption(f"Configuration: `{config_path}` (current file; not an archived run snapshot).")
+     if config_path.is_file():
+         with open(config_path, "rb") as handle:
+             config = tomllib.load(handle)

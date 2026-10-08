@@ -1,0 +1,102 @@
+# Full RelocaTE2/RelocaTE3 benchmark configuration prepared 2026-09-02.
+# Run from the relocate-benchmark repository root. Relative work, report,
+# truth, and cache paths intentionally resolve against that repository.
+
+[benchmark]
+default_dataset = "mping"
+
+[datasets.mping]
+enabled      = true
+label        = "mPing only"
+panel_root   = "/bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/results/somatic_mping_panel_chr1"
+reference    = "/bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/input/ref_genome/MSU_r7.fa"
+te_library   = "/bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/input/TE_lib/mping_superfam_header.fa"
+repeatmasker = "/bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/input/repeatmasker/MSU_r7.fa.out"
+te_name      = "mPing"
+
+[datasets.ricetelib]
+enabled          = true
+label            = "riceTElib multi-TE"
+panel_root       = "/bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/results/riceTElib_benchmark"
+reference        = "/bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/input/ref_genome/MSU_r7.fa"
+te_library       = "/bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/results/riceTElib_benchmark/selected_te_library.fa"
+repeatmasker     = "cache/reference_annotations/MSU_r7.full.repeatmasker.out"
+repeatmasker_gff = "/bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/input/ref_genome/MSU_r7.fa.RepeatMasker.out.gff"
+te_name          = "riceTElib"
+
+[datasets.ricetelib_divergence]
+enabled          = true
+label            = "riceTElib TE divergence"
+panel_root       = "/bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/results/riceTElib_div_benchmark"
+reference        = "/bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/input/ref_genome/MSU_r7.fa"
+te_library       = "/bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/results/riceTElib_div_benchmark/canonical_te_library.fa"
+repeatmasker     = "cache/reference_annotations/MSU_r7.full.repeatmasker.out"
+repeatmasker_gff = "/bigdata/wesslerlab/shared/Rice/Nathan/rice/make_simulated_genome/make_simulation_new/input/ref_genome/MSU_r7.fa.RepeatMasker.out.gff"
+te_name          = "riceTElib"
+
+[run]
+work_root   = "runs"
+report_root = "reports.coordinate-v1"
+truth_root  = "truth"
+threads     = 8
+
+[scoring]
+match_window = 10
+coordinate_policy = "tsd-interval"
+
+[callers.relocate2]
+enabled  = true
+adapter  = "callers/relocate2"
+aligner  = "blat"
+size     = 250
+mismatch = 2
+
+[callers.relocate3-minimap2-minimap2]
+enabled        = true
+adapter        = "callers/relocate3"
+repo           = "/rhome/nmath020/bigdata/github/github_tools/RelocaTE/RelocaTE3_jason/RelocaTE3"
+tsd            = "UNK"
+te_aligner     = "minimap2"
+genome_aligner = "minimap2"
+require_both_junctions = 1
+label          = "RelocaTE3-minimap2/minimap2"
+
+[callers.relocate3-bwa-bwa]
+enabled        = true
+adapter        = "callers/relocate3"
+repo           = "/rhome/nmath020/bigdata/github/github_tools/RelocaTE/RelocaTE3_jason/RelocaTE3"
+tsd            = "UNK"
+te_aligner     = "bwa"
+genome_aligner = "bwa"
+require_both_junctions = 1
+label          = "RelocaTE3-bwa/bwa"
+
+[callers.relocate3-bowtie2-bwa]
+enabled        = true
+adapter        = "callers/relocate3"
+repo           = "/rhome/nmath020/bigdata/github/github_tools/RelocaTE/RelocaTE3_jason/RelocaTE3"
+tsd            = "UNK"
+te_aligner     = "bowtie2"
+genome_aligner = "bwa"
+require_both_junctions = 1
+label          = "RelocaTE3-bowtie2/bwa"
+
+[callers.relocate3-blat-bwa]
+enabled        = true
+adapter        = "callers/relocate3"
+repo           = "/rhome/nmath020/bigdata/github/github_tools/RelocaTE/RelocaTE3_jason/RelocaTE3"
+tsd            = "UNK"
+te_aligner     = "blat"
+genome_aligner = "bwa"
+require_both_junctions = 1
+label          = "RelocaTE3-blat/bwa"
+
+[callers.relocate3-blat-bwaaln]
+enabled        = true
+adapter        = "callers/relocate3"
+repo           = "/rhome/nmath020/bigdata/github/github_tools/RelocaTE/RelocaTE3_jason/RelocaTE3"
+tsd            = "UNK"
+te_aligner     = "blat"
+genome_aligner = "bwaaln"
+require_both_junctions = 1
+label          = "RelocaTE3-blat/bwa-aln"
