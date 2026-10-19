@@ -157,3 +157,26 @@ CLAUDE.md
 # Personal dev stuff
 notes/2026-07-06-external-reference-data.md
 scratchpad/
+
+# Non-core development material (local only; 2026-10-19 cleanup).
+# The repo ships the tool, its tests, packaging, and docs. Benchmark audit,
+# replay, and profiling helpers stay on disk but are not versioned here.
+/scripts/*
+# Still loaded by core regression tests (family_resolution, intact_fullreads,
+# line_family_evidence) at import time, so they must stay tracked.
+!/scripts/analyze_line_family_trace.py
+!/scripts/replay_intact_fullreads.py
+# SLURM runner for the full test suite on compute nodes.
+!/scripts/run_full_tests.slurm
+# Tests that exercise only the ignored analysis scripts above.
+/tests/memory_profile_test.py
+/tests/error_audit_test.py
+/tests/line_family_trace_test.py
+# Investigation notes; keep the RelocaTE2 Chr3 baseline cited by README.md and
+# tests/acceptance_test.py.
+/notes/*
+!/notes/2026-08-12-relocate2-chr3-baseline.md
+# Stale copy of the relocate-benchmark scoring code.
+/validation/coordinate_scoring/
+# Editor settings.
+/.vscode/
