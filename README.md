@@ -4,21 +4,21 @@ RelocaTE3 identifies transposable element (TE) insertion polymorphisms from
 short-read resequencing data, at single-base resolution, by comparison to a
 reference genome. It is a modern, pure-Python reimplementation of
 [RelocaTE2](https://github.com/JinfengChen/RelocaTE2) built on `samtools`
-(plus `pysam`/`biopython`) — no seqtk or Perl. By default it uses the same
+(plus `pysam`/`biopython`), with no Perl. By default it uses the same
 aligner pair as RelocaTE2, `blat` for TE search and `bwa aln` for genome
 placement, but the aligner for each stage is selectable: `minimap2`, `bwa`,
 `bwa-mem2`, `bwa aln`, `bowtie2`, or `blat` (see "Choosing an aligner").
 
-> Status: reference implementation. The full pipeline (read trimming → genome
-> re-alignment → non-reference insertion calling → reference/shared insertions →
-> genotyping) runs end to end. On the rice Chr3 2 Mb benchmark, at the shipped
-> defaults, it recovers 194/200 simulated insertions (97% recall, 90%
-> precision). RelocaTE2 on the same data, measured: 196/200 at precision 1.000
-> (`notes/2026-08-12-relocate2-chr3-baseline.md`) — it still leads on this
-> fixture, by resolving a second junction where RelocaTE3 sees only one. See
-> `tests/acceptance_test.py`, which gates the minimap2 configuration
-> (~178/200) so it can run without blat. See `PLAN.md` for the roadmap (Rust acceleration and
-> Nextflow scatter are planned).
+> Status: release candidate 0.2.0 (see `CHANGELOG.md`). The full pipeline
+> (read trimming → genome re-alignment → non-reference insertion calling →
+> reference/shared insertions → genotyping) runs end to end. On the rice Chr3
+> 2 Mb test data, at the shipped defaults, it recovers 196/200 simulated
+> insertions at precision 1.000, the same as RelocaTE2
+> (`notes/2026-08-12-relocate2-chr3-baseline.md`); `tests/acceptance_test.py`
+> gates this. On the larger simulated rice benchmark it matches RelocaTE2's
+> accuracy but uses about 3x its peak memory at 30x coverage. Validated for
+> paired-end short reads; see the changelog's known limitations. See `plans/PLAN.md`
+> for the roadmap (Rust acceleration and Nextflow scatter are planned).
 
 ## Installation
 
@@ -39,13 +39,16 @@ pixi run -e blat relocaTE3 --help     # linux-64; blat + RelocaTE3 together
 ```
 
 Any `blat` on `PATH` works just as well — the backend simply shells out to it.
-Without one, pass `--te-aligner bowtie2` (the closest alternative on the rice
-benchmark); RelocaTE3 will say so if `blat` is missing.
+BLAT is free for academic, nonprofit and personal use only; commercial users
+need a license from its authors. Other TE aligners run without it, but detect
+far fewer insertions (see "Choosing an aligner").
 
-Or into an existing environment that already provides `minimap2` and `samtools`:
+Or with pip, into an environment that already provides the external tools
+(`blat`, `bwa`, `samtools`, `bedtools`, and optionally `seqtk`, which speeds up
+the BLAT stage; `bcftools` is needed only for excision mode, `characterize -x`):
 
 ```bash
-pip install -e .
+pip install .        # or: pip install -e . for development
 ```
 
 ## Usage
@@ -378,18 +381,24 @@ The aligner is selectable per stage:
   (default `bwaaln`, matching RelocaTE2). `blat` is TE-search only and is
   rejected here.
 
-Measured on the riceTElib benchmark (9 samples x 3 coverages), matched true
-calls and precision at 30x:
+Measured on the riceTElib benchmark (14-family library, 3 replicates per
+coverage, 1,500 simulated insertions per coverage). Detected insertions and
+precision, from `relocate-benchmark` profile `checkpoint-213a0df` (2026-10-18):
 
-| TE search / genome | matched 5x | 15x | 30x | precision 30x |
+| TE search / genome | detected 5x | 15x | 30x | precision 30x |
 |---|---|---|---|---|
-| `blat` / `bwaaln` (default) | 455 | 781 | 962 | 0.845 |
-| `bowtie2` / `bwa` | 428 | 761 | 946 | 0.848 |
-| `minimap2` / `minimap2` | 346 | 632 | 798 | 0.827 |
-| RelocaTE2 | 449 | 739 | 897 | 0.834 |
+| `blat` / `bwaaln` (default) | 550 | 886 | 1077 | 0.988 |
+| `blat` / `bwa` (MEM) | 370 | 553 | 624 | 0.923 |
+| `bowtie2` / `bwa` (MEM) | 327 | 485 | 546 | 0.958 |
+| `bwa` / `bwa` (MEM) | 272 | 434 | 497 | 0.973 |
+| `minimap2` / `minimap2` | 261 | 406 | 467 | 0.981 |
+| RelocaTE2 | 548 | 878 | 1068 | 0.993 |
 
-`bowtie2` is the best option when `blat` is unavailable — it costs ~2% of the
-matched calls and needs no extra environment.
+Only the default pair matches RelocaTE2; every other combination tested finds
+roughly half as many insertions. The genome aligner matters as much as the TE
+aligner (`blat` with `bwa` MEM loses ~40%). Non-BLAT TE aligners have not been
+benchmarked with `bwaaln` genome placement, so there is no measured
+replacement for BLAT yet.
 
 ```bash
 relocaTE3 run --left r1.fq --right r2.fq -T RiceTE.fa -n HEG4 -o HEG4_out --te-aligner bwa
@@ -405,7 +414,7 @@ the default `bwaaln` that is `{name}.repeat.bwaaln.sorted.bam`.
 
 ```bash
 pixi run test          # run the test suite
-pixi run pytest tests/acceptance_test.py   # the benchmark acceptance gate
+pixi run -e blat pytest tests/acceptance_test.py   # acceptance gates (needs the blat env)
 ```
 
 ### UCR HPCC User Development
