@@ -51,9 +51,11 @@ if [[ -z "${PIXI_INSIDE_RUN:-}" ]] && ! command -v relocaTE3 >/dev/null 2>&1; th
     search_dir="$(dirname "$search_dir")"
   done
   if [[ -n "$PIXI_MANIFEST" ]] && command -v pixi >/dev/null 2>&1; then
-    echo "[run_relocate3] activating pixi env from $PIXI_MANIFEST"
+    # The `blat` env carries RelocaTE3 plus blat, the default TE aligner; the
+    # default env has no blat, so the shipped settings would fail there.
+    echo "[run_relocate3] activating pixi env 'blat' from $PIXI_MANIFEST"
     export PIXI_INSIDE_RUN=1
-    exec pixi run --manifest-path "$PIXI_MANIFEST" -- bash "$0" "$@"
+    exec pixi run --manifest-path "$PIXI_MANIFEST" -e blat -- bash "$0" "$@"
   else
     echo "ERROR: relocaTE3 not on PATH and could not locate pixi.toml or pixi binary." >&2
     echo "       Activate the project env (pixi shell) before launching, or install pixi." >&2

@@ -8,6 +8,10 @@
 #   2. After the array succeeds: normalize + compare against the frozen
 #      RelocaTE2 calls (run_validation.sh --skip-run).
 #
+# PATH is set inside --wrap, not with --export: run_relocate3.sh is a login
+# script (bash -l), and a login shell resets an exported PATH, so the job would
+# fall back to the default pixi env, which has no blat.
+#
 # Usage, from the RelocaTE3 checkout that ran fresh_clone_check.slurm:
 #   bash validation/release/submit_real_rice.sh v0.2.0rc1 [--after <jobid>]
 #
@@ -49,14 +53,12 @@ ARRAY_ID=$(sbatch --parsable "${DEP[@]}" \
   -p epyc --cpus-per-task 16 --mem 64gb --time 08:00:00 \
   --array=1-"$N" -J "rt3-rice-${REF}" \
   -o "$RR/logs/relocate3.%A_%a.log" \
-  --export=ALL,PATH="$ENV_BIN:$PATH" \
-  "$RR/run_relocate3.sh" "$CONFIG")
+  --wrap "export PATH='$ENV_BIN':\$PATH; bash '$RR/run_relocate3.sh' '$CONFIG'")
 
 REPORT_ID=$(sbatch --parsable --dependency="afterok:${ARRAY_ID}" \
   -p short --cpus-per-task 1 --mem 8gb --time 01:00:00 -J "rt3-rice-report-${REF}" \
   -o "$RR/logs/report.%j.log" \
-  --export=ALL,PATH="$PLOT_BIN:$PATH" \
-  --wrap "cd '$CLONE' && bash validation/real_rice/run_validation.sh --skip-run --config '$CONFIG'")
+  --wrap "export PATH='$PLOT_BIN':\$PATH; cd '$CLONE' && bash validation/real_rice/run_validation.sh --skip-run --config '$CONFIG'")
 
 {
   echo "submitted : $(date '+%F %T')"
