@@ -132,29 +132,30 @@ closest unmatched RelocaTE3 call within the window. Tune the window in
 
 ## Parameter tracking
 
-The defaults in `[relocate3]` mirror the legacy RelocaTE2 run in
-`validation_data/real_rice/example_relocate2_pipeline/01_relocate_native_cram.sh`
-(`--mismatch 2`, `--min-match 10`, `--min-trimmed 10`). The aligner differs
-— RelocaTE2 used BLAT, RelocaTE3 uses minimap2 — so calls will not be
-bit-identical, but the recall/Jaccard numbers in `summary.txt` should stay
-high. `tsd = "TTA"` matches mPing's canonical TSD; change it if you swap
-the TE library. `te_name` is just the label baked into the output filename
-`results/<target>.<te_name>.all_nonref_insert.txt` and is compared
+`[relocate3]` matches how RelocaTE2 was run on these samples
+(`relocate2_results/<sample>/shellscripts/step_6/`, `regex.txt`): BLAT +
+`bwa aln`, `--mismatch 2`, `--min-match 10`, `--min-trimmed 10`, TSD `UNK`,
+library size 250, no MAPQ gate. Keep `tsd = "UNK"`: a fixed wildcard such as
+`"..."` goes through a different writer that RelocaTE2 has no equivalent of.
+`te_name` is the label in RelocaTE3's output filenames and is compared
 case-insensitively against RelocaTE2's `Name=` GFF attribute.
+
+The non-reference comparison uses the same tier from both tools: RelocaTE2's
+`ALL.all_nonref_insert.gff` and RelocaTE3's
+`<target>.<te_name>.all_nonref_insert.gff` (both after RelocaTE2's
+clean_false_positive.py filters). The unfiltered `.txt` is not comparable.
 
 ## Pipeline steps
 
-`run_relocate3.sh` chains the underlying RelocaTE3 subcommands per sample
-(see `relocaTE3 --help`):
+`run_relocate3.sh` runs the shipped pipeline, `relocaTE3 run-all`, once per
+sample with both mates (`-1/-2`) and `--genotype --genotype-bam` pointing at
+the external alignment. Running the subcommands one by one, as earlier
+versions of this script did, skipped run-all's mate-anchored genome alignment
+and RelocaTE2's full-read false-junction filter.
 
-1. `index-genome` — ensure `.fai` + `.mmi` exist (skipped if present).
-2. `run` — map reads to the TE library and trim TE sequence (steps 2+3).
-3. `align-genome` — align the trimmed flanking FASTQs back to the genome.
-4. `find-insertions` — cluster junctions and write
-   `<sample>/results/<target>.<te_name>.all_nonref_insert.txt`.
-
-Each step is idempotent: re-runs skip stages whose outputs already exist
-(use `--force` from `run_validation.sh` to wipe a sample's directory).
+A re-run skips a sample whose `.gff` (and characterized table, if requested)
+already exists (use `--force` from `run_validation.sh` to wipe a sample's
+directory).
 
 ## Dependencies
 

@@ -89,6 +89,7 @@ print(cfg['relocate3']['threads'])
 print(int(bool(cfg['relocate3']['characterize'])))
 print(cfg['relocate3'].get('characterize_source', 'external'))
 print(cfg['relocate3'].get('genome_aligner', 'bwaaln'))
+print(cfg['relocate3']['insert_size'])
 "
 }
 
@@ -123,6 +124,7 @@ CFG_THREADS="${CFG[17]}"
 DO_CHARACTERIZE="${CFG[18]}"
 CHAR_SOURCE="${CFG[19]}"
 GENOME_ALIGNER="${CFG[20]}"
+INSERT_SIZE="${CFG[21]}"
 
 mkdir -p "$OUTROOT" "$LOG_DIR"
 
@@ -156,21 +158,25 @@ THREADS="${SLURM_CPUS_PER_TASK:-$CFG_THREADS}"
 SAMPLE_OUTDIR="${OUTROOT}/${SAMPLE}"
 mkdir -p "$SAMPLE_OUTDIR"
 
-# Paths emitted by each pipeline step (must match the layout in
-# src/RelocaTE3/librelocate.py + align.py + insertions.py).
-READ_REPEAT="${SAMPLE_OUTDIR}/te_containing/${SAMPLE}.read_repeat_name.txt"
-FLANK5="${SAMPLE_OUTDIR}/flanking/${SAMPLE}.left.flankingReads.fq"
-FLANK3="${SAMPLE_OUTDIR}/flanking/${SAMPLE}.right.flankingReads.fq"
-# align-genome names the BAM after the aligner, and only minimap2 abbreviates
-# (see cmd_align_genome in src/RelocaTE3/cli.py). Hardcoding "minimap" here
-# broke as soon as the default genome aligner became bwaaln.
-if [[ "$GENOME_ALIGNER" == "minimap2" ]]; then
-  BAM_TAG="minimap"
-else
-  BAM_TAG="$GENOME_ALIGNER"
+NONREF_GFF="${SAMPLE_OUTDIR}/results/${TARGET}.${TE_NAME}.all_nonref_insert.gff"
+CHAR_TXT="${SAMPLE_OUTDIR}/results/${TARGET}.${TE_NAME}.all_nonref_insert.characTErized.txt"
+
+# Genotyping (step 7) uses an existing reads-to-genome alignment, as
+# RelocaTE2's characterizer did.
+GENOTYPE_ARGS=()
+if [[ "$DO_CHARACTERIZE" == "1" ]]; then
+  if [[ "$CHAR_SOURCE" == "external" ]]; then
+    GENOME_ALN="$(resolve_aln_for "$SAMPLE")"
+    GENOTYPE_ARGS=(--genotype --genotype-bam "$GENOME_ALN")
+  elif [[ "$CHAR_SOURCE" == "relocate3" ]]; then
+    echo "ERROR: characterize_source='relocate3' (RelocaTE3-self-aligned) is not yet implemented." >&2
+    echo "       Use characterize_source='external' with paths.genome_aln_{dir,pattern}." >&2
+    exit 1
+  else
+    echo "ERROR: unknown [relocate3].characterize_source: $CHAR_SOURCE" >&2
+    exit 1
+  fi
 fi
-GENOME_BAM="${SAMPLE_OUTDIR}/${SAMPLE}.repeat.${BAM_TAG}.sorted.bam"
-NONREF_TXT="${SAMPLE_OUTDIR}/results/${TARGET}.${TE_NAME}.all_nonref_insert.txt"
 
 echo "[$(date)] RelocaTE3 validation run"
 echo "  sample      : $SAMPLE"
@@ -184,117 +190,48 @@ echo "  aligner     : $ALIGNER (TE) / $GENOME_ALIGNER (genome)"
 echo "  mismatch    : $MISMATCH"
 echo "  match/trim  : ${MIN_MATCH}/${MIN_TRIMMED}"
 echo "  te_name/TSD : ${TE_NAME}/${TSD}"
+echo "  insert size : $INSERT_SIZE"
+echo "  min MAPQ    : $MIN_MAPQ"
 echo "  target      : $TARGET"
-echo "  characterize: $DO_CHARACTERIZE"
+echo "  characterize: $DO_CHARACTERIZE ${GENOME_ALN:-}"
 
 start=$(date +%s)
 
 # ---------------------------------------------------------------------------
-# Step 1: index the reference genome (skipped if .fai + .mmi already exist).
+# The shipped pipeline, end to end. Calling the steps one by one skipped
+# run-all's mate-anchored genome alignment and RelocaTE2's full-read
+# false-junction filter, both of which need -1/-2.
 # ---------------------------------------------------------------------------
-if [[ ! -s "${GENOME}.fai" || ! -s "${GENOME}.mmi" ]]; then
-  echo "[$(date)] index-genome"
-  relocaTE3 index-genome -g "$GENOME"
+if [[ -s "$NONREF_GFF" && ( "$DO_CHARACTERIZE" != "1" || -s "$CHAR_TXT" ) ]]; then
+  echo "[$(date)] outputs exist ($NONREF_GFF), skipping run-all"
 else
-  echo "[$(date)] genome already indexed (.fai + .mmi present), skipping index-genome"
-fi
-
-# ---------------------------------------------------------------------------
-# Steps 2+3: align reads to the TE library and trim TE sequence from them.
-# ---------------------------------------------------------------------------
-if [[ ! -s "$READ_REPEAT" ]]; then
-  echo "[$(date)] run (map + trim)"
-  relocaTE3 run \
-    --left "$R1" \
-    --right "$R2" \
-    --te-library "$TE_LIB" \
-    --name "$SAMPLE" \
-    --outdir "$SAMPLE_OUTDIR" \
-    --threads "$THREADS" \
-    --aligner "$ALIGNER" \
-    --min-match "$MIN_MATCH" \
-    --min-trimmed "$MIN_TRIMMED" \
-    --mismatch "$MISMATCH"
-else
-  echo "[$(date)] read_repeat table exists, skipping run (map + trim)"
-fi
-
-# ---------------------------------------------------------------------------
-# Step 4: align trimmed flanking reads back to the reference genome.
-# ---------------------------------------------------------------------------
-FLANK_INPUTS=()
-[[ -s "$FLANK5" ]] && FLANK_INPUTS+=("$FLANK5")
-[[ -s "$FLANK3" ]] && FLANK_INPUTS+=("$FLANK3")
-if [[ ${#FLANK_INPUTS[@]} -eq 0 ]]; then
-  echo "ERROR: no flanking FASTQs produced under ${SAMPLE_OUTDIR}/flanking/" >&2
-  exit 1
-fi
-
-if [[ ! -s "$GENOME_BAM" ]]; then
-  echo "[$(date)] align-genome (flanking -> genome BAM)"
-  relocaTE3 align-genome \
+  echo "[$(date)] run-all"
+  relocaTE3 run-all \
+    -1 "$R1" \
+    -2 "$R2" \
+    -T "$TE_LIB" \
     -g "$GENOME" \
-    -f "${FLANK_INPUTS[@]}" \
     -n "$SAMPLE" \
     -o "$SAMPLE_OUTDIR" \
     --threads "$THREADS" \
-    --genome-aligner "$GENOME_ALIGNER"
-else
-  echo "[$(date)] genome-aligned BAM exists, skipping align-genome"
+    --te-aligner "$ALIGNER" \
+    --genome-aligner "$GENOME_ALIGNER" \
+    --min-match "$MIN_MATCH" \
+    --min-trimmed "$MIN_TRIMMED" \
+    --mismatch "$MISMATCH" \
+    --tsd "$TSD" \
+    --target "$TARGET" \
+    --te-name "$TE_NAME" \
+    --size "$INSERT_SIZE" \
+    --min-mapq "$MIN_MAPQ" \
+    --repeatmasker "$REPMASK" \
+    "${GENOTYPE_ARGS[@]}"
 fi
 
-# ---------------------------------------------------------------------------
-# Step 5: cluster junction/supporting reads and call non-reference insertions.
-# ---------------------------------------------------------------------------
-echo "[$(date)] find-insertions"
-relocaTE3 find-insertions \
-  -b "$GENOME_BAM" \
-  --read-repeat "$READ_REPEAT" \
-  --tsd "$TSD" \
-  --target "$TARGET" \
-  --name "$SAMPLE" \
-  --outdir "$SAMPLE_OUTDIR" \
-  --te-name "$TE_NAME" \
-  --reference-ins "$REPMASK" \
-  --mismatch "$MISMATCH" \
-  --min-mapq "$MIN_MAPQ"
-
-if [[ ! -s "$NONREF_TXT" ]]; then
-  echo "WARN: expected non-reference insertion table not produced: $NONREF_TXT" >&2
-fi
-
-# ---------------------------------------------------------------------------
-# Optional Step 7: characterize zygosity.
-#
-# When [relocate3].characterize_source = "external" (the default), the reads-
-# to-genome alignment comes from paths.genome_aln_{dir,pattern} — e.g. the
-# bundled CRAMs under validation_data/real_rice/aln_input/.
-# ---------------------------------------------------------------------------
-if [[ "$DO_CHARACTERIZE" == "1" ]]; then
-  CHAR_TXT="${SAMPLE_OUTDIR}/results/${TARGET}.${TE_NAME}.all_nonref_insert.characTErized.txt"
-  if [[ -s "$CHAR_TXT" ]]; then
-    echo "[$(date)] characterize already done ($CHAR_TXT), skipping"
-  elif [[ ! -s "$NONREF_TXT" ]]; then
-    echo "[$(date)] characterize skipped: missing non-reference sites table $NONREF_TXT" >&2
-  elif [[ "$CHAR_SOURCE" == "external" ]]; then
-    GENOME_ALN="$(resolve_aln_for "$SAMPLE")"
-    echo "[$(date)] characterize (step 7) using external alignment: $GENOME_ALN"
-    relocaTE3 characterize \
-      -s "$NONREF_TXT" \
-      -b "$GENOME_ALN" \
-      -g "$GENOME" \
-      -o "${SAMPLE_OUTDIR}/results" \
-      --samtools samtools --bcftools bcftools
-  elif [[ "$CHAR_SOURCE" == "relocate3" ]]; then
-    echo "ERROR: characterize_source='relocate3' (RelocaTE3-self-aligned) is not yet implemented." >&2
-    echo "       Use characterize_source='external' with paths.genome_aln_{dir,pattern}." >&2
-    exit 1
-  else
-    echo "ERROR: unknown [relocate3].characterize_source: $CHAR_SOURCE" >&2
-    exit 1
-  fi
+if [[ ! -s "$NONREF_GFF" ]]; then
+  echo "WARN: expected non-reference insertion GFF not produced: $NONREF_GFF" >&2
 fi
 
 end=$(date +%s)
 echo "[$(date)] done in $((end-start))s"
-echo "  insertions table: $NONREF_TXT"
+echo "  insertions GFF: $NONREF_GFF"

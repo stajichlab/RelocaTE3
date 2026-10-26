@@ -13,46 +13,15 @@ from __future__ import annotations
 
 import argparse
 import csv
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import NONREF_COLUMNS as COLUMNS  # noqa: E402
+from _common import parse_nonref_gff  # noqa: E402
 from _config import load_config, load_samples  # noqa: E402
 
-ATTR_RE = re.compile(r"([A-Za-z_]+)=([^;]*)")
 LEGACY_GFF_RELPATH = Path("repeat/results/ALL.all_nonref_insert.gff")
-
-
-def _attrs(field: str) -> dict[str, str]:
-    return dict(ATTR_RE.findall(field))
-
-
-def parse_gff(path: Path, sample: str):
-    """Yield normalized records from one ALL.all_nonref_insert.gff."""
-    with open(path) as fh:
-        for line in fh:
-            if not line.strip() or line.startswith("#"):
-                continue
-            f = line.rstrip("\n").split("\t")
-            if len(f) < 9:
-                continue
-            attrs = _attrs(f[8])
-            yield {
-                "sample": sample,
-                "chrom": f[0],
-                "start": int(f[3]),
-                "end": int(f[4]),
-                "strand": f[6],
-                "te_name": attrs.get("Name", "NA"),
-                "tsd": attrs.get("TSD", "NA"),
-                "left_junction_reads": int(attrs.get("Left_junction_reads", "0")),
-                "right_junction_reads": int(attrs.get("Right_junction_reads", "0")),
-                "left_support_reads": int(attrs.get("Left_support_reads", "0")),
-                "right_support_reads": int(attrs.get("Right_support_reads", "0")),
-                "source_file": str(path),
-            }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -89,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
                 n_missing += 1
                 continue
             count = 0
-            for rec in parse_gff(gff, sample):
+            for rec in parse_nonref_gff(gff, sample):
                 writer.writerow(rec)
                 count += 1
             n_total += count

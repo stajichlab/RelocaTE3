@@ -52,14 +52,13 @@ genome_aligner = "bwaaln"         # genome placement: bwaaln | minimap2 | bwa | 
 mismatch      = 2
 min_match     = 10                # RelocaTE3 --min-match
 min_trimmed   = 10                # RelocaTE3 --min-trimmed
-min_mapq      = 1                 # find-insertions --min-mapq
+min_mapq      = 0                 # no MAPQ gate, as RelocaTE2 (and the run-all default)
+insert_size   = 250               # RelocaTE2 real-rice runs: library size 250
 te_name       = "mping"           # label baked into find-insertions output filenames
 target        = "ALL"             # find-insertions --target (chromosome or ALL)
-tsd           = "..."             # find-insertions --tsd: 3-bp wildcard regex so
-                                  # the class path captures the literal TSD bases
-                                  # from each junction read (TTA or TAA), matching
-                                  # RelocaTE2's depth-mode behavior on mPing.
-                                  # Use a literal motif ("TTA") to require an exact match.
+tsd           = "UNK"             # infer each TSD, as RelocaTE2 did on these samples
+                                  # (relocate2_results/<sample>/regex.txt: UNK).
+                                  # "..." routes to a different, non-RelocaTE2 writer.
 threads       = 16
 characterize  = true              # run Step 7 characterization
 # How to source the BAM/CRAM consumed by characterize:
