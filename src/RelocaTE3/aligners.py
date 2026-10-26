@@ -634,8 +634,9 @@ class BlatBackend(AlignerBackend):
                 "and is linux-64 only.\n"
                 "  Install it:  pixi run -e blat true   (then use `pixi run -e "
                 "blat relocaTE3 ...`)\n"
-                "  Or pick another aligner:  --te-aligner bowtie2   "
-                "(closest accuracy to blat on the rice benchmark)"
+                "  Or pick another aligner, e.g. --te-aligner bowtie2; on the "
+                "rice benchmark every alternative finds far fewer insertions "
+                "than blat (about half; see README, 'Choosing an aligner')"
             )
 
     #: RelocaTE2's BLAT sensitivity settings (relocaTE2.py:545). BLAT's own

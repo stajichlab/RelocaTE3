@@ -626,6 +626,10 @@ class TestBlatMissingBinary(unittest.TestCase):
         self.assertIn("blat", msg)
         self.assertIn("--te-aligner", msg, "must say how to pick another aligner")
         self.assertIn("pixi", msg, "must say how to install it")
+        # The alternatives detect about half as many insertions on the rice
+        # benchmark (checkpoint-213a0df); the message must not imply parity.
+        self.assertNotIn("closest accuracy", msg)
+        self.assertIn("fewer insertions", msg)
 
 
 if __name__ == "__main__":

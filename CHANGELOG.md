@@ -24,6 +24,8 @@ First release aimed at replacing RelocaTE2 for paired-end short-read data.
   rules, read admission and `high_conf` filter are ported as in RelocaTE2.
 - TE-family labels are resolved from all supporting reads at a locus.
 - `--require-both-junctions` is on by default, as in RelocaTE2.
+- The missing-BLAT error no longer suggests `bowtie2` as a near-equal
+  substitute.
 - TE-search memory reduced by streaming BLAT output; BLAT runs in chunks.
 
 ### Added
