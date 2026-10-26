@@ -13,7 +13,8 @@
 # fall back to the default pixi env, which has no blat.
 #
 # Usage, from the RelocaTE3 checkout that ran fresh_clone_check.slurm:
-#   bash validation/release/submit_real_rice.sh v0.2.0rc1 [--after <jobid>]
+#   bash validation/release/submit_real_rice.sh v0.2.0rc1 [--after <jobid>] [--partition <p>]
+# --partition sets the array's partition (default: epyc).
 #
 # Outputs: results/release-validation/<REF>/clone/validation/real_rice/
 #          {results,report,logs}/ ; submission record in
@@ -21,10 +22,18 @@
 
 set -euo pipefail
 
-REF="${1:?usage: submit_real_rice.sh <tag-or-commit> [--after <jobid>]}"
+USAGE="usage: submit_real_rice.sh <tag-or-commit> [--after <jobid>] [--partition <p>]"
+REF="${1:?$USAGE}"
 shift
 AFTER=""
-if [[ "${1:-}" == "--after" ]]; then AFTER="${2:?--after needs a job id}"; fi
+PARTITION="epyc"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --after) AFTER="${2:?--after needs a job id}"; shift 2 ;;
+    --partition) PARTITION="${2:?--partition needs a name}"; shift 2 ;;
+    *) echo "ERROR: unknown argument: $1" >&2; echo "$USAGE" >&2; exit 2 ;;
+  esac
+done
 
 BASE_DIR="$(pwd)"
 OUTDIR="$BASE_DIR/results/release-validation/${REF}"
@@ -50,7 +59,7 @@ DEP=()
 [[ -n "$AFTER" ]] && DEP=(--dependency="afterok:${AFTER}")
 
 ARRAY_ID=$(sbatch --parsable "${DEP[@]}" \
-  -p epyc --cpus-per-task 16 --mem 64gb --time 08:00:00 \
+  -p "$PARTITION" --cpus-per-task 16 --mem 64gb --time 08:00:00 \
   --array=1-"$N" -J "rt3-rice-${REF}" \
   -o "$RR/logs/relocate3.%A_%a.log" \
   --wrap "export PATH='$ENV_BIN':\$PATH; bash '$RR/run_relocate3.sh' '$CONFIG'")
@@ -65,6 +74,7 @@ REPORT_ID=$(sbatch --parsable --dependency="afterok:${ARRAY_ID}" \
   echo "ref       : $REF ($(git -C "$CLONE" rev-parse HEAD))"
   echo "samples   : $N ($SAMPLE_CSV)"
   echo "after     : ${AFTER:-none}"
+  echo "partition : $PARTITION"
   echo "array     : $ARRAY_ID"
   echo "report    : $REPORT_ID"
 } | tee "$RECORD"
