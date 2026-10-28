@@ -36,6 +36,7 @@ import heapq
 import json
 import os
 import pickle
+import shutil
 import tempfile
 from collections import defaultdict
 from itertools import islice
@@ -122,6 +123,25 @@ class RelocaTE:
 
         backend = get_aligner(tool, self.cpu_threads, te_opts=te_opts)
         backend.index(TE_library)
+        map_chunked = getattr(backend, "map_te_library_chunked", None)
+        if map_chunked is not None:
+            # BLAT admits far more reads than the other aligners (~17M per side
+            # on riceTElib 30x), so trim it chunk by chunk as RelocaTE2 does.
+            alignments = map_chunked(seqreads, TE_library, str(outdir))
+            directions = self._bam_directions([a.bam for a in alignments])
+            written = self.write_trimmed_reads_chunked(
+                seqreads.name,
+                list(zip(directions, alignments)),
+                outdir,
+                source_fastqs=seqreads.file_set,
+                minimum_match_length=minimum_match_length,
+                minimum_trimmed_length=minimum_trimmed_length,
+                mismatch_allowance=mismatch_allowance,
+            )
+            for alignment in alignments:
+                shutil.rmtree(alignment.chunk_dir, ignore_errors=True)
+            return written
+
         bamfiles = backend.map_te_library(seqreads, TE_library, str(outdir))
 
         directions = self._bam_directions(bamfiles)

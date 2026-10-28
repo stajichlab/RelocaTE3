@@ -14,16 +14,24 @@ sequential RNG, so flanking-read order is not cosmetic.
 from __future__ import annotations
 
 import gc
+import gzip
 import random
+import shutil
 import weakref
+from itertools import islice
 from pathlib import Path
 
 import pysam
 import pytest
 
-from RelocaTE3.aligners import ChunkedTEAlignment, TEChunk
+from RelocaTE3.aligners import BlatBackend, ChunkedTEAlignment, TEChunk
 from RelocaTE3.librelocate import RelocaTE, reverse_complement
+from RelocaTE3.ReadLibrary import ReadLibrary
 
+DATA = Path(__file__).parent / "data"
+R1 = DATA / "sim_reads" / "MSU7.Chr3_2M.ALL_reads_6X_100_500_1.fq.gz"
+R2 = DATA / "sim_reads" / "MSU7.Chr3_2M.ALL_reads_6X_100_500_2.fq.gz"
+RICETE = DATA / "TE_lib" / "RiceTE.fa"
 
 TE_LEN = 100
 READ_LEN = 40
@@ -210,3 +218,66 @@ def test_chunked_trim_rejects_fastq_that_does_not_match_chunks(tmp_path):
         RelocaTE().write_trimmed_reads_chunked(
             "S", [(direction, short)], tmp_path / "out", source_fastqs=fastqs[:1]
         )
+
+
+def _subset_fastq(src: Path, dest: Path, n: int) -> Path:
+    with gzip.open(src, "rt") as fh, open(dest, "w") as out:
+        out.writelines(islice(fh, 4 * n))
+    return dest
+
+
+def _records(bam: Path) -> list[str]:
+    with pysam.AlignmentFile(str(bam), "rb") as fh:
+        return [rec.to_string() for rec in fh.fetch(until_eof=True)]
+
+
+@pytest.mark.skipif(
+    shutil.which("blat") is None or shutil.which("seqtk") is None,
+    reason="blat/seqtk not on PATH (pixi env 'blat')",
+)
+def test_blat_chunked_run_matches_single_chunk_run(tmp_path, monkeypatch):
+    """Real BLAT: many small chunks give the same BAM and trim outputs as one."""
+    left = _subset_fastq(R1, tmp_path / "r1.fq", 1500)
+    right = _subset_fastq(R2, tmp_path / "r2.fq", 1500)
+    reads = ReadLibrary([str(left), str(right)], "S")
+
+    # Reference: one BLAT chunk per side, whole-file trim.
+    single = tmp_path / "single"
+    single.mkdir()
+    bams = BlatBackend(threads=2).map_te_library(reads, str(RICETE), str(single))
+    RelocaTE().write_trimmed_reads(
+        "S",
+        list(zip(["left", "right"], bams)),
+        single,
+        source_fastqs=reads.file_set,
+    )
+
+    # Chunked: 4 chunks per side, per-chunk trim through the pipeline entry.
+    monkeypatch.setattr(BlatBackend, "BLAT_CHUNK_SEQS", 400)
+    real = BlatBackend.map_te_library_chunked
+    chunk_counts = []
+
+    def spy(self, *args, **kwargs):
+        sides = real(self, *args, **kwargs)
+        chunk_counts.extend(len(s.chunks) for s in sides)
+        assert all(sum(c.n_reads for c in s.chunks) == 1500 for s in sides)
+        return sides
+
+    monkeypatch.setattr(BlatBackend, "map_te_library_chunked", spy)
+    chunked = tmp_path / "chunked"
+    chunked.mkdir()
+    RelocaTE(TElib=str(RICETE), threads=2).identify_TE_reads(
+        reads, chunked, te_aligner="blat"
+    )
+
+    assert chunk_counts == [4, 4]
+    for side in ("left", "right"):
+        assert _records(chunked / f"S.{side}.bam") == _records(single / f"S.{side}.bam")
+        assert not (chunked / f"S.{side}.te_chunks").exists(), "chunk BAMs left behind"
+    trim_dirs = ("flanking", "te_containing", "te_portions")
+    want = {k: v for k, v in _outputs(single).items() if k.split("/")[0] in trim_dirs}
+    got = {k: v for k, v in _outputs(chunked).items() if k.split("/")[0] in trim_dirs}
+    assert sorted(got) == sorted(want)
+    for path in want:
+        assert got[path] == want[path], f"{path} differs"
+    assert want["te_containing/S.read_repeat_name.txt"]
