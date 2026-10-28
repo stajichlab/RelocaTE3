@@ -23,9 +23,39 @@ import tempfile
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 import pysam
+
+
+@dataclass(frozen=True)
+class TEChunk:
+    """TE-library hits for one contiguous block of query reads.
+
+    ``bam`` is a coordinate-sorted, indexed BAM holding the hits of exactly the
+    ``n_reads`` consecutive records of the side's read file that this chunk
+    covers (records ``[sum of earlier n_reads, + n_reads)``). Because a read's
+    hits never leave its chunk, per-read best-hit selection over one chunk is
+    the same as over the whole side.
+    """
+
+    bam: Path
+    n_reads: int
+
+
+@dataclass(frozen=True)
+class ChunkedTEAlignment:
+    """One read side's TE-library alignment, kept as its per-chunk parts.
+
+    ``bam`` is the merged side BAM (the usual ``map_te_library`` contract);
+    ``chunks`` are its parts in read-file order; ``chunk_dir`` holds them and
+    can be removed once the trim step has consumed them.
+    """
+
+    bam: Path
+    chunks: tuple[TEChunk, ...]
+    chunk_dir: Path
 
 
 
