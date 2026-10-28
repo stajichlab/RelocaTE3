@@ -1269,6 +1269,7 @@ def cmd_align_genome(args: argparse.Namespace) -> int:
         from RelocaTE3.genome_align import (
             align_junction_fullreads,
             align_flanks_anchored,
+            flanking_read_bases,
             read_te_hit_names,
         )
         from RelocaTE3.ReadLibrary import ReadLibrary
@@ -1283,7 +1284,9 @@ def cmd_align_genome(args: argparse.Namespace) -> int:
                 f"All-TE-hit table not found: {te_hits_path}; rerun the map/trim "
                 "step with this RelocaTE3 version"
             )
-        all_te_hits = read_te_hit_names(te_hits_path)
+        all_te_hits = read_te_hit_names(
+            te_hits_path, bases=flanking_read_bases(list(args.fastq))
+        )
         suffix = "minimap" if args.genome_aligner == "minimap2" else args.genome_aligner
         out_bam = outdir / f"{args.name}.repeat.{suffix}.sorted.bam"
         backend = get_aligner(
