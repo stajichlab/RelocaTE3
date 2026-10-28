@@ -135,44 +135,6 @@ def _write_multi_contig_bam(bam_path, contigs, reads):
 class TestInsertionFinder(unittest.TestCase):
     """Step 5: cluster junction reads into a non-reference insertion call."""
 
-    def test_known_tsd_call(self):
-        with tempfile.TemporaryDirectory() as workdir:
-            bam_path = os.path.join(workdir, "flank.bam")
-            # TSD "TTA"; build a left and a right junction read that share tsd_start=1000.
-            # Left  (pos=left):  + strand, ":end:5", seq ends in TTA, ref_end+1 = 1003 -> tsd_start = 1000
-            # Right (pos=right): + strand, ":start:5", seq starts with TTA, start(1based)=1000 -> tsd_start = 1000
-            left = {"name": "readL:end:5", "seq": "A" * 37 + "TTA", "start0": 962}
-            right = {"name": "readR:start:5", "seq": "TTA" + "A" * 37, "start0": 999}
-            _write_junction_bam(bam_path, "Chr1", 5000, [left, right])
-
-            read_repeat = os.path.join(workdir, "read_repeat_name.txt")
-            with open(read_repeat, "w") as fh:
-                fh.write("readL\tmping\t+\n")
-                fh.write("readR\tmping\t+\n")
-
-            finder = InsertionFinder(mismatch_allow=0, min_mapq=1)
-            out_txt = finder.find_insertions(
-                bam_file=Path(bam_path),
-                read_repeat_file=Path(read_repeat),
-                tsd="TTA",
-                target="Chr1",
-                sample="HEG4",
-                outdir=Path(workdir),
-            )
-            self.assertTrue(out_txt.exists())
-            rows = [ln for ln in out_txt.read_text().splitlines() if ln.strip()]
-            self.assertEqual(len(rows), 1)
-            cols = rows[0].split("\t")
-            # repeat_family, TSD, exper, chrom, coor, orient, T:, R:, L:, ST:, SR:, SL:
-            self.assertEqual(cols[0], "mping")
-            self.assertEqual(cols[1], "TTA")
-            self.assertEqual(cols[2], "HEG4")
-            self.assertEqual(cols[3], "Chr1")
-            self.assertEqual(cols[4], "1000..1002")
-            self.assertEqual(cols[6], "T:2")
-            self.assertEqual(cols[7], "R:1")
-            self.assertEqual(cols[8], "L:1")
-
     def test_target_all_preserves_per_cluster_chrom(self):
         """With --target ALL, the chrom column must be the cluster's real chrom, not 'ALL'."""
         with tempfile.TemporaryDirectory() as workdir:
@@ -218,7 +180,7 @@ class TestInsertionFinder(unittest.TestCase):
             out_txt = finder.find_insertions(
                 bam_file=Path(bam_path),
                 read_repeat_file=Path(read_repeat),
-                tsd="TTA",
+                tsd="UNK",
                 target="ALL",
                 sample="HEG4",
                 outdir=Path(workdir),
@@ -325,40 +287,6 @@ class TestInsertionFinder(unittest.TestCase):
             self.assertEqual(rows[1][1], "TACTC")
             self.assertEqual(rows[1][4], "3000..3004")
             self.assertEqual(rows[1][6:9], ["T:5", "R:2", "L:3"])
-
-    def test_offset_split_merges_to_one_call(self):
-        """A wildcard-TSD 1 bp offset between the two junction sides must not
-        fragment one insertion into two single-sided calls (issue: TSD-start
-        divergence)."""
-        with tempfile.TemporaryDirectory() as workdir:
-            bam_path = os.path.join(workdir, "flank.bam")
-            # True 4 bp TSD "GCAT" at genomic 1000..1003; wildcard tsd="..." (3 bp).
-            # Right (":start:5", +): 1-based start = 1000 -> captures "GCA", tsd_start=1000.
-            # Left  (":end:5",  +): seq ends "CAT", ref_end+1 = 1004 -> tsd_start = 1001.
-            right = {"name": "rR:start:5", "seq": "GCA" + "A" * 37, "start0": 999}
-            left = {"name": "rL:end:5", "seq": "A" * 37 + "CAT", "start0": 963}
-            _write_junction_bam(bam_path, "Chr1", 5000, [left, right])
-
-            read_repeat = os.path.join(workdir, "read_repeat_name.txt")
-            with open(read_repeat, "w") as fh:
-                fh.write("rR\tmping\t+\n")
-                fh.write("rL\tmping\t+\n")
-
-            finder = InsertionFinder(mismatch_allow=0, min_mapq=1)
-            out_txt = finder.find_insertions(
-                bam_file=Path(bam_path),
-                read_repeat_file=Path(read_repeat),
-                tsd="...",
-                target="Chr1",
-                sample="HEG4",
-                outdir=Path(workdir),
-            )
-            rows = [ln for ln in out_txt.read_text().splitlines() if ln.strip()]
-            self.assertEqual(len(rows), 1, f"expected 1 merged row, got {rows}")
-            cols = rows[0].split("\t")
-            self.assertEqual(cols[6], "T:2")  # pooled total
-            self.assertEqual(cols[7], "R:1")  # right junction retained
-            self.assertEqual(cols[8], "L:1")  # left junction retained
 
     def test_require_both_junctions_drops_single_sided(self):
         """require_both_junctions drops one-sided calls (RelocaTE2 parity) while
@@ -471,35 +399,6 @@ class TestInsertionFinder(unittest.TestCase):
                 outdir=Path(workdir),
             )
             self.assertEqual(out.read_text(), "")
-
-    def test_distinct_sites_not_merged(self):
-        """Two real insertions farther apart than the TSD length must stay two
-        separate calls (merge must not collapse distinct sites)."""
-        with tempfile.TemporaryDirectory() as workdir:
-            bam_path = os.path.join(workdir, "flank.bam")
-            # Site A at tsd_start=1000, Site B at tsd_start=1050 (>3 bp apart).
-            reads = [
-                {"name": "aR:start:5", "seq": "TTA" + "A" * 37, "start0": 999},
-                {"name": "aL:end:5", "seq": "A" * 37 + "TTA", "start0": 962},
-                {"name": "bR:start:5", "seq": "TTA" + "A" * 37, "start0": 1049},
-                {"name": "bL:end:5", "seq": "A" * 37 + "TTA", "start0": 1012},
-            ]
-            _write_junction_bam(bam_path, "Chr1", 5000, reads)
-            read_repeat = os.path.join(workdir, "read_repeat_name.txt")
-            with open(read_repeat, "w") as fh:
-                for n in ("aR", "aL", "bR", "bL"):
-                    fh.write(f"{n}\tmping\t+\n")
-            finder = InsertionFinder(mismatch_allow=0, min_mapq=1)
-            out_txt = finder.find_insertions(
-                bam_file=Path(bam_path),
-                read_repeat_file=Path(read_repeat),
-                tsd="TTA",
-                target="Chr1",
-                sample="HEG4",
-                outdir=Path(workdir),
-            )
-            rows = [ln for ln in out_txt.read_text().splitlines() if ln.strip()]
-            self.assertEqual(len(rows), 2, f"expected 2 distinct rows, got {rows}")
 
 
 if __name__ == "__main__":

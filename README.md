@@ -329,7 +329,7 @@ behaviour. Values below are cited from RelocaTE2's source.
 | Mismatches (junction reads) | `--mismatch_junction 2` | same `--mismatch` | `relocaTE2.py:208` |
 | Match-length cutoff | `--len_cut_match 10` | `--min-match 10` | `relocaTE2.py:205` |
 | Trimmed-length cutoff | `--len_cut_trim 10` | `--min-trimmed 10` | `relocaTE2.py:206` |
-| TSD | `UNK` (hardcoded) | `--tsd UNK` | `relocaTE2.py:346` |
+| TSD | `UNK` (hardcoded) | `--tsd UNK` (the only value accepted) | `relocaTE2.py:346` |
 | Junction reads required | `left >= 1` **or** `right >= 1` | **both** by default — a deliberate divergence, see below | `relocaTE_insertionFinder.py:365,1732-4` |
 | Threads | `--cpu 1` | `--threads 1` | `relocaTE2.py:199` |
 
