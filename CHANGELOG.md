@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — unreleased (release candidate `v0.2.0rc1`, 2026-10-21)
+## 0.2.0 — unreleased (release candidates `v0.2.0rc1` 2026-10-21, `v0.2.0rc2` 2026-10-29)
 
 First release aimed at replacing RelocaTE2 for paired-end short-read data.
 
@@ -26,8 +26,10 @@ First release aimed at replacing RelocaTE2 for paired-end short-read data.
 - `--require-both-junctions` is on by default, as in RelocaTE2.
 - The missing-BLAT error no longer suggests `bowtie2` as a near-equal
   substitute.
-- TE-search memory reduced by streaming BLAT output; BLAT runs in chunks.
-- `--tsd` accepts only `UNK` (also `UKN`/`unknown`); other values exit with an
+- BLAT TE search and trimming run one chunk at a time, as in RelocaTE2's
+  `--split`: peak memory at 30x on riceTElib fell from 20.1 GB to 3.4 GB, and
+  genome placement from 8.9 GB to 3.0 GB, with identical outputs (rc2).
+- `--tsd` accepts only `UNK` (rc2) (also `UKN`/`unknown`); other values exit with an
   explanation. The motif (`TTA`) and wildcard (`...`) modes are removed: RelocaTE2
   always runs `UNK` (`relocaTE2.py:346`) and its fixed-TSD code cannot run, so
   they had no RelocaTE2 behavior to match. `UNK` still reports each TSD.
@@ -42,8 +44,8 @@ First release aimed at replacing RelocaTE2 for paired-end short-read data.
 
 ### Known limitations
 
-- Peak memory at 30x on a multi-TE library is about 3x RelocaTE2's
-  (19–20 GiB vs 6.5 GiB). Request 64 GB for comparable runs.
+- BLAT trimming needs about 6–7 GB of temporary disk per read side at 30x
+  (under the output directory; deleted when the side finishes).
 - Somatic insertions are detected but are rarely labelled somatic; genotype
   thresholds are RelocaTE2's count rules, not a calibrated model.
 - Helitrons and elements more than ~5% diverged from the library are poorly
