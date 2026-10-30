@@ -27,6 +27,10 @@ First release aimed at replacing RelocaTE2 for paired-end short-read data.
 - The missing-BLAT error no longer suggests `bowtie2` as a near-equal
   substitute.
 - TE-search memory reduced by streaming BLAT output; BLAT runs in chunks.
+- `--tsd` accepts only `UNK` (also `UKN`/`unknown`); other values exit with an
+  explanation. The motif (`TTA`) and wildcard (`...`) modes are removed: RelocaTE2
+  always runs `UNK` (`relocaTE2.py:346`) and its fixed-TSD code cannot run, so
+  they had no RelocaTE2 behavior to match. `UNK` still reports each TSD.
 
 ### Added
 

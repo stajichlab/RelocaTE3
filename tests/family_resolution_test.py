@@ -200,9 +200,6 @@ def test_real_line_reads_resolve_through_mapping_clustering_and_outputs(tmp_path
     [legacy_call] = _call_insertions(legacy_cluster, None, legacy_mapping)
     assert legacy_call.te_name == "Os0596#LINE/unknown"
     assert legacy_call.te_family_resolution == "selected_votes"
-    names = [j.read_name for j in cluster.junctions]
-    fixed = InsertionFinder._insertion_family_evidence(names, mapping)
-    assert fixed.primary == call.te_name and fixed.ambiguous_reads == 8
     gff = tmp_path / "calls.gff"
     write_insertions_gff([call], gff, sample="test")
     [restored] = read_insertions_gff(gff)

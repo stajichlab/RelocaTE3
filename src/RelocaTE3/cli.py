@@ -49,6 +49,18 @@ class CustomHelpFormatter(argparse.HelpFormatter):
         return help
 
 
+def _tsd_mode(value: str) -> str:
+    """argparse type for ``--tsd``: only RelocaTE2's ``UNK`` mode is accepted."""
+    from RelocaTE3.insertions import UNKNOWN_TSD_ONLY, require_unknown_tsd
+
+    try:
+        return require_unknown_tsd(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"invalid value {value!r}: {UNKNOWN_TSD_ONLY}"
+        ) from None
+
+
 def _add_common_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Add --verbose and --version flags shared by all subcommands."""
     parser.add_argument(
@@ -398,7 +410,9 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
     call.add_argument(
         "--tsd",
         default="UNK",
-        help="TSD motif (e.g. TTA), fixed wildcard (e.g. ...), or UNK to infer each TSD",
+        type=_tsd_mode,
+        help="TSD mode; only UNK is supported: each TSD is inferred from the reads "
+        "and reported per insertion, as RelocaTE2 does (relocaTE2.py:346)",
     )
     call.add_argument(
         "-c", "--target", default="ALL", help="Chromosome to analyze, or ALL"
@@ -729,8 +743,9 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     parser.add_argument(
         "--tsd",
         default="UNK",
-        help="TSD motif (e.g. TTA), fixed wildcard (e.g. ...), or UNK to infer "
-        "each TSD (default: UNK -- RelocaTE2 hardcodes UNK, relocaTE2.py:346)",
+        type=_tsd_mode,
+        help="TSD mode; only UNK is supported: each TSD is inferred from the reads "
+        "and reported per insertion, as RelocaTE2 does (relocaTE2.py:346)",
     )
     parser.add_argument(
         "-c", "--target", default="ALL", help="Chromosome to analyze, or ALL"
