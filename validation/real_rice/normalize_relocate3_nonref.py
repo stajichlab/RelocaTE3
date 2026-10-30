@@ -1,76 +1,24 @@
-"""Normalize RelocaTE3 per-sample non-reference insertion tables into a TSV.
+"""Normalize RelocaTE3 per-sample non-reference calls into a TSV.
 
-RelocaTE3's ``find-insertions`` writes one tab-delimited file per sample at
-``<outdir>/results/<target>.<te_name>.all_nonref_insert.txt`` (see
-src/RelocaTE3/insertions.py). Columns:
-
-    family  tsd  sample  chrom  coor_start..coor_end  strand  T:N  R:N  L:N  ST:N  SR:N  SL:N
-
-This script flattens those files into the same schema used by
-``normalize_relocate2_nonref.py`` so ``compare_nonref.py`` can diff them directly.
+Reads ``<outdir>/<sample>/results/<target>.<te_name>.all_nonref_insert.gff``,
+RelocaTE3's copy of RelocaTE2's headline tier (clean_false_positive.py: minus
+calls at reference-TE boundaries and the singleton / insufficient_data /
+supporting_reads classes). ``normalize_relocate2_nonref.py`` reads RelocaTE2's
+``ALL.all_nonref_insert.gff``, the same tier, so ``compare_nonref.py`` compares
+like with like. The unfiltered ``.txt`` is not comparable to it.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import NONREF_COLUMNS as COLUMNS  # noqa: E402
+from _common import parse_nonref_gff  # noqa: E402
 from _config import load_config, load_samples  # noqa: E402
-
-_COORD_RE = re.compile(r"^(\d+)\.\.(\d+)$")
-
-
-def _parse_count(field: str) -> int:
-    """Parse a 'PREFIX:N' field into the integer N (returns 0 on malformed input)."""
-    if ":" not in field:
-        return 0
-    try:
-        return int(field.split(":", 1)[1])
-    except ValueError:
-        return 0
-
-
-def parse_nonref_txt(path: Path, sample: str):
-    """Yield normalized records from a single all_nonref_insert.txt file."""
-    with open(path) as fh:
-        for line in fh:
-            line = line.rstrip("\n")
-            if not line or line.startswith("#"):
-                continue
-            f = line.split("\t")
-            if len(f) < 12:
-                continue
-            family, tsd, _sample, chrom, coord, strand = f[0], f[1], f[2], f[3], f[4], f[5]
-            m = _COORD_RE.match(coord)
-            if not m:
-                continue
-            start, end = int(m.group(1)), int(m.group(2))
-            total = _parse_count(f[6])     # T:N — total junction reads
-            right = _parse_count(f[7])     # R:N — right-junction reads
-            left = _parse_count(f[8])      # L:N — left-junction reads
-            sup_right = _parse_count(f[10])  # SR:N — right-support reads
-            sup_left = _parse_count(f[11])   # SL:N — left-support reads
-            yield {
-                "sample": sample,
-                "chrom": chrom,
-                "start": start,
-                "end": end,
-                "strand": strand,
-                "te_name": family,
-                "tsd": tsd,
-                "left_junction_reads": left,
-                "right_junction_reads": right,
-                "left_support_reads": sup_left,
-                "right_support_reads": sup_right,
-                "source_file": str(path),
-            }
-            _ = total  # unused; kept for clarity / future use
-
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -96,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
 
     te_name = cfg["relocate3"]["te_name"]
     target = cfg["relocate3"]["target"]
-    fname = f"{target}.{te_name}.all_nonref_insert.txt"
+    fname = f"{target}.{te_name}.all_nonref_insert.gff"
 
     n_total = 0
     n_missing = 0
@@ -104,16 +52,16 @@ def main(argv: list[str] | None = None) -> int:
         writer = csv.DictWriter(fh, fieldnames=COLUMNS, delimiter="\t")
         writer.writeheader()
         for sample in samples:
-            txt = r3_root / sample / "results" / fname
-            if not txt.is_file():
+            gff = r3_root / sample / "results" / fname
+            if not gff.is_file():
                 print(
-                    f"WARN: RelocaTE3 table not found for {sample}: {txt}",
+                    f"WARN: RelocaTE3 GFF not found for {sample}: {gff}",
                     file=sys.stderr,
                 )
                 n_missing += 1
                 continue
             count = 0
-            for rec in parse_nonref_txt(txt, sample):
+            for rec in parse_nonref_gff(gff, sample):
                 writer.writerow(rec)
                 count += 1
             n_total += count

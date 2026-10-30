@@ -49,6 +49,18 @@ class CustomHelpFormatter(argparse.HelpFormatter):
         return help
 
 
+def _tsd_mode(value: str) -> str:
+    """argparse type for ``--tsd``: only RelocaTE2's ``UNK`` mode is accepted."""
+    from RelocaTE3.insertions import UNKNOWN_TSD_ONLY, require_unknown_tsd
+
+    try:
+        return require_unknown_tsd(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"invalid value {value!r}: {UNKNOWN_TSD_ONLY}"
+        ) from None
+
+
 def _add_common_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Add --verbose and --version flags shared by all subcommands."""
     parser.add_argument(
@@ -398,7 +410,9 @@ def _add_pipeline_tuning_args(parser: argparse.ArgumentParser) -> None:
     call.add_argument(
         "--tsd",
         default="UNK",
-        help="TSD motif (e.g. TTA), fixed wildcard (e.g. ...), or UNK to infer each TSD",
+        type=_tsd_mode,
+        help="TSD mode; only UNK is supported: each TSD is inferred from the reads "
+        "and reported per insertion, as RelocaTE2 does (relocaTE2.py:346)",
     )
     call.add_argument(
         "-c", "--target", default="ALL", help="Chromosome to analyze, or ALL"
@@ -729,8 +743,9 @@ def _menu_find_insertions(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     parser.add_argument(
         "--tsd",
         default="UNK",
-        help="TSD motif (e.g. TTA), fixed wildcard (e.g. ...), or UNK to infer "
-        "each TSD (default: UNK -- RelocaTE2 hardcodes UNK, relocaTE2.py:346)",
+        type=_tsd_mode,
+        help="TSD mode; only UNK is supported: each TSD is inferred from the reads "
+        "and reported per insertion, as RelocaTE2 does (relocaTE2.py:346)",
     )
     parser.add_argument(
         "-c", "--target", default="ALL", help="Chromosome to analyze, or ALL"
@@ -1269,6 +1284,7 @@ def cmd_align_genome(args: argparse.Namespace) -> int:
         from RelocaTE3.genome_align import (
             align_junction_fullreads,
             align_flanks_anchored,
+            flanking_read_bases,
             read_te_hit_names,
         )
         from RelocaTE3.ReadLibrary import ReadLibrary
@@ -1283,7 +1299,9 @@ def cmd_align_genome(args: argparse.Namespace) -> int:
                 f"All-TE-hit table not found: {te_hits_path}; rerun the map/trim "
                 "step with this RelocaTE3 version"
             )
-        all_te_hits = read_te_hit_names(te_hits_path)
+        all_te_hits = read_te_hit_names(
+            te_hits_path, bases=flanking_read_bases(list(args.fastq))
+        )
         suffix = "minimap" if args.genome_aligner == "minimap2" else args.genome_aligner
         out_bam = outdir / f"{args.name}.repeat.{suffix}.sorted.bam"
         backend = get_aligner(

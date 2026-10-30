@@ -8,6 +8,7 @@ position matcher, and matplotlib/venn loaders.
 from __future__ import annotations
 
 import csv
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -45,6 +46,38 @@ CHAR_COLUMNS = [
     "source_file",
 ]
 
+
+_GFF_ATTR_RE = re.compile(r"([A-Za-z_]+)=([^;]*)")
+
+
+def parse_nonref_gff(path: Path, sample: str):
+    """Yield NONREF_COLUMNS records from one ``*.all_nonref_insert.gff``.
+
+    Both tools write this tier with RelocaTE2's attribute names
+    (clean_false_positive.py), so one parser keeps the two sides comparable.
+    """
+    with open(path) as fh:
+        for line in fh:
+            if not line.strip() or line.startswith("#"):
+                continue
+            f = line.rstrip("\n").split("\t")
+            if len(f) < 9:
+                continue
+            attrs = dict(_GFF_ATTR_RE.findall(f[8]))
+            yield {
+                "sample": sample,
+                "chrom": f[0],
+                "start": int(f[3]),
+                "end": int(f[4]),
+                "strand": f[6],
+                "te_name": attrs.get("Name", "NA"),
+                "tsd": attrs.get("TSD", "NA"),
+                "left_junction_reads": int(attrs.get("Left_junction_reads", "0")),
+                "right_junction_reads": int(attrs.get("Right_junction_reads", "0")),
+                "left_support_reads": int(attrs.get("Left_support_reads", "0")),
+                "right_support_reads": int(attrs.get("Right_support_reads", "0")),
+                "source_file": str(path),
+            }
 
 def read_tsv(path: Path) -> list[dict]:
     """Read a tab-delimited file with a header into a list of dicts."""

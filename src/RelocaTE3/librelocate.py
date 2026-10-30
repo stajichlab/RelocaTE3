@@ -32,9 +32,15 @@ RelocaTE2.
 
 from __future__ import annotations
 
+import heapq
 import json
 import os
+import pickle
+import shutil
+import tempfile
 from collections import defaultdict
+from itertools import islice
+from operator import itemgetter
 from pathlib import Path
 
 import pysam
@@ -49,6 +55,23 @@ _COMPLEMENT = str.maketrans("ACGTNacgtn", "TGCANtgcan")
 def reverse_complement(seq: str) -> str:
     """Return the reverse complement of a DNA sequence."""
     return seq.translate(_COMPLEMENT)[::-1]
+
+
+class _Capture:
+    """Minimal text sink that collects one read's output for a chunk spill."""
+
+    __slots__ = ("parts",)
+
+    def __init__(self) -> None:
+        self.parts: list[str] = []
+
+    def write(self, text: str) -> None:
+        self.parts.append(text)
+
+    def take(self) -> str:
+        text = "".join(self.parts)
+        self.parts.clear()
+        return text
 
 
 class RelocaTE:
@@ -100,6 +123,25 @@ class RelocaTE:
 
         backend = get_aligner(tool, self.cpu_threads, te_opts=te_opts)
         backend.index(TE_library)
+        map_chunked = getattr(backend, "map_te_library_chunked", None)
+        if map_chunked is not None:
+            # BLAT admits far more reads than the other aligners (~17M per side
+            # on riceTElib 30x), so trim it chunk by chunk as RelocaTE2 does.
+            alignments = map_chunked(seqreads, TE_library, str(outdir))
+            directions = self._bam_directions([a.bam for a in alignments])
+            written = self.write_trimmed_reads_chunked(
+                seqreads.name,
+                list(zip(directions, alignments)),
+                outdir,
+                source_fastqs=seqreads.file_set,
+                minimum_match_length=minimum_match_length,
+                minimum_trimmed_length=minimum_trimmed_length,
+                mismatch_allowance=mismatch_allowance,
+            )
+            for alignment in alignments:
+                shutil.rmtree(alignment.chunk_dir, ignore_errors=True)
+            return written
+
         bamfiles = backend.map_te_library(seqreads, TE_library, str(outdir))
 
         directions = self._bam_directions(bamfiles)
@@ -225,6 +267,194 @@ class RelocaTE:
         )
         return flank_written
 
+    def write_trimmed_reads_chunked(
+        self,
+        name: str,
+        direction_alignments: list,
+        outdir: Path,
+        source_fastqs: list[str | Path],
+        minimum_match_length: int = 10,
+        minimum_trimmed_length: int = 10,
+        mismatch_allowance: int = 2,
+    ) -> int:
+        """Trim per TE-search chunk; outputs are identical to :meth:`write_trimmed_reads`.
+
+        RelocaTE2 trims each 200k-read chunk on its own (relocaTE2.py
+        ``--split``; relocaTE_trim.py per chunk), so it never holds more than
+        one chunk's TE hits. This is the same structure: each chunk's BAM is
+        parsed with the unchanged best-hit selection, restored from the matching
+        slice of the source FASTQ, rendered with the unchanged trim branches,
+        and spilled to disk. A read's hits never leave its chunk, so per-chunk
+        selection equals whole-side selection.
+
+        The spills are then merged on each read's first-hit coordinate key, in
+        chunk order on ties. That is exactly the order of the read's first record
+        in the merged side BAM (a stable coordinate sort, as samtools sort and
+        merge are), i.e. the order :meth:`write_trimmed_reads` writes. Keeping it
+        matters: ``bwa aln``/``samse`` breaks ties between equal genome hits with
+        a sequential RNG, so flanking-read order changes placements.
+
+        Args:
+            name: sample name (output prefix).
+            direction_alignments: ``(direction, ChunkedTEAlignment)`` pairs, one
+                per read side, in the same order as ``source_fastqs``.
+            outdir: base output directory.
+            source_fastqs: the read files the chunks were cut from; chunk ``i``
+                covers the next ``chunks[i].n_reads`` records.
+            minimum_match_length, minimum_trimmed_length, mismatch_allowance:
+                as for :meth:`write_trimmed_reads`.
+
+        Returns:
+            Number of flanking (trimmed) reads written across all directions.
+
+        Raises:
+            ValueError: if a source file's record count does not match its
+                chunks' ``n_reads`` total.
+        """
+        outdir = Path(outdir)
+        if len(source_fastqs) != len(direction_alignments):
+            raise ValueError(
+                "source_fastqs must contain one file for each TE alignment "
+                f"({len(source_fastqs)} FASTQ(s), {len(direction_alignments)} side(s))"
+            )
+        flank_dir = outdir / "flanking"
+        contain_dir = outdir / "te_containing"
+        portion_dir = outdir / "te_portions"
+        for d in (flank_dir, contain_dir, portion_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+        read_repeat_path = contain_dir / f"{name}.read_repeat_name.txt"
+        te_hit_names_path = contain_dir / f"{name}.te_hit_names.txt"
+        five_path = portion_dir / f"{name}.five_prime.fa"
+        three_path = portion_dir / f"{name}.three_prime.fa"
+        cutoffs = (minimum_match_length, minimum_trimmed_length, mismatch_allowance)
+
+        flank_written = 0
+        with (
+            open(read_repeat_path, "w") as rr_out,
+            open(te_hit_names_path, "w") as te_hits_out,
+            open(five_path, "w") as te5_out,
+            open(three_path, "w") as te3_out,
+        ):
+            for index, (direction, alignment) in enumerate(direction_alignments):
+                mate = str(index + 1) if len(direction_alignments) == 2 else None
+                source = Path(source_fastqs[index])
+                with tempfile.TemporaryDirectory(
+                    dir=contain_dir, prefix=f".{name}.{direction}.trim_chunks."
+                ) as spill_dir:
+                    spills = self._spill_trimmed_chunks(
+                        alignment.chunks, source, mate, Path(spill_dir), cutoffs
+                    )
+                    flank_path = flank_dir / f"{name}.{direction}.flankingReads.fq"
+                    contain_path = (
+                        contain_dir / f"{name}.{direction}.ContainingReads.fq"
+                    )
+                    with (
+                        open(flank_path, "w") as flank_out,
+                        open(contain_path, "w") as contain_out,
+                    ):
+                        sinks = (
+                            te_hits_out,
+                            rr_out,
+                            te5_out,
+                            te3_out,
+                            flank_out,
+                            contain_out,
+                        )
+                        merged = heapq.merge(
+                            *(self._read_spill(path) for path in spills),
+                            key=itemgetter(0),
+                        )
+                        for _key, parts, flank_count in merged:
+                            for sink, text in zip(sinks, parts):
+                                if text:
+                                    sink.write(text)
+                            flank_written += flank_count
+        logger.info(
+            "Wrote %d flanking reads; read_repeat table at %s",
+            flank_written,
+            read_repeat_path,
+        )
+        return flank_written
+
+    #: Rendered reads per pickle record in a chunk spill. The merge keeps one
+    #: batch per chunk resident, so this bounds merge memory.
+    SPILL_BATCH = 256
+
+    def _spill_trimmed_chunks(
+        self, chunks, source: Path, mate: str | None, spill_dir: Path, cutoffs
+    ) -> list[Path]:
+        """Render each chunk's reads to its own sorted spill file.
+
+        Only one chunk's records (with sequence and qualities) are alive at a
+        time. Returns spill paths in chunk order.
+        """
+        captures = tuple(_Capture() for _ in range(6))
+        spills: list[Path] = []
+        restored_total = selected_total = 0
+        with pysam.FastxFile(str(source)) as records:
+            for number, chunk in enumerate(chunks):
+                keys: dict = {}
+                coord = self._parse_te_bam(
+                    Path(chunk.bam), mismatch_allowance=cutoffs[2], first_keys=keys
+                )
+                restored, seen = self._restore_from_records(
+                    coord, islice(records, chunk.n_reads), mate, consume_all=True
+                )
+                if seen != chunk.n_reads:
+                    raise ValueError(
+                        f"{source} ended inside TE chunk {number}: expected "
+                        f"{chunk.n_reads} records, found {seen}"
+                    )
+                restored_total += restored
+                selected_total += len(coord)
+                spill = spill_dir / f"{number:06d}.pkl"
+                self._write_spill(coord, keys, captures, spill, cutoffs)
+                spills.append(spill)
+                del coord, keys
+            if next(records, None) is not None:
+                raise ValueError(
+                    f"{source} has more records than its TE chunks cover "
+                    f"({sum(c.n_reads for c in chunks)})"
+                )
+        if restored_total != selected_total:
+            logger.warning(
+                "Restored original sequence/quality for %d of %d TE-hit reads from %s",
+                restored_total,
+                selected_total,
+                source,
+            )
+        return spills
+
+    def _write_spill(self, coord, keys, captures, spill: Path, cutoffs) -> None:
+        """Render reads with :meth:`_write_read` and pickle them in batches."""
+        te_hits, rr, te5, te3, flank, contain = captures
+        batch = []
+        with open(spill, "wb") as out:
+            for rl_name, rec in coord.items():
+                flank_count = self._write_read(
+                    rl_name, rec, flank, contain, rr, te_hits, te5, te3, *cutoffs
+                )
+                batch.append(
+                    (keys[rl_name], tuple(c.take() for c in captures), flank_count)
+                )
+                if len(batch) >= self.SPILL_BATCH:
+                    pickle.dump(batch, out, protocol=pickle.HIGHEST_PROTOCOL)
+                    batch = []
+            if batch:
+                pickle.dump(batch, out, protocol=pickle.HIGHEST_PROTOCOL)
+
+    @staticmethod
+    def _read_spill(spill: Path):
+        """Yield rendered reads from a spill file, one batch in memory at a time."""
+        with open(spill, "rb") as fh:
+            while True:
+                try:
+                    batch = pickle.load(fh)
+                except EOFError:
+                    return
+                yield from batch
+
     @staticmethod
     def _restore_original_fastq(
         coord: dict, source_fastq: Path, mate: str | None = None
@@ -246,31 +476,56 @@ class RelocaTE:
         """
         if not coord:
             return 0
+        with pysam.FastxFile(str(source_fastq)) as records:
+            restored, _ = RelocaTE._restore_from_records(coord, records, mate)
+        return restored
 
+    @staticmethod
+    def _restore_from_records(
+        coord: dict, records, mate: str | None = None, consume_all: bool = False
+    ) -> tuple[int, int]:
+        """Restore ``coord`` entries from an iterable of FASTQ records.
+
+        Shared by the whole-file and per-chunk trim paths so both apply the
+        same name matching. Restoration stops once every selected read is
+        restored; with ``consume_all`` the remaining records are still read
+        (and ignored) so a caller slicing one chunk off a shared stream stays
+        aligned with the next chunk.
+
+        Returns ``(restored, records_seen)``.
+        """
         # Imported lazily to keep librelocate's parsing helpers independent of
         # aligner construction at module import time.
         from RelocaTE3.aligners import canonical_name
 
         restored: set[str] = set()
-        with pysam.FastxFile(str(source_fastq)) as records:
-            for record in records:
-                candidates = [record.name]
-                if mate is not None:
-                    candidates.insert(0, canonical_name(record.name, mate))
-
-                key = next(
-                    (candidate for candidate in candidates if candidate in coord), None
-                )
-                if key is None:
+        seen = 0
+        complete = not coord
+        for record in records:
+            seen += 1
+            if complete:
+                if consume_all:
                     continue
+                break
+            candidates = [record.name]
+            if mate is not None:
+                candidates.insert(0, canonical_name(record.name, mate))
 
-                coord[key]["seq"] = record.sequence
-                if record.quality is not None:
-                    coord[key]["qual"] = record.quality
-                restored.add(key)
-                if len(restored) == len(coord):
+            key = next(
+                (candidate for candidate in candidates if candidate in coord), None
+            )
+            if key is None:
+                continue
+
+            coord[key]["seq"] = record.sequence
+            if record.quality is not None:
+                coord[key]["qual"] = record.quality
+            restored.add(key)
+            if len(restored) == len(coord):
+                complete = True
+                if not consume_all:
                     break
-        return len(restored)
+        return len(restored), seen
 
     def _write_direction(
         self,
@@ -289,32 +544,66 @@ class RelocaTE:
         flank_written = 0
         with open(flank_path, "w") as flank_out, open(contain_path, "w") as contain_out:
             for rl_name, rec in coord.items():
-                # This is the step-3/step-4 membership contract.  It deliberately
-                # precedes trim classification: RelocaTE2's ContainingReads.fq
-                # includes every selected TE hit, even when no junction/middle
-                # branch accepts the read.
-                te_hits_out.write(f"{rl_name}\n")
-                trimmed = self._trim_record(
+                flank_written += self._write_read(
                     rl_name,
                     rec,
+                    flank_out,
+                    contain_out,
                     rr_out,
+                    te_hits_out,
                     te5_out,
                     te3_out,
                     len_cutoff_m,
                     len_cutoff_l,
                     mismatch_allowance,
                 )
-                if trimmed is None:
-                    contain_out.write(f"@{rl_name}\n{rec['seq']}\n+\n{rec['qual']}\n")
-                    continue
-                header, trimmed_seq, trimmed_qual = trimmed
-                if len(trimmed_seq) >= len_cutoff_l:
-                    flank_out.write(f"@{header}\n{trimmed_seq}\n+\n{trimmed_qual}\n")
-                    flank_written += 1
-                # Classified reads carry the same tag in ContainingReads as in
-                # RelocaTE2; unclassified hits above retain their original name.
-                contain_out.write(f"@{header}\n{rec['seq']}\n+\n{rec['qual']}\n")
         return flank_written
+
+    def _write_read(
+        self,
+        rl_name,
+        rec,
+        flank_out,
+        contain_out,
+        rr_out,
+        te_hits_out,
+        te5_out,
+        te3_out,
+        len_cutoff_m,
+        len_cutoff_l,
+        mismatch_allowance,
+    ) -> int:
+        """Write every step-3 output line for one selected read.
+
+        Returns 1 when a flanking read was written, else 0.
+        """
+        # This is the step-3/step-4 membership contract.  It deliberately
+        # precedes trim classification: RelocaTE2's ContainingReads.fq
+        # includes every selected TE hit, even when no junction/middle
+        # branch accepts the read.
+        te_hits_out.write(f"{rl_name}\n")
+        trimmed = self._trim_record(
+            rl_name,
+            rec,
+            rr_out,
+            te5_out,
+            te3_out,
+            len_cutoff_m,
+            len_cutoff_l,
+            mismatch_allowance,
+        )
+        if trimmed is None:
+            contain_out.write(f"@{rl_name}\n{rec['seq']}\n+\n{rec['qual']}\n")
+            return 0
+        header, trimmed_seq, trimmed_qual = trimmed
+        written = 0
+        if len(trimmed_seq) >= len_cutoff_l:
+            flank_out.write(f"@{header}\n{trimmed_seq}\n+\n{trimmed_qual}\n")
+            written = 1
+        # Classified reads carry the same tag in ContainingReads as in
+        # RelocaTE2; unclassified hits above retain their original name.
+        contain_out.write(f"@{header}\n{rec['seq']}\n+\n{rec['qual']}\n")
+        return written
 
     def _trim_record(
         self,
@@ -524,7 +813,11 @@ class RelocaTE:
         out.write(f"{read_name}\t{rec['tName']}\t{rec['strand']}{extension}\n")
 
     def _parse_te_bam(
-        self, bam: Path, mismatch_allowance: int = 2, read_names: set[str] | None = None
+        self,
+        bam: Path,
+        mismatch_allowance: int = 2,
+        read_names: set[str] | None = None,
+        first_keys: dict | None = None,
     ) -> dict:
         """Parse one TE-library BAM into ``{read_name: best-match record}``.
 
@@ -535,6 +828,12 @@ class RelocaTE:
 
         ``read_names`` limits retained evidence for stored-alignment replays;
         it does not alter scoring of the selected reads.
+
+        ``first_keys``, when given, receives each read's coordinate sort key
+        ``(reference_id, reference_start, is_reverse)`` from the record that
+        first added it. The returned dict's order is the order of those records
+        in the coordinate-sorted BAM; the per-chunk trim uses these keys to
+        reproduce the whole-side order across chunks.
         """
         coord: dict = defaultdict(dict)
         if not os.path.exists(f"{bam}.bai"):
@@ -616,11 +915,16 @@ class RelocaTE:
                     "seq": seq,
                     "qual": qual,
                 }
-                coord[qname] = (
-                    new_rec
-                    if qname not in coord
-                    else self._merge_te_hits(coord[qname], new_rec)
-                )
+                if qname not in coord:
+                    coord[qname] = new_rec
+                    if first_keys is not None:
+                        first_keys[qname] = (
+                            record.reference_id,
+                            record.reference_start,
+                            record.is_reverse,
+                        )
+                else:
+                    coord[qname] = self._merge_te_hits(coord[qname], new_rec)
         finally:
             fbam.close()
         return coord

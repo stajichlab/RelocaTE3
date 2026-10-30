@@ -56,10 +56,41 @@ def read_read_repeat(path: Path) -> dict[str, tuple[str, str]]:
     return read_repeat
 
 
-def read_te_hit_names(path: Path) -> set[str]:
-    """Load names of all reads with a selected, aligner-admitted TE hit."""
+def _pair_base(original: str) -> str:
+    """Pair key used by the step-4 planner: the name without a ``/1``/``/2``."""
+    base, mate = split_mate(original)
+    return base if mate in ("1", "2") else original
+
+
+def flanking_read_bases(flanking_files: list[str]) -> set[str]:
+    """Return the pair bases of every classified read in the flanking FASTQs.
+
+    These are the only pairs the step-4 planner consults the TE-hit table
+    about (the flank itself and its two mates), so they bound what
+    :func:`read_te_hit_names` needs to load.
+    """
+    bases: set[str] = set()
+    for fq in flanking_files:
+        with pysam.FastxFile(str(fq)) as fx:
+            for rec in fx:
+                bases.add(_pair_base(strip_tag(rec.name)))
+    return bases
+
+
+def read_te_hit_names(path: Path, bases: set[str] | None = None) -> set[str]:
+    """Load names of reads with a selected, aligner-admitted TE hit.
+
+    With BLAT on a multi-family library this table holds tens of millions of
+    names, but step 4 only asks about flanking reads and their mates. Passing
+    ``bases`` (from :func:`flanking_read_bases`) keeps just names whose pair
+    base is listed, which answers every planner query identically while
+    holding only those pairs.
+    """
     with open(path) as fh:
-        return {strip_tag(line.strip()) for line in fh if line.strip()}
+        names = (strip_tag(line.strip()) for line in fh if line.strip())
+        if bases is None:
+            return set(names)
+        return {name for name in names if _pair_base(name) in bases}
 
 
 def _fetch_reads_by_name(
@@ -528,7 +559,9 @@ def align_to_genome(
             f"All-TE-hit table not found: {te_hits_path}; rerun step 3 with this "
             "RelocaTE3 version"
         )
-    all_te_hits = read_te_hit_names(te_hits_path)
+    all_te_hits = read_te_hit_names(
+        te_hits_path, bases=flanking_read_bases(flanking_files)
+    )
 
     fullreads_bam: Path | None = None
     outbam = genome_dir / f"{sample}.genome.bam"

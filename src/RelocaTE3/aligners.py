@@ -23,9 +23,39 @@ import tempfile
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 import pysam
+
+
+@dataclass(frozen=True)
+class TEChunk:
+    """TE-library hits for one contiguous block of query reads.
+
+    ``bam`` is a coordinate-sorted, indexed BAM holding the hits of exactly the
+    ``n_reads`` consecutive records of the side's read file that this chunk
+    covers (records ``[sum of earlier n_reads, + n_reads)``). Because a read's
+    hits never leave its chunk, per-read best-hit selection over one chunk is
+    the same as over the whole side.
+    """
+
+    bam: Path
+    n_reads: int
+
+
+@dataclass(frozen=True)
+class ChunkedTEAlignment:
+    """One read side's TE-library alignment, kept as its per-chunk parts.
+
+    ``bam`` is the merged side BAM (the usual ``map_te_library`` contract);
+    ``chunks`` are its parts in read-file order; ``chunk_dir`` holds them and
+    can be removed once the trim step has consumed them.
+    """
+
+    bam: Path
+    chunks: tuple[TEChunk, ...]
+    chunk_dir: Path
 
 
 
@@ -68,6 +98,47 @@ def _concat(fastqs, dest: str) -> str:
             with open(f, "rb") as src:
                 shutil.copyfileobj(src, out)
     return dest
+
+
+def _count_fasta_records(path) -> int:
+    """Count ``>`` header lines in a FASTA file without loading it."""
+    count = 0
+    with open(path, "rb") as fh:
+        for line in fh:
+            if line.startswith(b">"):
+                count += 1
+    return count
+
+
+def _merge_sorted_bams(bams, out_bam, sam_header: str, threads: int, tmpdir) -> Path:
+    """``samtools merge`` coordinate-sorted BAMs into ``out_bam`` and index it.
+
+    Streams the inputs, so memory does not grow with the number of records.
+    With no inputs, writes a header-only BAM so the output contract holds.
+    """
+    out_bam = Path(out_bam)
+    out_bam.parent.mkdir(parents=True, exist_ok=True)
+    if bams:
+        listing = Path(tmpdir) / f"{out_bam.name}.merge.list"
+        listing.write_text("".join(f"{b}\n" for b in bams))
+        subprocess.run(
+            [
+                "samtools", "merge", "-f", "--no-PG", "-@", str(max(0, int(threads) - 1)),
+                "-b", str(listing), "-o", str(out_bam),
+            ],
+            check=True,
+        )
+        listing.unlink()
+    else:
+        header_sam = Path(tmpdir) / f"{out_bam.name}.header.sam"
+        header_sam.write_text(sam_header.replace("SO:unsorted", "SO:coordinate"))
+        subprocess.run(
+            ["samtools", "view", "--no-PG", "-b", "-o", str(out_bam), str(header_sam)],
+            check=True,
+        )
+        header_sam.unlink()
+    subprocess.run(["samtools", "index", str(out_bam)], check=True)
+    return out_bam
 
 
 _MATE_SUFFIX_RE = re.compile(r"^(.*)/([12])$")
@@ -634,8 +705,9 @@ class BlatBackend(AlignerBackend):
                 "and is linux-64 only.\n"
                 "  Install it:  pixi run -e blat true   (then use `pixi run -e "
                 "blat relocaTE3 ...`)\n"
-                "  Or pick another aligner:  --te-aligner bowtie2   "
-                "(closest accuracy to blat on the rice benchmark)"
+                "  Or pick another aligner, e.g. --te-aligner bowtie2; on the "
+                "rice benchmark every alternative finds far fewer insertions "
+                "than blat (about half; see README, 'Choosing an aligner')"
             )
 
     #: RelocaTE2's BLAT sensitivity settings (relocaTE2.py:545). BLAT's own
@@ -795,75 +867,148 @@ class BlatBackend(AlignerBackend):
                     seqs[name] = seqs.get(name, "") + line.strip()
         return seqs
 
-    def _blat_side(self, te_library, read_file, out_bam, threads, tmpdir):
-        # The query is converted once, then searched in chunks concurrently.
-        # BLAT is single-threaded and RT2_BLAT_OPTS make it far slower per base,
-        # so one process over a whole library is not viable: a single mPing 5x
-        # side ran >13 min unchunked while RelocaTE2 does the entire sample in
-        # about that. RelocaTE2 splits into 200k-read chunks and runs a process
-        # pool (relocaTE2.py:91,110); this is the same strategy. Output is
-        # order-independent -- PSL records are keyed by read name.
+    #: ``samtools sort -m`` for one chunk. Chunks are small (200k reads), and
+    #: up to ``threads`` sorts run at once, so keep each one modest.
+    CHUNK_SORT_MEM = "256M"
+
+    def _blat_chunk(self, te_library, chunk_fa, chunk_bam, sam_header, mate, workdir):
+        """BLAT one query chunk and turn its hits into a sorted, indexed BAM.
+
+        This is RelocaTE2's per-chunk unit (relocaTE2.py ``--split``): only
+        this chunk's matched sequences are loaded to fill SAM SEQ. Read names
+        get their canonical ``/1``/``/2`` here (``mate``), exactly what
+        :func:`canonicalize_te_bams` would do to the merged BAM, so the chunk
+        BAMs are usable by the trim step directly.
+        """
+        work = Path(workdir)
+        work.mkdir(parents=True, exist_ok=True)
+        psl = work / "aln.psl"
+        subprocess.run(self._blat_cmd(te_library, chunk_fa, psl), check=True)
+        seqs = self._query_sequences(chunk_fa, psl, str(work))
+        sam = work / "aln.sam"
+        with open(sam, "w") as fh:
+            fh.write(sam_header)
+            with open(psl) as ph:
+                for rec in _iter_psl_to_sam(ph, sequences=seqs):
+                    if mate:
+                        qname, rest = rec.split("\t", 1)
+                        rec = f"{canonical_name(qname, mate)}\t{rest}"
+                    fh.write(rec + "\n")
+        del seqs
+        mapped = work / "mapped.bam"
+        subprocess.run(
+            ["samtools", "view", "--no-PG", "-b", "-F", "0x4", "-o", str(mapped), str(sam)],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "samtools", "sort", "--no-PG", "-m", self.CHUNK_SORT_MEM,
+                "-T", str(work / "sort"), "-o", str(chunk_bam), str(mapped),
+            ],
+            check=True,
+        )
+        subprocess.run(["samtools", "index", str(chunk_bam)], check=True)
+        n_reads = _count_fasta_records(chunk_fa)
+        shutil.rmtree(work)
+        return TEChunk(bam=Path(chunk_bam), n_reads=n_reads)
+
+    def _blat_side(
+        self, te_library, read_file, out_bam, threads, tmpdir, mate=None, chunk_dir=None
+    ) -> ChunkedTEAlignment:
+        """Search one read side in chunks; keep the chunk BAMs and merge them.
+
+        The query is converted once, then each chunk is searched, converted and
+        sorted on its own, concurrently. BLAT is single-threaded and
+        RT2_BLAT_OPTS make it far slower per base, so one process over a whole
+        library is not viable: a single mPing 5x side ran >13 min unchunked
+        while RelocaTE2 does the entire sample in about that. RelocaTE2 splits
+        into 200k-read chunks and runs a process pool (relocaTE2.py:91,110);
+        this is the same strategy, now carried through PSL->BAM conversion so no
+        step holds more than one chunk's hits or sequences.
+
+        The side BAM is ``samtools merge`` of the chunk BAMs. Both sort and merge
+        are stable (ties keep input order, then file order), so it has the same
+        records in the same order as sorting the concatenated chunks at once.
+        """
         stem = Path(out_bam).stem
         query_fa = os.path.join(tmpdir, f"query.{stem}.fa")
         chunks = self._write_query_chunks(read_file, query_fa, tmpdir, stem)
+        chunk_dir = Path(chunk_dir) if chunk_dir else Path(out_bam).with_suffix(".te_chunks")
+        if chunk_dir.exists():
+            shutil.rmtree(chunk_dir)  # stale parts from an interrupted run
+        chunk_dir.mkdir(parents=True)
 
-        psl = os.path.join(tmpdir, "aln.psl")
-        if not chunks:
-            open(psl, "w").close()
-        else:
-            part_psls = [f"{c}.psl" for c in chunks]
+        with pysam.FastaFile(str(te_library)) as fa:
+            sam_header = "@HD\tVN:1.6\tSO:unsorted\n" + "".join(
+                f"@SQ\tSN:{r}\tLN:{fa.get_reference_length(r)}\n" for r in fa.references
+            )
+
+        parts: list[TEChunk] = []
+        if chunks:
             workers = max(1, min(int(threads or 1), len(chunks)))
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 futures = [
                     pool.submit(
-                        subprocess.run,
-                        self._blat_cmd(te_library, chunk, part),
-                        check=True,
+                        self._blat_chunk,
+                        te_library,
+                        chunk,
+                        chunk_dir / f"chunk.{i:05d}.bam",
+                        sam_header,
+                        mate,
+                        os.path.join(tmpdir, f"work.{stem}.{i:05d}"),
                     )
-                    for chunk, part in zip(chunks, part_psls)
+                    for i, chunk in enumerate(chunks)
                 ]
-                for fut in futures:
-                    fut.result()  # re-raise the first failure
-            with open(psl, "w") as merged:
-                for part in part_psls:
-                    with open(part) as ph:
-                        shutil.copyfileobj(ph, merged)
+                parts = [fut.result() for fut in futures]  # re-raise the first failure
+        _merge_sorted_bams([p.bam for p in parts], out_bam, sam_header, threads, tmpdir)
+        return ChunkedTEAlignment(bam=Path(out_bam), chunks=tuple(parts), chunk_dir=chunk_dir)
 
-        seqs = self._query_sequences(query_fa, psl, tmpdir)
-        ref_lengths = {
-            r: fa.get_reference_length(r)
-            for fa in [pysam.FastaFile(str(te_library))]
-            for r in fa.references
-        }
-        sam = os.path.join(tmpdir, "aln.sam")
-        with open(sam, "w") as fh:
-            fh.write("@HD\tVN:1.6\tSO:unsorted\n")
-            for r, ln in ref_lengths.items():
-                fh.write(f"@SQ\tSN:{r}\tLN:{ln}\n")
-            with open(psl) as ph:
-                for rec in _iter_psl_to_sam(ph, sequences=seqs):
-                    fh.write(rec + "\n")
-        # SAM now owns the sequences; sorting must not overlap its buffers
-        # with the no-longer-needed query-sequence dictionary.
-        del seqs
-        return _sam_to_sorted_mapped_bam(sam, out_bam, threads)
+    def map_te_library_chunked(
+        self, reads, te_library, outdir, *, threads=None, tmpdir=None
+    ) -> list[ChunkedTEAlignment]:
+        """Map each read side via BLAT and keep its per-chunk BAMs.
+
+        Returns one :class:`ChunkedTEAlignment` per side in ``[left, right]``
+        order. The merged side BAMs are the same files :meth:`map_te_library`
+        returns; the chunk BAMs (``<outdir>/<name>.<side>.te_chunks/``) let the
+        trim step work one chunk at a time. The caller removes ``chunk_dir``
+        when done with it.
+        """
+        self._require_blat()
+        threads = self._threads(threads)
+        sides = [("left", reads.left())]
+        if reads.is_paired:
+            sides.append(("right", reads.right()))
+        alignments = []
+        with _tmp(tmpdir) as td:
+            for index, (side, read_file) in enumerate(sides):
+                out_bam = Path(outdir) / f"{reads.name}.{side}.bam"
+                # Paired sides get canonical /1, /2 names (canonicalize_te_bams);
+                # single-end names are left alone.
+                mate = str(index + 1) if reads.is_paired else None
+                alignments.append(
+                    self._blat_side(
+                        te_library,
+                        read_file,
+                        out_bam,
+                        threads,
+                        td,
+                        mate=mate,
+                        chunk_dir=Path(outdir) / f"{reads.name}.{side}.te_chunks",
+                    )
+                )
+        return alignments
 
     def map_te_library(
         self, reads, te_library, outdir, *, threads=None, tmpdir=None
     ) -> list[Path]:
         """Map each read side to the TE library via BLAT (PSL -> SAM)."""
-        self._require_blat()
-        threads = self._threads(threads)
-        read_set = {"left": reads.left()}
-        if reads.is_paired:
-            read_set["right"] = reads.right()
-        bams = []
-        with _tmp(tmpdir) as td:
-            for side, read_file in read_set.items():
-                out_bam = Path(outdir) / f"{reads.name}.{side}.bam"
-                self._blat_side(te_library, read_file, out_bam, threads, td)
-                bams.append(out_bam)
-        return canonicalize_te_bams(bams, reads)
+        alignments = self.map_te_library_chunked(
+            reads, te_library, outdir, threads=threads, tmpdir=tmpdir
+        )
+        for alignment in alignments:
+            shutil.rmtree(alignment.chunk_dir, ignore_errors=True)
+        return [alignment.bam for alignment in alignments]
 
     def map_genome(self, *args, **kwargs) -> Path:
         """Not supported -- BLAT is TE-search only."""

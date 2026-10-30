@@ -493,6 +493,10 @@ class TestBlatCommand(unittest.TestCase):
             reads = Path(tmp) / "reads.fa"
             reads.write_text("".join(f">r{i}\nACGTACGTAC\n" for i in range(5)))
 
+            telib = Path(tmp) / "te.fa"
+            telib.write_text(">TE\nACGTACGTACGT\n")
+            pysam.faidx(str(telib))
+
             calls = []
 
             def fake_run(cmd, **kwargs):
@@ -502,22 +506,25 @@ class TestBlatCommand(unittest.TestCase):
                 return types.SimpleNamespace(returncode=0)
 
             # Force the pure-Python conversion so the only subprocess calls are
-            # BLAT; the seqtk path is covered separately below.
-            # Stop after the BLAT stage; PSL->BAM conversion needs a real library.
+            # BLAT; the seqtk path is covered separately below. Stop each chunk
+            # right after its BLAT stage.
             with mock.patch("RelocaTE3.aligners.shutil.which", return_value=None), \
                  mock.patch("RelocaTE3.aligners.subprocess.run", fake_run), \
-                 mock.patch("RelocaTE3.aligners.pysam.FastaFile",
-                            side_effect=RuntimeError("stop after blat")):
+                 mock.patch.object(BlatBackend, "_query_sequences",
+                                   side_effect=RuntimeError("stop after blat")):
                 with self.assertRaises(RuntimeError):
-                    backend._blat_side("te.fa", reads, "out.left.bam", 4, tmp)
+                    backend._blat_side(str(telib), reads, Path(tmp) / "out.left.bam",
+                                       4, tmp)
 
             self.assertEqual(len(calls), 3, "one BLAT invocation per chunk")
             # every chunk carried RelocaTE2's sensitivity settings
             for cmd in calls:
                 self.assertIn("-minScore=10", cmd)
-            # the per-chunk PSLs are concatenated into the single merged PSL
-            merged = Path(tmp, "aln.psl").read_text()
-            self.assertEqual(len(merged.strip().splitlines()), 3, merged)
+            # each chunk is searched into its own PSL; there is no side-wide
+            # merged PSL any more (the hits stay per chunk through conversion)
+            self.assertEqual(len({cmd[2] for cmd in calls}), 3)
+            self.assertEqual(len({cmd[-1] for cmd in calls}), 3)
+            self.assertFalse(Path(tmp, "aln.psl").exists())
 
     @unittest.skipUnless(shutil.which("seqtk"), "seqtk not available")
     def test_seqtk_conversion_matches_the_python_fallback(self):
@@ -626,6 +633,10 @@ class TestBlatMissingBinary(unittest.TestCase):
         self.assertIn("blat", msg)
         self.assertIn("--te-aligner", msg, "must say how to pick another aligner")
         self.assertIn("pixi", msg, "must say how to install it")
+        # The alternatives detect about half as many insertions on the rice
+        # benchmark (checkpoint-213a0df); the message must not imply parity.
+        self.assertNotIn("closest accuracy", msg)
+        self.assertIn("fewer insertions", msg)
 
 
 if __name__ == "__main__":

@@ -124,54 +124,67 @@ def test_query_no_hits_never_opens_query_or_starts_seqtk(tmp_path, monkeypatch):
     assert BlatBackend._query_sequences(tmp_path / "absent.fa", psl, tmp_path) == {}
 
 
-def test_blat_sequences_released_before_bam_sort(tmp_path, monkeypatch):
+def test_blat_loads_one_chunk_of_sequences_and_releases_before_sort(
+    tmp_path, monkeypatch
+):
+    """SEQ is filled per chunk from that chunk's FASTA, never the whole query.
+
+    RelocaTE3 used to merge every chunk's PSL and load the matched sequences of
+    the whole side into one dictionary before conversion. Each chunk now loads
+    only its own matched sequences, and drops them before its BAM sort.
+    """
     import pysam
 
     class Sequences(dict):
         pass
 
-    references = []
-    sam_output = StringIO()
-    real_open = open
-
-    class Writer:
-        def __enter__(self):
-            return sam_output
-
-        def __exit__(self, *args):
-            pass
-
-    def capture_sam(path, *args, **kwargs):
-        if Path(path) == tmp_path / "aln.sam":
-            return Writer()
-        return real_open(path, *args, **kwargs)
-
     backend = BlatBackend()
+    backend.BLAT_CHUNK_SEQS = 2  # 5 reads -> 3 chunks
     library = tmp_path / "te.fa"
-    library.write_text(">TE\nACGT\n")
+    library.write_text(">TE\nACGTACGTAC\n")
     pysam.faidx(str(library))
-    monkeypatch.setattr(backend, "_write_query_chunks", lambda *args: [])
+    reads = tmp_path / "reads.fa"
+    reads.write_text("".join(f">r{i}\nACGTACGTAC\n" for i in range(5)))
 
-    def sequences(*args):
-        value = Sequences({"read": "ACGT"})
-        references.append(weakref.ref(value))
+    loaded = []
+
+    def sequences(query_fa, psl, tmpdir):
+        names = [line.split("\t")[9] for line in open(psl)]
+        value = Sequences({name: "ACGTACGTAC" for name in names})
+        loaded.append((Path(query_fa).name, set(value), weakref.ref(value)))
         return value
 
-    def convert(lines, sequences):
-        assert sequences == {"read": "ACGT"}
-        record = "read\t0\tTE\t1\t60\t4M\t*\t0\t0\tACGT\tIIII"
-        yield record
-        assert sam_output.getvalue().endswith(record + "\n"), (
-            "Writer buffered the iterator"
-        )
+    real_run = subprocess.run
 
-    def sort(sam, out_bam, threads):
-        assert all(ref() is None for ref in references)
-        assert "ACGT\tIIII" in sam_output.getvalue()
-        return out_bam
+    def run(cmd, **kwargs):
+        if cmd[0] == "blat":
+            # one full-length hit per read in this chunk
+            names = [ln[1:].strip() for ln in open(cmd[2]) if ln.startswith(">")]
+            Path(cmd[-1]).write_text(
+                "".join(
+                    "\t".join(
+                        ["10", "0", "0", "0", "0", "0", "0", "0", "+", n, "10", "0",
+                         "10", "TE", "10", "0", "10", "1", "10,", "0,", "0,"]
+                    ) + "\n"
+                    for n in names
+                )
+            )
+            return None
+        if cmd[:2] == ["samtools", "sort"]:
+            assert all(ref() is None for _, _, ref in loaded), "sequences retained"
+        return real_run(cmd, **kwargs)
 
+    monkeypatch.setattr("RelocaTE3.aligners.shutil.which", lambda tool: None)
+    monkeypatch.setattr("RelocaTE3.aligners.subprocess.run", run)
     monkeypatch.setattr(backend, "_query_sequences", sequences)
-    monkeypatch.setattr("RelocaTE3.aligners.open", capture_sam, raising=False)
-    monkeypatch.setattr("RelocaTE3.aligners._iter_psl_to_sam", convert)
-    monkeypatch.setattr("RelocaTE3.aligners._sam_to_sorted_mapped_bam", sort)
-    assert backend._blat_side(library, "reads.fq", "out.bam", 1, tmp_path) == "out.bam"
+    result = backend._blat_side(
+        str(library), reads, tmp_path / "out.left.bam", 1, str(tmp_path)
+    )
+
+    assert [names for _, names, _ in loaded] == [
+        {"r0", "r1"}, {"r2", "r3"}, {"r4"}
+    ], "each chunk loads only its own matched reads"
+    assert all(name.startswith("chunk.") for name, _, _ in loaded)
+    assert [c.n_reads for c in result.chunks] == [2, 2, 1]
+    with pysam.AlignmentFile(str(result.bam)) as fh:
+        assert sorted(r.query_name for r in fh) == ["r0", "r1", "r2", "r3", "r4"]

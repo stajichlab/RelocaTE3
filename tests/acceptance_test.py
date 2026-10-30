@@ -11,8 +11,9 @@ This gate pins ``te_aligner="minimap2"`` explicitly even though the shipped
 defaults are now blat/bwaaln (matching RelocaTE2). blat cannot live in the
 default pixi environment, so a gate on the defaults would simply skip wherever
 blat is absent -- including `pixi run test` and CI -- and the thresholds below
-are calibrated against minimap2 anyway. `test_run_all_cli_end_to_end` covers
-the shipped defaults instead, skipping when blat is unavailable.
+are calibrated against minimap2 anyway. `test_run_all_cli_end_to_end` gates
+the shipped defaults at RelocaTE2 parity instead, skipping when blat is
+unavailable (`pixi run -e blat pytest tests/acceptance_test.py` runs it).
 """
 
 from __future__ import annotations
@@ -126,8 +127,14 @@ def test_run_all_cli_end_to_end(tmp_path: Path):
     char = results / "ALL.repeat.all_nonref_insert.characTErized.txt"
     assert char.is_file() and char.stat().st_size > 0
 
-    # the calls must be real: recover a decent share of the 200 simulated sites
+    # RelocaTE2 parity gate for the shipped defaults (blat + bwa aln).
+    # Measured 2026-10-21 on v0.2.0rc1 from a fresh clone with the locked blat
+    # env: 196/200 at precision 1.000, identical to RelocaTE2 (see
+    # notes/2026-08-12-*). One call of slack on each side.
     calls = _load_intervals(results / "ALL.repeat.all_nonref_insert.characTErized.gff")
     truth = _load_intervals(TRUTH)
     recovered = sum(1 for t in truth if any(_overlaps(t, c, WINDOW) for c in calls))
-    assert recovered > 100, f"only recovered {recovered}/200 insertions"
+    true_calls = sum(1 for c in calls if any(_overlaps(c, t, WINDOW) for t in truth))
+    precision = true_calls / len(calls) if calls else 0.0
+    assert recovered >= 195, f"recall regressed: {recovered}/200 (RelocaTE2: 196)"
+    assert precision >= 0.99, f"precision regressed: {precision:.3f} (RelocaTE2: 1.000)"
