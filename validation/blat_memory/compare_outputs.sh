@@ -15,6 +15,8 @@
 set -euo pipefail
 A="${1:?first output directory}"
 B="${2:?second output directory}"
+PIXI_BIN="${PIXI_BIN:-/bigdata/stajichlab/nmath020/github/github_tools/RelocaTE/RelocaTE3_jason/RelocaTE3/results/release-validation/v0.2.0rc1/clone/.pixi/envs/blat/bin}"
+export PATH="${PIXI_BIN}:${PATH}"
 command -v samtools >/dev/null || { echo "ERROR: samtools not on PATH" >&2; exit 1; }
 echo "date: $(date -Is)  A=${A}  B=${B}"
 

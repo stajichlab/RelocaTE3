@@ -78,21 +78,26 @@ children). Slurm MaxRSS is not used (it counts page cache on this cluster).
 |---|---|---|---|---|---|
 | 4 `align-genome` (cached step-3 inputs, checkpoint-213a0df) | release f7c93f0 (job 31134363) | 6.40 GB | 8.89 GB | 15:08 | |
 | 4 `align-genome` | this branch e4384fb (job 31134364) | 2.48 GB | 2.98 GB | 11:59 | identical (2/2 BAMs, 586,061 genome records) |
-| 3 `run` (BLAT + trim) | release f7c93f0 (job 31133962) | pending | pending | | |
-| 3 `run` | this branch fb7f2fd (job 31133963) | pending | pending | | |
+| 3 `run` (BLAT + trim) | release f7c93f0 (job 31133962) | 20.14 GB | 20.13 GB | 13:48:40 | |
+| 3 `run` | this branch fb7f2fd (job 31133963) | 3.44 GB | 3.44 GB | 13:03:27 | identical (10/10 files: 2 TE BAMs by record, flanking/ContainingReads FASTQs, read_repeat_name, te_hit_names, TE-portion FASTAs; job 31402337) |
 
-Step 3 is BLAT-bound (~190 chunks/side, 8 at a time); expect 8+ h per job.
-When done: `cat results/blat_memory/{old_release_f7c93f0,new_fb7f2fd}/{time.txt,tree_rss_peak.txt}`
-and `bash validation/blat_memory/compare_outputs.sh results/blat_memory/old_release_f7c93f0 results/blat_memory/new_fb7f2fd`
-(sbatch it: the TE BAMs and ContainingReads are several GB).
+Results (2026-10-29):
+- Step 3 peak memory fell from 20.1 GB to 3.4 GB (5.8x).
+- Wall time fell by 45 min: BLAT dominates, about 190 chunks per side, 8 at a time.
+- Commands used to read the results:
+  - `cat results/blat_memory/{old_release_f7c93f0,new_fb7f2fd}/{time.txt,tree_rss_peak.txt}`
+  - `sbatch validation/blat_memory/compare_outputs.sh results/blat_memory/old_release_f7c93f0 results/blat_memory/new_fb7f2fd`
 
 ## Failures / issues
 
 - None in tests. Lint: 6 pre-existing ruff findings in `reference_te.py`
   (untouched).
+- The first compare job (31402147) failed with "samtools not on PATH". The
+  `bash -l` login shell resets PATH, so `compare_outputs.sh` now sets
+  `PIXI_BIN` itself, like the memcheck scripts do.
 
 ## Next steps
 
-- Read the step-3 job results (31133962 old, 31133963 new); diff their outputs.
+- Done 2026-10-29: step 3 is 20.1 GB → 3.4 GB with identical outputs.
 - Full benchmark tier (the dev replay tier refuses this change because
   `aligners.py` differs from 213a0df).
