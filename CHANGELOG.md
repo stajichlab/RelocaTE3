@@ -34,6 +34,13 @@ First release aimed at replacing RelocaTE2 for paired-end short-read data.
   always runs `UNK` (`relocaTE2.py:346`) and its fixed-TSD code cannot run, so
   they had no RelocaTE2 behavior to match. `UNK` still reports each TSD.
 
+- README "RelocaTE2 defaults" notes corrected:
+  - `-s/--size` is implemented (default 500).
+  - `--min-mapq` defaults to 0.
+  - `--require-both-junctions` is RelocaTE2's own `characterizer.pl:91` gate,
+    not a divergence.
+  - A test now checks the notes against the CLI defaults.
+
 ### Added
 
 - `relocaTE3 run-all` (whole pipeline, including reference insertions and
