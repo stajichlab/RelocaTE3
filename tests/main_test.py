@@ -406,6 +406,8 @@ def test_run_all_delegates_to_the_staged_commands(monkeypatch, tmp_path):
     ], order
 
     by = dict(calls)
+    # step 1 builds the index of the genome aligner step 4 will use
+    assert by["index-genome"].genome_aligner == "bwaaln"
     # step 2-3 carries the TE-side settings
     assert by["run"].te_aligner == "blat"
     assert by["run"].mismatch_allowance == 2

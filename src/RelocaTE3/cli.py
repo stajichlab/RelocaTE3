@@ -643,6 +643,14 @@ def _menu_index_genome(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         help="Reference genome FASTA file",
     )
     parser.add_argument(
+        "--genome-aligner",
+        dest="genome_aligner",
+        default="bwaaln",
+        choices=list(GENOME_ALIGNERS),
+        help="Aligner whose genome index to build, as later used by align-genome "
+        "(default: bwaaln, matching RelocaTE2; blat is not supported here)",
+    )
+    parser.add_argument(
         "--force", action="store_true", help="Recreate indexes even if present"
     )
     _add_common_args(parser)
@@ -963,22 +971,16 @@ def cmd_run_all(args: argparse.Namespace) -> int:
         if rc != 0:
             raise RuntimeError(f"run-all: step '{label}' failed with exit code {rc}")
 
-    # Step 1 -- index the genome unless it is already indexed. The staged
-    # workflow expects prebuilt indexes; a one-command mode should not.
-    genome = Path(args.genome_fasta)
-    indexed = (
-        genome.with_suffix(genome.suffix + ".fai").exists()
-        and genome.with_suffix(genome.suffix + ".mmi").exists()
+    # Step 1 -- index the genome. Always delegated: every index it builds
+    # (faidx, minimap2 .mmi, the genome aligner's own index) is skipped when
+    # already present, and .fai/.mmi alone do not imply the aligner's index.
+    _step(
+        "index-genome",
+        cmd_index_genome,
+        genome_fasta=args.genome_fasta,
+        genome_aligner=args.genome_aligner,
+        force=False,
     )
-    if indexed:
-        logger.info("run-all: genome already indexed, skipping index-genome")
-    else:
-        _step(
-            "index-genome",
-            cmd_index_genome,
-            genome_fasta=args.genome_fasta,
-            force=False,
-        )
 
     # Steps 2-3 -- TE-library search and trimming.
     _step(
@@ -1263,13 +1265,24 @@ def cmd_find_reference(args: argparse.Namespace) -> int:
 
 
 def cmd_index_genome(args: argparse.Namespace) -> int:
-    """Index/format the reference genome (samtools faidx + minimap2 index) (step 1)."""
+    """Index/format the reference genome (step 1).
+
+    Builds the samtools faidx + minimap2 indexes, then the index of the chosen
+    genome aligner, so align-genome never has to build it on demand (parallel
+    samples would otherwise race to build the same index).
+    """
     from RelocaTE3.align import Aligner
+    from RelocaTE3.aligners import get_aligner
 
     aln = Aligner()
     aln.verbose = bool(args.verbose)
     aln.index_genome(args.genome_fasta, force=args.force)
-    logger.info("Indexed genome %s", args.genome_fasta)
+    get_aligner(args.genome_aligner).index(args.genome_fasta, force=args.force)
+    logger.info(
+        "Indexed genome %s (genome aligner: %s)",
+        args.genome_fasta,
+        args.genome_aligner,
+    )
     return 0
 
 
@@ -1519,7 +1532,8 @@ def build_parser() -> argparse.ArgumentParser:
             "index-genome",
             formatter_class=CustomHelpFormatter,
             help="Index/format the reference genome (step 1)",
-            description="Create samtools (.fai) and minimap2 (.mmi) indexes for the reference genome.",
+            description="Create samtools (.fai) and minimap2 (.mmi) indexes for the "
+            "reference genome, plus the index of the chosen --genome-aligner.",
         )
     )
     _menu_align_genome(
