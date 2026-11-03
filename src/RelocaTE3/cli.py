@@ -658,6 +658,45 @@ def _menu_index_genome(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     return parser
 
 
+def _menu_align_reads(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Arguments for the 'align-reads' subcommand (genotyping alignment)."""
+    parser.add_argument(
+        "-1",
+        "--left",
+        "--r1",
+        required=True,
+        dest="left",
+        metavar="R1",
+        help="Original left/R1 read file (FASTQ, may be gzipped)",
+    )
+    parser.add_argument(
+        "-2",
+        "--right",
+        "--r2",
+        dest="right",
+        metavar="R2",
+        help="Original right/R2 read file for paired-end (FASTQ, may be gzipped)",
+    )
+    parser.add_argument(
+        "-g",
+        "--genome-fasta",
+        required=True,
+        dest="genome_fasta",
+        metavar="FASTA",
+        help="Reference genome FASTA file",
+    )
+    parser.add_argument(
+        "-n", "--name", required=True, help="Sample/individual name (output prefix)"
+    )
+    parser.add_argument("-o", "--outdir", default=".", help="Output directory")
+    parser.add_argument(
+        "--threads", type=int, default=1, help="CPU threads for alignment"
+    )
+    _add_common_args(parser)
+    parser.set_defaults(func=cmd_align_reads)
+    return parser
+
+
 def _menu_align_genome(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Arguments for the 'align-genome' subcommand (step 4)."""
     parser.add_argument(
@@ -950,7 +989,8 @@ def cmd_run_all(args: argparse.Namespace) -> int:
 
     This is deliberately a thin orchestrator over the *same* ``cmd_*`` handlers
     the staged workflow uses (``index-genome`` -> ``run`` -> ``align-genome`` ->
-    ``find-insertions`` -> optionally ``find-reference`` and ``characterize``),
+    ``find-insertions`` -> optionally ``find-reference``, ``align-reads`` and
+    ``characterize``),
     rather than a second implementation.
 
     That matters: RelocaTE3 has two non-equivalent insertion callers -- the
@@ -1083,16 +1123,17 @@ def cmd_run_all(args: argparse.Namespace) -> int:
 
         genotype_bam = args.genotype_bam
         if not genotype_bam:
-            from RelocaTE3.align import Aligner
-            from RelocaTE3.ReadLibrary import ReadLibrary
-
-            fileset = [args.left] + ([args.right] if args.right else [])
-            reads = ReadLibrary(fileset, args.name)
-            genotype_bam = str(outdir / "genome_aln" / f"{args.name}.reads.genome.bam")
-            logger.info("run-all: aligning original reads to the genome for genotyping")
-            Aligner(args.threads).map_library_to_genome(
-                args.genome_fasta, reads, genotype_bam, cpu_threads=args.threads
+            _step(
+                "align-reads",
+                cmd_align_reads,
+                left=args.left,
+                right=args.right,
+                genome_fasta=args.genome_fasta,
+                name=args.name,
+                outdir=str(outdir),
+                threads=args.threads,
             )
+            genotype_bam = str(_reads_genome_bam(outdir, args.name))
 
         _step(
             "characterize",
@@ -1283,6 +1324,32 @@ def cmd_index_genome(args: argparse.Namespace) -> int:
         args.genome_fasta,
         args.genome_aligner,
     )
+    return 0
+
+
+def _reads_genome_bam(outdir: str | Path, name: str) -> Path:
+    """Path of the genotyping BAM that align-reads writes for ``name``."""
+    return Path(outdir) / "genome_aln" / f"{name}.reads.genome.bam"
+
+
+def cmd_align_reads(args: argparse.Namespace) -> int:
+    """Align the original (untrimmed) reads to the genome for genotyping.
+
+    Writes ``OUTDIR/genome_aln/NAME.reads.genome.bam`` (coordinate-sorted,
+    indexed), the all-read BAM that ``characterize`` uses for zygosity. It is
+    independent of the TE search, so it can run in parallel with it.
+    """
+    from RelocaTE3.align import Aligner
+    from RelocaTE3.ReadLibrary import ReadLibrary
+
+    fileset = [args.left] + ([args.right] if args.right else [])
+    reads = ReadLibrary(fileset, args.name)
+    genotype_bam = str(_reads_genome_bam(args.outdir, args.name))
+    logger.info("Aligning original reads to the genome for genotyping")
+    Aligner(args.threads).map_library_to_genome(
+        args.genome_fasta, reads, genotype_bam, cpu_threads=args.threads
+    )
+    logger.info("Genotyping BAM written to %s", genotype_bam)
     return 0
 
 
@@ -1543,6 +1610,17 @@ def build_parser() -> argparse.ArgumentParser:
             help="Align trimmed flanking reads to the reference genome (step 4)",
             description="Align trimmed flanking-read FASTQs to the reference genome with minimap2, "
             "producing a sorted, indexed BAM for insertion finding.",
+        )
+    )
+    _menu_align_reads(
+        subparsers.add_parser(
+            "align-reads",
+            formatter_class=CustomHelpFormatter,
+            help="Align the original reads to the genome for genotyping",
+            description="Align the original (untrimmed) reads to the reference genome "
+            "with minimap2, producing the sorted, indexed "
+            "genome_aln/<name>.reads.genome.bam that 'characterize' uses for "
+            "zygosity. Independent of the TE search.",
         )
     )
     _menu_find_insertions(
