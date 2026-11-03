@@ -114,6 +114,31 @@ nextflow_pipeline {
         }
     }
 
+    // Nextflow opens the report, timeline, trace and DAG files before
+    // validation, so without --outdir they used to land in ./null/pipeline_info.
+    test("a missing --outdir fails validation and writes no null/ directory") {
+        tag "validation"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_chr3.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\nchr3,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+            params {
+                input  = sheet.absolutePath
+                outdir = null
+            }
+        }
+
+        then {
+            def log = (workflow.stdout + workflow.stderr).join("\n")
+            assert workflow.failed
+            assert log.contains("outdir")
+            assert workflow.trace.tasks().size() == 0
+            assert !new File("${launchDir}/null").exists()
+        }
+    }
+
     test("a missing sample sheet fails validation before any task runs") {
         tag "validation"
 
