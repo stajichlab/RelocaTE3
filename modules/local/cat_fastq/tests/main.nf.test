@@ -27,10 +27,10 @@ nextflow_process {
             assert process.success
             def (meta, r1, r2) = process.out.reads[0]
             assert meta.id == 's1'
-            assert file(r1).name == 's1_1.fq.gz'
+            assert new File(r1).name == 's1_1.fq.gz'
             // _2 is declared arity '0..*' (Nextflow does not allow '0..1'), so it
             // is a one-element list here and [] for single-end samples.
-            assert r2.collect { p -> file(p).name } == [ 's1_2.fq.gz' ]
+            assert r2.collect { p -> new File(p).name } == [ 's1_2.fq.gz' ]
             assert process.out.versions.size() == 1
         }
     }
@@ -56,7 +56,7 @@ nextflow_process {
         then {
             assert process.success
             def out = process.out.reads[0]
-            assert file(out[1]).name == 's1_1.fq.gz'
+            assert new File(out[1]).name == 's1_1.fq.gz'
             assert out[2] == []
             assert path(out[1]).linesGzip == [ '@r1', 'ACGT', '+', 'IIII', '@r2', 'TTTT', '+', 'IIII' ]
         }

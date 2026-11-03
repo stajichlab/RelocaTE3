@@ -25,8 +25,8 @@ nextflow_process {
         then {
             assert process.success
             assert process.out.index.size() == 1
-            def genome = file(process.out.index[0][0]).name
-            def index = process.out.index[0][1].collect { p -> file(p).name }.sort()
+            def genome = new File(process.out.index[0][0]).name
+            def index = process.out.index[0][1].collect { p -> new File(p).name }.sort()
             assert genome == "MSU7.Chr3_2M.fa"
             assert index == ["MSU7.Chr3_2M.fa.bwt", "MSU7.Chr3_2M.fa.fai", "MSU7.Chr3_2M.fa.mmi"]
             assert process.out.versions.size() == 1
@@ -52,7 +52,7 @@ nextflow_process {
 
         then {
             assert process.success
-            def index = process.out.index[0][1].collect { p -> file(p).name }.sort()
+            def index = process.out.index[0][1].collect { p -> new File(p).name }.sort()
             assert index == ["g.fa.amb", "g.fa.ann", "g.fa.bwt", "g.fa.fai", "g.fa.mmi", "g.fa.pac", "g.fa.sa"]
             def versions = path(process.out.versions[0]).text
             assert versions.contains("relocate3:")

@@ -1,0 +1,34 @@
+// RELOCATE3_ALIGN_READS: stub run, declared outputs only.
+
+nextflow_process {
+
+    name "RELOCATE3_ALIGN_READS"
+    script "../main.nf"
+    process "RELOCATE3_ALIGN_READS"
+    tag "modules"
+    tag "relocate3_align_reads"
+
+    test("stub: emits genome_aln/<id>.reads.genome.bam and its index") {
+        options "-stub"
+
+        when {
+            process {
+                """
+                def r = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+                input[0] = [ [ id:'chr3' ], file(r + '_1.fq.gz'), file(r + '_2.fq.gz') ]
+                input[1] = file("${baseDir}/tests/data/sim_genome/MSU7.Chr3_2M.fa")
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def (meta, bam, bai) = process.out.bam[0]
+            assert meta.id == 'chr3'
+            assert new File(bam).name == 'chr3.reads.genome.bam'
+            assert new File(bam).parentFile.name == 'genome_aln'
+            assert new File(bai).name == 'chr3.reads.genome.bam.bai'
+            assert process.out.versions.size() == 1
+        }
+    }
+}
