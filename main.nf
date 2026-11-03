@@ -4,19 +4,30 @@
  *
  * Usage: nextflow run . -profile test,pixi
  *        nextflow run . --help
+ *        nextflow run . --help genome
  *
  * The workflow holds no detection logic: each process runs one relocaTE3
  * subcommand with the arguments `relocaTE3 run-all` passes, so a sample's
  * files match run-all's.
  */
 
-include { validateParameters; paramsSummaryLog; samplesheetToList } from 'plugin/nf-schema'
+include { paramsHelp; validateParameters; paramsSummaryLog; samplesheetToList } from 'plugin/nf-schema'
 include { RELOCATE3; groupLanes } from './workflows/relocate3'
 
 workflow {
     main:
+    // nf-schema 3: help only through paramsHelp(), before validation so that
+    // --help needs no other parameter. `--help` alone arrives as true or
+    // 'true'; `--help <name>` names one parameter (nf-schema docs pattern).
+    if (params.help) {
+        log.info(paramsHelp(
+            parameter: params.help.toString() in ['true', 'false'] ? null : params.help,
+            command: 'nextflow run stajichlab/RelocaTE3 -profile <pixi|docker|apptainer|singularity> --input samples.csv --genome reference.fa --te_library te.fa --outdir results',
+        ))
+        exit(0)
+    }
     validateParameters()
-    log.info(paramsSummaryLog(workflow))
+    log.info(paramsSummaryLog())
 
     // Sheet rows [ meta (id), fastq_1, fastq_2, genotype_bam ] grouped into
     // one item per sample, in sheet order:

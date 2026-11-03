@@ -116,6 +116,13 @@ needs it, and earlier releases predate fixes for typed CLI parameters under
 strict syntax. The cluster provides 25.10.4 and 26.04.x; the `nf` pixi env
 has 26.10.4.
 
+Changed to **26.04** in M2 (2026-11-03): nf-schema 2.7.3 (and 2.8.0)
+`paramsSummaryLog` casts `workflow.container` to a Map, so every container
+profile (one global `process.container` string) crashed at start. nf-schema
+3.0.0 fixes this and requires Nextflow ≥ 26.04.0. The 3.0 migration also moved
+`--help` to `paramsHelp()` in `main.nf`, called before `validateParameters()`,
+so `--help` now exits 0 without the required parameters.
+
 ## Testing
 
 1. pytest, failing first, for each CLI addition. `run-all` output must be

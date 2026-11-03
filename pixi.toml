@@ -62,7 +62,7 @@ blat = "*"
 platforms = ["linux-64", "osx-64", "osx-arm64"]
 
 [feature.nextflow.dependencies]
-nextflow = ">=25.04"
+nextflow = ">=26.04"
 nf-test = ">=0.9"
 
 [environments]

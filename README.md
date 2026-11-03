@@ -122,7 +122,8 @@ in parallel, the genome is indexed once, and the genotyping alignment runs
 alongside the TE search.
 
 Milestone 1 runs with the tools from the `blat` pixi environment and needs
-Nextflow ≥ 25.10:
+Nextflow ≥ 26.04 (the `nf` pixi environment has it). `nextflow run . --help`
+lists the parameters; `--help <parameter>` describes one.
 
 ```bash
 pixi install -e blat -e nf
