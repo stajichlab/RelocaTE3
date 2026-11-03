@@ -161,6 +161,12 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Also search for excision events that leave a footprint (--excision)."
+                },
+                "bcftools": {
+                    "type": "string",
+                    "default": "bcftools",
+                    "description": "bcftools executable, used only with --excision (run-all --bcftools).",
+                    "fa_icon": "fas fa-terminal"
                 }
             }
         },

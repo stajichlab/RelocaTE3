@@ -3,10 +3,10 @@
  *
  *   relocaTE3 characterize -s results/<target>.<te_name>.all_nonref_insert.txt
  *       -b <genotype BAM/CRAM> -g <genome> -o results [--excision]
- *       --samtools samtools --bcftools bcftools
+ *       --samtools samtools --bcftools <params.bcftools>
  *
- * Arguments are those cmd_run_all passes to `characterize`. samtools and
- * bcftools are run-all's defaults: the tools come from the task environment.
+ * Arguments are those cmd_run_all passes to `characterize`: run-all always
+ * passes `samtools` (from the task environment) and its own --bcftools.
  *
  * The BAM is an explicit path input (meta holds only the sample id). Task
  * wiring passes either the sample's genotype_bam BAM/CRAM with its index or
@@ -36,6 +36,9 @@ process RELOCATE3_CHARACTERIZE {
     script:
     def excision = params.excision ? '--excision' : ''
     """
+    # Temporary files (Python tempfile) in the task directory, not /tmp.
+    export TMPDIR="\${PWD}"
+
     relocaTE3 characterize \\
         -s ${sites} \\
         -b ${bam} \\
@@ -43,7 +46,7 @@ process RELOCATE3_CHARACTERIZE {
         -o results \\
         ${excision} \\
         --samtools samtools \\
-        --bcftools bcftools
+        --bcftools ${params.bcftools}
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

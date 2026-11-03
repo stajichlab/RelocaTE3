@@ -44,6 +44,9 @@ process RELOCATE3_FIND_INSERTIONS {
     def reference_ins = repeatmasker ? "--reference-ins ${repeatmasker}" : ''
     def both_junctions = params.require_both_junctions ? '--require-both-junctions' : '--no-require-both-junctions'
     """
+    # Temporary files (Python tempfile) in the task directory, not /tmp.
+    export TMPDIR="\${PWD}"
+
     relocaTE3 find-insertions \\
         -b ${bam} \\
         -R ${read_repeat} \\

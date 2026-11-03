@@ -30,6 +30,9 @@ process RELOCATE3_ALIGN_READS {
     def prefix = meta.id
     def right = reads_2 ? "-2 ${reads_2}" : ''
     """
+    # Temporary files (Python tempfile) in the task directory, not /tmp.
+    export TMPDIR="\${PWD}"
+
     relocaTE3 align-reads \\
         -1 ${reads_1} \\
         ${right} \\

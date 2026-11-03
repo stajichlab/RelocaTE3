@@ -26,6 +26,9 @@ process RELOCATE3_INDEX_GENOME {
 
     script:
     """
+    # Temporary files (Python tempfile) in the task directory, not /tmp.
+    export TMPDIR="\${PWD}"
+
     relocaTE3 index-genome \\
         -g ${genome} \\
         --genome-aligner ${params.genome_aligner}

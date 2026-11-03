@@ -30,6 +30,9 @@ process RELOCATE3_FIND_REFERENCE {
     script:
     def prefix = meta.id
     """
+    # Temporary files (Python tempfile) in the task directory, not /tmp.
+    export TMPDIR="\${PWD}"
+
     relocaTE3 find-reference \\
         -b ${bam} \\
         -R ${read_repeat} \\

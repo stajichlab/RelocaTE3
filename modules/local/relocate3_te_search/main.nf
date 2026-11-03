@@ -35,9 +35,14 @@ process RELOCATE3_TE_SEARCH {
     path "versions.yml", emit: versions
 
     script:
+    // Single-quoted in the shell: escape each ' as '\'' so the value reaches relocaTE3 unchanged.
+    def te_opts = params.te_opts.toString().replace("'", "'\\''")
     def prefix = meta.id
     def right = reads_2 ? "--right ${reads_2}" : ''
     """
+    # Temporary files (Python tempfile) in the task directory, not /tmp.
+    export TMPDIR="\${PWD}"
+
     relocaTE3 run \\
         --left ${reads_1} \\
         ${right} \\
@@ -46,7 +51,7 @@ process RELOCATE3_TE_SEARCH {
         --outdir . \\
         --threads ${task.cpus} \\
         --te-aligner ${params.te_aligner} \\
-        --te-opts='${params.te_opts}' \\
+        --te-opts='${te_opts}' \\
         --min-match ${params.min_match} \\
         --min-trimmed ${params.min_trimmed} \\
         --mismatch ${params.mismatch}

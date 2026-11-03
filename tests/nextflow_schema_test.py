@@ -42,6 +42,7 @@ RUN_ALL_DEST = {
     "genome_opts": "genome_opts",
     "distance": "distance",
     "excision": "excision",
+    "bcftools": "bcftools",
 }
 
 

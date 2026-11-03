@@ -33,6 +33,8 @@ process RELOCATE3_ALIGN_GENOME {
     path "versions.yml", emit: versions
 
     script:
+    // Single-quoted in the shell: escape each ' as '\'' so the value reaches relocaTE3 unchanged.
+    def genome_opts = params.genome_opts.toString().replace("'", "'\\''")
     def prefix = meta.id
     // A staged path prints as its stageAs location ("flanking/<file>"), the
     // string run-all sorts; match run-all's glob <id>.*.flankingReads.fq on the base name.
@@ -42,6 +44,9 @@ process RELOCATE3_ALIGN_GENOME {
         .sort()
     def right = reads_2 ? "-2 ${reads_2}" : ''
     """
+    # Temporary files (Python tempfile) in the task directory, not /tmp.
+    export TMPDIR="\${PWD}"
+
     relocaTE3 align-genome \\
         -g ${genome} \\
         -f ${flanks.join(' ')} \\
@@ -50,7 +55,7 @@ process RELOCATE3_ALIGN_GENOME {
         -1 ${reads_1} \\
         ${right} \\
         --genome-aligner ${params.genome_aligner} \\
-        --genome-opts='${params.genome_opts}' \\
+        --genome-opts='${genome_opts}' \\
         --threads ${task.cpus}
 
     cat <<-END_VERSIONS > versions.yml

@@ -131,3 +131,22 @@ def test_module_passes_every_run_all_argument(step):
         if not any(_has_option(script, o) for o in opts)
     ]
     assert not missing, f"{STEP_MODULE[step]} does not pass: {', '.join(missing)}"
+
+
+@pytest.mark.parametrize("step", sorted(STEP_MODULE))
+def test_module_keeps_temporary_files_in_the_task_directory(step):
+    """relocaTE3 writes temp files (e.g. align-reads' whole-genome SAM) via
+    Python's tempfile, which honours TMPDIR. Pointing TMPDIR at the task
+    directory keeps them off a small node-local /tmp and cleans up with the
+    work directory; the Python code is unchanged."""
+    script = _script_block(STEP_MODULE[step])
+    lines = [ln.strip() for ln in script.splitlines()]
+    assert 'export TMPDIR="\\${PWD}"' in lines, STEP_MODULE[step]
+    assert lines.index('export TMPDIR="\\${PWD}"') < next(
+        i for i, ln in enumerate(lines) if ln.startswith("relocaTE3 ")
+    )
+
+
+# Value-level checks (each flag carries its own param, quoting survives the
+# shell) need the rendered .command.sh of a real run: see the nf-test
+# "every setting reaches its flag in the right task" in tests/main.nf.test.

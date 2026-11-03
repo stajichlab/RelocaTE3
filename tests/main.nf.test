@@ -377,4 +377,75 @@ nextflow_pipeline {
             assert workflow.trace.tasks().size() == 0
         }
     }
+
+    // A real run (stub mode would put the stub: block in .command.sh) with a
+    // distinct, non-default value for every calling setting; each value must
+    // follow its own flag in the right task's .command.sh. Option strings with
+    // single quotes must survive the shell quoting of --te-opts/--genome-opts
+    // (their values equal the aligners' defaults, so calls are unaffected).
+    test("every setting reaches its flag in the right task") {
+        tag "params"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_chr3.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\nchr3,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+            params {
+                input                  = sheet.absolutePath
+                outdir                 = "${outputDir}/results"
+                mismatch               = 3
+                min_match              = 11
+                min_trimmed            = 12
+                size                   = 501
+                min_mapq               = 1
+                distance               = 4
+                tsd                    = "UKN"
+                target                 = "Chr3"
+                te_name                = "other"
+                require_both_junctions = false
+                te_opts                = "-minScore='10' -tileSize=7"
+                genome_opts            = "-n '0.04' -o 1"
+                bcftools               = "bcftools-custom"
+            }
+        }
+
+        then {
+            assert workflow.success
+            // simple process name -> .command.sh text, from the run's trace
+            def scripts = [:]
+            new File("${launchDir}/meta/trace.csv").readLines().drop(1).each { line ->
+                def f = line.split('\t')
+                def proc = f[3].tokenize(' ')[0].tokenize(':')[-1]
+                def (dir, prefix) = f[1].tokenize('/')
+                def work = new File("${launchDir}/work/${dir}").listFiles().find { d -> d.name.startsWith(prefix) }
+                scripts[proc] = new File(work, '.command.sh').text
+            }
+            def expected = [
+                RELOCATE3_INDEX_GENOME   : ['--genome-aligner bwaaln'],
+                RELOCATE3_TE_SEARCH      : ['--te-aligner blat', "--te-opts='-minScore='\\''10'\\'' -tileSize=7'",
+                                            '--min-match 11', '--min-trimmed 12', '--mismatch 3'],
+                RELOCATE3_ALIGN_GENOME   : ['--genome-aligner bwaaln', "--genome-opts='-n '\\''0.04'\\'' -o 1'"],
+                RELOCATE3_FIND_INSERTIONS: ['--tsd UKN', '--target Chr3', '--te-name other', '--mismatch 3', '--min-mapq 1',
+                                            '--no-require-both-junctions', '--size 501', '--distance 4',
+                                            '--reference-ins MSU7.Chr3_2M.fa.RepeatMasker.out'],
+                RELOCATE3_CHARACTERIZE   : ['-s results/Chr3.other.all_nonref_insert.txt', '--bcftools bcftools-custom'],
+            ]
+            expected.each { proc, args ->
+                assert scripts.containsKey(proc) : proc
+                def words = scripts[proc].replaceAll(/\\\n/, ' ').replaceAll(/\s+/, ' ')
+                args.each { a -> assert (" ${words} ").contains(" ${a} ") : "${proc}: ${a}" }
+            }
+            // The shell hands relocaTE3 the option strings unchanged.
+            [RELOCATE3_TE_SEARCH: ['--te-opts', "-minScore='10' -tileSize=7"],
+             RELOCATE3_ALIGN_GENOME: ['--genome-opts', "-n '0.04' -o 1"]].each { proc, flag_value ->
+                def (flag, value) = flag_value
+                def word = (scripts[proc] =~ /${flag}='(?:[^']|'\\'')*'/)[0]
+                def argv = ['bash', '-c', "printf %s ${word}"].execute().text
+                assert argv == "${flag}=${value}"
+            }
+            assert !scripts['RELOCATE3_CHARACTERIZE'].contains('--excision')
+            assert new File("${outputDir}/results/chr3/results/Chr3.other.all_nonref_insert.characTErized.txt").exists()
+        }
+    }
 }
