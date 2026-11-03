@@ -53,11 +53,24 @@ platforms = ["linux-64"]
 [feature.blat.dependencies]
 blat = "*"
 
+# Nextflow and nf-test, for the pipeline (main.nf). A standalone environment:
+# it must not co-solve with blat (bioconda blat pins zlib 1.2.11). Pipeline
+# tasks get their tools from the `blat` env (profile `pixi`) or the container.
+#
+#   pixi run -e nf nextflow run . -profile test,pixi
+[feature.nextflow]
+platforms = ["linux-64", "osx-64", "osx-arm64"]
+
+[feature.nextflow.dependencies]
+nextflow = ">=25.04"
+nf-test = ">=0.9"
+
 [environments]
 # `default` keeps the historical contents (core + plotting), so `pixi run test`
 # and `pixi run validate-rice` are unchanged.
 default = { features = ["plot"] }
 blat = { features = ["blat"] }
+nf = { features = ["nextflow"], no-default-feature = true }
 
 [tasks]
 test = "pytest -ra -q"
