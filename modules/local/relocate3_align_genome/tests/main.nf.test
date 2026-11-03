@@ -1,0 +1,42 @@
+// RELOCATE3_ALIGN_GENOME: stub run, declared outputs only. Staged inputs
+// (te_containing/, flanking/, the genome) must not be emitted.
+
+nextflow_process {
+
+    name "RELOCATE3_ALIGN_GENOME"
+    script "../main.nf"
+    process "RELOCATE3_ALIGN_GENOME"
+    tag "modules"
+    tag "relocate3_align_genome"
+
+    test("stub: emits the repeat BAM and genome_aln/ fullreads BAM") {
+        options "-stub"
+
+        when {
+            process {
+                """
+                def d = file("\${workflow.workDir}/align_genome_inputs"); d.mkdirs()
+                def r = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+                def g = "${baseDir}/tests/data/sim_genome/MSU7.Chr3_2M.fa"
+                input[0] = [ [ id:'chr3' ], file(r + '_1.fq.gz'), file(r + '_2.fq.gz'),
+                             [ d.resolve('chr3.te_hit_names.txt').with { f -> f.text = ''; f }, d.resolve('chr3.read_repeat_name.txt').with { f -> f.text = ''; f } ],
+                             [ d.resolve('chr3.left.flankingReads.fq').with { f -> f.text = ''; f }, d.resolve('chr3.right.flankingReads.fq').with { f -> f.text = ''; f } ] ]
+                input[1] = [ file(g), [ file(g + '.fai') ] ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def (meta, bam, bai) = process.out.bam[0]
+            assert meta.id == 'chr3'
+            assert new File(bam).name == 'chr3.repeat.bwaaln.sorted.bam'
+            assert new File(bai).name == 'chr3.repeat.bwaaln.sorted.bam.bai'
+            def full = process.out.fullreads[0]
+            assert new File(full[1]).name == 'chr3.fullreads.genome.bam'
+            assert new File(full[1]).parentFile.name == 'genome_aln'
+            assert new File(full[2]).name == 'chr3.fullreads.genome.bam.bai'
+            assert process.out.versions.size() == 1
+        }
+    }
+}

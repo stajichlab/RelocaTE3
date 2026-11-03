@@ -1,0 +1,62 @@
+// RELOCATE3_INDEX_GENOME: stub run (declared outputs) and one real run on a
+// small random genome (builds the bwa index for the default bwaaln aligner).
+
+nextflow_process {
+
+    name "RELOCATE3_INDEX_GENOME"
+    script "../main.nf"
+    process "RELOCATE3_INDEX_GENOME"
+    tag "modules"
+    tag "relocate3_index_genome"
+    // pixi puts relocaTE3 and the aligners on PATH; stubs do not need it.
+    profile "pixi"
+
+    test("stub: emits the genome with its index files") {
+        options "-stub"
+
+        when {
+            process {
+                """
+                input[0] = file("${baseDir}/tests/data/sim_genome/MSU7.Chr3_2M.fa")
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert process.out.index.size() == 1
+            def genome = new File(process.out.index[0][0]).name
+            def index = process.out.index[0][1].collect { p -> new File(p).name }.sort()
+            assert genome == "MSU7.Chr3_2M.fa"
+            assert index == ["MSU7.Chr3_2M.fa.bwt", "MSU7.Chr3_2M.fa.fai", "MSU7.Chr3_2M.fa.mmi"]
+            assert process.out.versions.size() == 1
+        }
+    }
+
+    test("real: builds .fai, .mmi and the bwa index of a random genome") {
+        tag "real"
+
+        when {
+            process {
+                """
+                def rng = new Random(1)
+                def fa = file("\${workflow.workDir}/random_genome/g.fa")
+                fa.parent.mkdirs()
+                fa.text = (0..<2).collect { i ->
+                    ">c\${i}\\n" + (0..<3000).collect { 'ACGT'[rng.nextInt(4)] }.join('') + "\\n"
+                }.join('')
+                input[0] = fa
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def index = process.out.index[0][1].collect { p -> new File(p).name }.sort()
+            assert index == ["g.fa.amb", "g.fa.ann", "g.fa.bwt", "g.fa.fai", "g.fa.mmi", "g.fa.pac", "g.fa.sa"]
+            def versions = path(process.out.versions[0]).text
+            assert versions.contains("relocate3:")
+            assert versions.contains("bwa: 0.7")
+        }
+    }
+}

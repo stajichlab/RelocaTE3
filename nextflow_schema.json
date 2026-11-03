@@ -1,0 +1,194 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/stajichlab/RelocaTE3/main/nextflow_schema.json",
+    "title": "stajichlab/RelocaTE3 pipeline parameters",
+    "description": "Transposable element insertion detection from resequencing data. Each step runs one relocaTE3 subcommand with the arguments relocaTE3 run-all passes.",
+    "type": "object",
+    "$defs": {
+        "input_output_options": {
+            "title": "Input/output options",
+            "type": "object",
+            "description": "Sample sheet, shared reference inputs and where results are written.",
+            "help_text": "The sample sheet lists one row per sample (or per lane: rows sharing a sample name are merged). The genome, TE library and RepeatMasker annotation are shared by all samples.",
+            "required": ["input", "genome", "te_library", "outdir"],
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "schema": "assets/schema_input.json",
+                    "mimetype": "text/csv",
+                    "pattern": "^\\S+\\.csv$",
+                    "description": "Sample sheet (CSV): sample,fastq_1,fastq_2[,genotype_bam].",
+                    "help_text": "Relative read paths in the sheet are resolved against the directory Nextflow is launched from, not the sheet's own directory.",
+                    "fa_icon": "fas fa-file-csv"
+                },
+                "genome": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "description": "Reference genome FASTA (run-all -g).",
+                    "fa_icon": "fas fa-dna"
+                },
+                "te_library": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "description": "Transposon library FASTA (run-all -T).",
+                    "fa_icon": "fas fa-dna"
+                },
+                "repeatmasker": {
+                    "type": "string",
+                    "format": "file-path",
+                    "exists": true,
+                    "description": "RepeatMasker .out for the reference (run-all --repeatmasker). Optional.",
+                    "help_text": "Filters novel calls that land on a known reference TE, and additionally emits the reference insertion calls (find-reference).",
+                    "fa_icon": "fas fa-file"
+                },
+                "outdir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Output directory; each sample is written to <outdir>/<sample>.",
+                    "fa_icon": "fas fa-folder-open"
+                }
+            }
+        },
+        "calling_options": {
+            "title": "Calling options",
+            "type": "object",
+            "description": "TE search, genome placement and insertion calling. Same names and defaults as relocaTE3 run-all.",
+            "help_text": "Defaults reproduce RelocaTE2. Each option maps to the run-all flag named in its description.",
+            "properties": {
+                "te_aligner": {
+                    "type": "string",
+                    "enum": ["minimap2", "bwa", "bwamem2", "bwaaln", "bowtie2", "blat"],
+                    "default": "blat",
+                    "description": "Aligner for the TE-library search (--te-aligner)."
+                },
+                "genome_aligner": {
+                    "type": "string",
+                    "enum": ["minimap2", "bwa", "bwamem2", "bwaaln", "bowtie2"],
+                    "default": "bwaaln",
+                    "description": "Aligner for genome re-alignment (--genome-aligner). blat is not supported here."
+                },
+                "te_opts": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Extra options passed verbatim to the TE-search aligner (--te-opts), e.g. \"-minIdentity=80\" for blat."
+                },
+                "genome_opts": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Extra options passed verbatim to the genome aligner (--genome-opts), e.g. \"-n 0.10\" for bwa aln."
+                },
+                "mismatch": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 2,
+                    "description": "Allowed mismatches, TE alignment and read/genome comparison (--mismatch)."
+                },
+                "min_match": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 10,
+                    "description": "Minimum alignment match length to the TE (--min-match)."
+                },
+                "min_trimmed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 10,
+                    "description": "Minimum trimmed flanking sequence length to retain (--min-trimmed)."
+                },
+                "size": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 500,
+                    "description": "Library insert size for mate-pair-only insertions (--size)."
+                },
+                "min_mapq": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0,
+                    "description": "Minimum MAPQ for a read to be admitted as evidence (--min-mapq). 0 = no gate."
+                },
+                "tsd": {
+                    "type": "string",
+                    "enum": ["UNK", "UKN", "unknown"],
+                    "default": "UNK",
+                    "description": "TSD mode (--tsd). Only UNK is supported: each TSD is inferred from the reads, as RelocaTE2 does.",
+                    "errorMessage": "only --tsd UNK is supported: RelocaTE2 always infers each TSD from the reads, so a fixed TSD motif has no RelocaTE2 behavior to match."
+                },
+                "require_both_junctions": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Require junction reads on both sides of an insertion (--require-both-junctions).",
+                    "help_text": "Set to false to also emit single-sided calls (--no-require-both-junctions): more sensitive, much less precise on multi-family TE libraries."
+                },
+                "target": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]+$",
+                    "errorMessage": "--target must be ALL or a contig name made of [A-Za-z0-9._-] (it becomes part of file names and commands)",
+                    "default": "ALL",
+                    "description": "Chromosome to analyze, or ALL (--target)."
+                },
+                "distance": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 3,
+                    "description": "Reference-TE boundary window for dropping one-sided calls (--distance)."
+                },
+                "te_name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+                    "errorMessage": "--te_name must start with a letter or digit and contain only [A-Za-z0-9._-] (it becomes part of file names and commands)",
+                    "default": "repeat",
+                    "description": "TE label used in output file names (--te-name)."
+                }
+            }
+        },
+        "genotyping_options": {
+            "title": "Genotyping options",
+            "type": "object",
+            "description": "Classify each insertion as homozygous, heterozygous or somatic.",
+            "help_text": "On by default in the pipeline (opt-in with --genotype for run-all), so the cohort genotype matrix is filled. A sample's genotype_bam column reuses an existing alignment instead of realigning its reads, and such a sample is always genotyped, as run-all does with --genotype-bam.",
+            "properties": {
+                "genotype": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Genotype each insertion (run-all --genotype). With false, only samples with a genotype_bam are genotyped."
+                },
+                "excision": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Also search for excision events that leave a footprint (--excision)."
+                },
+                "bcftools": {
+                    "type": "string",
+                    "default": "bcftools",
+                    "description": "bcftools executable, used only with --excision (run-all --bcftools).",
+                    "fa_icon": "fas fa-terminal"
+                }
+            }
+        },
+        "profile_options": {
+            "title": "Profile options",
+            "type": "object",
+            "description": "Settings used by specific profiles.",
+            "help_text": "The pixi profile runs tasks without a container, with this environment's bin/ first on PATH.",
+            "properties": {
+                "pixi_env": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Pixi environment providing relocaTE3 and the aligners (pixi profile). Default: <projectDir>/.pixi/envs/blat.",
+                    "hidden": true
+                }
+            }
+        }
+    },
+    "allOf": [
+        { "$ref": "#/$defs/input_output_options" },
+        { "$ref": "#/$defs/calling_options" },
+        { "$ref": "#/$defs/genotyping_options" },
+        { "$ref": "#/$defs/profile_options" }
+    ]
+}

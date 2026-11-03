@@ -1,0 +1,35 @@
+// RELOCATE3_CHARACTERIZE: stub run, declared outputs only. The staged sites
+// table (results/<target>.<te_name>.all_nonref_insert.txt) is not emitted.
+
+nextflow_process {
+
+    name "RELOCATE3_CHARACTERIZE"
+    script "../main.nf"
+    process "RELOCATE3_CHARACTERIZE"
+    tag "modules"
+    tag "relocate3_characterize"
+
+    test("stub: emits results/*.characTErized.{gff,txt} only") {
+        options "-stub"
+
+        when {
+            process {
+                """
+                def d = file("\${workflow.workDir}/characterize_inputs"); d.mkdirs()
+                def g = "${baseDir}/tests/data/sim_genome/MSU7.Chr3_2M.fa"
+                input[0] = [ [ id:'chr3' ], d.resolve('ALL.repeat.all_nonref_insert.txt').with { f -> f.text = ''; f },
+                             d.resolve('chr3.reads.genome.bam').with { f -> f.text = ''; f }, d.resolve('chr3.reads.genome.bam.bai').with { f -> f.text = ''; f } ]
+                input[1] = [ file(g), [ file(g + '.fai') ] ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def files = process.out.results[0][1].collect { p -> new File(p) }
+            assert files.collect { f -> f.name }.sort() == [ 'ALL.repeat.all_nonref_insert.characTErized.gff', 'ALL.repeat.all_nonref_insert.characTErized.txt' ]
+            assert files.every { f -> f.parentFile.name == 'results' }
+            assert process.out.versions.size() == 1
+        }
+    }
+}

@@ -180,3 +180,8 @@ scratchpad/
 /validation/coordinate_scoring/
 # Editor settings.
 /.vscode/
+
+# Nextflow / nf-test run state
+.nextflow*
+work/
+.nf-test/

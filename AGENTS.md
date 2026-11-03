@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-RelocaTE3 is a pure-Python reimplementation of [RelocaTE2](https://github.com/JinfengChen/RelocaTE2) that calls transposable-element (TE) insertion polymorphisms from short-read resequencing data at single-base resolution. External dependencies are minimized to `minimap2`, `samtools`, `bedtools`, and the Python libraries `pysam`/`biopython`/`pybedtools`. The roadmap in `plans/PLAN.md` targets a validated Python reference, then Rust acceleration of per-read hotspots, then Nextflow scatter.
+RelocaTE3 is a pure-Python reimplementation of [RelocaTE2](https://github.com/JinfengChen/RelocaTE2) that calls transposable-element (TE) insertion polymorphisms from short-read resequencing data at single-base resolution. External dependencies are minimized to `minimap2`, `samtools`, `bedtools`, and the Python libraries `pysam`/`biopython`/`pybedtools`. RelocaTE2 parity was reached in v0.2.0rc2. Roadmap order, set 2026-11-02: Nextflow pipeline (`plans/2026-11-02-nextflow-pipeline-design.md`) → long reads → multiple reference genomes as separate FASTAs → pangenome reference → Rust acceleration.
 
 Status: end-to-end pipeline runs; rice Chr3 2 Mb acceptance benchmark recovers ~178/200 simulated insertions (~89% recall, ~90% precision) and is gated by `tests/acceptance_test.py`.
 
@@ -73,6 +73,16 @@ If you add or rename a subcommand, edit `cli.py` and update the README
 subcommand table + `docs/source/usage.rst`. The acceptance test imports library
 functions directly, so it does not catch CLI drift — the subprocess smoke tests
 in `tests/main_test.py` cover both entry points.
+
+### Nextflow pipeline
+
+`main.nf` → `workflows/relocate3.nf` → `subworkflows/local/` → `modules/local/<process>/` (one `relocaTE3` subcommand each); config in `nextflow.config` and `conf/`. The core rule: no detection logic in Nextflow. Each process passes exactly the arguments `cmd_run_all` (`cli.py`) gives that step, so per-sample output equals `run-all --genotype`; `tests/nextflow_modules_args_test.py` and `tests/nextflow_schema_test.py` pin modules, schema and config to `cli.py`.
+
+```bash
+pixi run -e nf nf-test test               # pipeline + module tests
+pixi run -e nf nextflow lint .
+sbatch tests/nextflow/parity_chr3.sh      # parity gate vs run-all on Chr3; must print RESULT: PASS
+```
 
 ## Testing
 

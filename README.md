@@ -111,6 +111,63 @@ unless `--force`. By default the batch stops at the first failing sample; pass
 `--keep-going` to run the rest and get a summary at the end (the exit code is
 non-zero either way if anything failed).
 
+### Nextflow pipeline (in development)
+
+The repository is also a Nextflow pipeline (nf-core layout). Each task runs one
+`relocaTE3` subcommand with the settings `run-all` uses, so every sample's
+files are identical to `run-all --genotype` with the same settings (a sample
+merged from several lanes has no `run-all` equivalent).
+`tests/nextflow/parity_chr3.sh` checks this on the Chr3 test data. Samples run
+in parallel, the genome is indexed once, and the genotyping alignment runs
+alongside the TE search.
+
+Milestone 1 runs with the tools from the `blat` pixi environment and needs
+Nextflow ≥ 25.10:
+
+```bash
+pixi install -e blat -e nf
+pixi run -e nf nextflow run . -profile test,pixi          # Chr3 test data, ~2 min
+pixi run -e nf nextflow run . -profile pixi \
+  --input samples.csv --genome reference.fa --te_library RiceTE.fa \
+  --repeatmasker reference.fa.RepeatMasker.out --te_name mping --outdir results
+```
+
+The sample sheet is CSV, one row per sequencing lane. Rows with the same
+`sample` are merged in sheet order. `fastq_2` is optional (single-end).
+`genotype_bam` is an optional existing BAM or CRAM for genotyping, with its
+`.bai` or `.csi` (BAM) or `.crai` (CRAM) beside it. Sample names may contain
+only letters, digits, `.`, `_` and `-`, and start with a letter or digit.
+
+```csv
+sample,fastq_1,fastq_2,genotype_bam
+HEG4,/data/HEG4_L1_R1.fq.gz,/data/HEG4_L1_R2.fq.gz,
+HEG4,/data/HEG4_L2_R1.fq.gz,/data/HEG4_L2_R2.fq.gz,
+A123,/data/A123_R1.fq.gz,/data/A123_R2.fq.gz,/data/A123.cram
+```
+
+Paths in the sheet are resolved relative to the directory Nextflow is launched
+from, so use absolute paths.
+
+Outputs:
+- `results/<sample>/`: the same layout as `run-all`.
+- `results/pipeline_info/`: software versions, and Nextflow's report,
+  timeline, trace and DAG.
+
+Settings use `run-all`'s names in snake case, with the same defaults:
+`--te_aligner`, `--genome_aligner`, `--mismatch`, `--size`, `--min_mapq`,
+`--tsd` and so on. The exception is `--genotype`, which is **on** by default.
+`--genotype false` stops aligning reads for genotyping, but, as in `run-all`, a
+sample with a `genotype_bam` is always genotyped. `nextflow_schema.json` describes every
+setting, and they can be supplied in one file with `-params-file params.yaml`.
+
+Coming next:
+- container profiles (`apptainer`, `docker`, `singularity`) and a UCR HPCC
+  SLURM profile;
+- a cohort table and summary report;
+- spreading BLAT across cluster jobs.
+
+See `plans/2026-11-02-nextflow-pipeline-design.md`.
+
 ### Staged subcommands
 
 Note that `run` performs **TE-read identification and flank
@@ -118,7 +175,8 @@ generation only** (map + trim, steps 2-3) — it is *not* the complete pipeline.
 A full single-sample analysis chains the stages:
 
 ```bash
-# 1. one-time: index the reference genome
+# 1. one-time: index the reference genome (faidx, minimap2, and the
+#    --genome-aligner's index, default bwa for bwaaln)
 relocaTE3 index-genome -g reference.fa
 
 # 2-3. identify TE-containing reads and emit flanking reads (map + trim)
@@ -144,6 +202,8 @@ relocaTE3 find-insertions \
   --reference-ins reference.fa.RepeatMasker.out
 
 # 7. genotype the insertions from a reads-to-genome BAM/CRAM
+#    (or build one: relocaTE3 align-reads -1 reads_1.fq.gz -2 reads_2.fq.gz
+#     -g reference.fa -n HEG4 -o HEG4_out -> HEG4_out/genome_aln/HEG4.reads.genome.bam)
 relocaTE3 characterize \
   -s HEG4_out/results/ALL.mping.all_nonref_insert.txt \
   -b reads_to_genome.bam -g reference.fa \
@@ -156,7 +216,7 @@ relocaTE3 characterize \
 |---------|------|---------|
 | `run-all` | 0-7 | **Whole pipeline for one sample in one command** (dispatches the staged handlers below) |
 | `run-batch` | 0-7 | **Whole pipeline for many samples** from a sample sheet or FASTQ directory |
-| `index-genome` | 1 | Index the reference genome (`samtools faidx` + minimap2) |
+| `index-genome` | 1 | Index the reference genome (`samtools faidx`, minimap2, and the `--genome-aligner`'s index) |
 | `map` | 2 | Align reads to the TE library (produces per-side BAMs) |
 | `trim` | 3 | Trim the TE portion from TE-library BAMs, emit flanking reads |
 | `run` | 2-3 | **Map + trim** in one step (TE-read identification + flank generation) — not the full pipeline |
@@ -164,6 +224,7 @@ relocaTE3 characterize \
 | `find-reference` | 0/6 | Call reference TEs that are **also present in this sample** → `all_ref_insert.{gff,txt}` |
 | `align-genome` | 4 | Re-align flanking reads to the genome |
 | `find-insertions` | 5 | Cluster junction/supporting reads → non-reference insertions |
+| `align-reads` | 7 | Align the original reads to the genome for genotyping (`genome_aln/<name>.reads.genome.bam`) |
 | `characterize` | 7 | Genotype insertions (homozygous/heterozygous/somatic; `-x` for excision) |
 
 Run `relocaTE3 <command> --help` for the full flag list.

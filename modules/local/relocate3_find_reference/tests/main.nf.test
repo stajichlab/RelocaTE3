@@ -1,0 +1,34 @@
+// RELOCATE3_FIND_REFERENCE: stub run, declared outputs only.
+
+nextflow_process {
+
+    name "RELOCATE3_FIND_REFERENCE"
+    script "../main.nf"
+    process "RELOCATE3_FIND_REFERENCE"
+    tag "modules"
+    tag "relocate3_find_reference"
+
+    test("stub: emits existingTE.bed and results/<id>.all_ref_insert.*") {
+        options "-stub"
+
+        when {
+            process {
+                """
+                def d = file("\${workflow.workDir}/find_reference_inputs"); d.mkdirs()
+                input[0] = [ [ id:'chr3' ], d.resolve('chr3.repeat.bwaaln.sorted.bam').with { f -> f.text = ''; f }, d.resolve('chr3.repeat.bwaaln.sorted.bam.bai').with { f -> f.text = ''; f },
+                             d.resolve('chr3.read_repeat_name.txt').with { f -> f.text = ''; f } ]
+                input[1] = file("${baseDir}/tests/data/sim_genome/MSU7.Chr3_2M.fa.RepeatMasker.out")
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert new File(process.out.existing_te[0][1]).name == 'existingTE.bed'
+            def files = process.out.results[0][1].collect { p -> new File(p) }
+            assert files.collect { f -> f.name }.sort() == [ 'chr3.all_ref_insert.gff', 'chr3.all_ref_insert.txt' ]
+            assert files.every { f -> f.parentFile.name == 'results' }
+            assert process.out.versions.size() == 1
+        }
+    }
+}
