@@ -1,0 +1,25 @@
+# Build context for containers/Dockerfile (docker build -f containers/Dockerfile .).
+# The recipe only needs .git (it checks out the committed tree from it) and
+# containers/build_env.sh; everything below is local state or bulk data.
+# Do NOT exclude .git: versioningit derives the version from its tags.
+
+# Local environments and caches
+.pixi
+**/__pycache__
+**/*.egg-info
+.pytest_cache
+.trunk
+
+# Nextflow / nf-test run state and outputs
+work
+results
+.nextflow*
+.nf-test
+.nf-test.log
+logs
+
+# Test and validation data, generated docs
+tests/data
+tests/results
+validation
+docs/_build
