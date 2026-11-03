@@ -1,0 +1,64 @@
+// CAT_FASTQ: lanes of one sample -> <id>_1.fq.gz (+ <id>_2.fq.gz).
+// The real tests check gzip-safety: plain and gzipped lanes concatenate into
+// one valid gzip stream, in lane order, and same-named lanes do not collide.
+
+nextflow_process {
+
+    name "CAT_FASTQ"
+    script "../main.nf"
+    process "CAT_FASTQ"
+    tag "modules"
+    tag "cat_fastq"
+    profile "pixi"
+
+    test("stub: paired lanes give <id>_1.fq.gz and <id>_2.fq.gz") {
+        options "-stub"
+
+        when {
+            process {
+                """
+                def r = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+                input[0] = [ [ id:'s1' ], [ file(r + '_1.fq.gz'), file(r + '_1.fq.gz') ], [ file(r + '_2.fq.gz'), file(r + '_2.fq.gz') ] ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def (meta, r1, r2) = process.out.reads[0]
+            assert meta.id == 's1'
+            assert file(r1).name == 's1_1.fq.gz'
+            // _2 is declared arity '0..*' (Nextflow does not allow '0..1'), so it
+            // is a one-element list here and [] for single-end samples.
+            assert r2.collect { p -> file(p).name } == [ 's1_2.fq.gz' ]
+            assert process.out.versions.size() == 1
+        }
+    }
+
+    test("real: gzipped and plain lanes concatenate in order, single-end has no _2") {
+        tag "real"
+
+        when {
+            process {
+                """
+                def d = file("\${workflow.workDir}/cat_fastq_inputs")
+                [ 'a', 'b' ].each { lane -> d.resolve(lane).mkdirs() }
+                // lane a: gzipped; lane b: plain text, same basename as lane a
+                def gz = new java.util.zip.GZIPOutputStream(new FileOutputStream(d.resolve('a/r.fq.gz').toFile()))
+                gz.write('@r1\\nACGT\\n+\\nIIII\\n'.getBytes('UTF-8'))
+                gz.close()
+                d.resolve('b/r.fq.gz').text = '@r2\\nTTTT\\n+\\nIIII\\n'
+                input[0] = [ [ id:'s1' ], [ d.resolve('a/r.fq.gz'), d.resolve('b/r.fq.gz') ], [] ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def out = process.out.reads[0]
+            assert file(out[1]).name == 's1_1.fq.gz'
+            assert out[2] == []
+            assert path(out[1]).linesGzip == [ '@r1', 'ACGT', '+', 'IIII', '@r2', 'TTTT', '+', 'IIII' ]
+        }
+    }
+}

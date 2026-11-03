@@ -71,6 +71,16 @@
                     "default": "bwaaln",
                     "description": "Aligner for genome re-alignment (--genome-aligner). blat is not supported here."
                 },
+                "te_opts": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Extra options passed verbatim to the TE-search aligner (--te-opts), e.g. \"-minIdentity=80\" for blat."
+                },
+                "genome_opts": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Extra options passed verbatim to the genome aligner (--genome-opts), e.g. \"-n 0.10\" for bwa aln."
+                },
                 "mismatch": {
                     "type": "integer",
                     "minimum": 0,
@@ -119,6 +129,12 @@
                     "default": "ALL",
                     "description": "Chromosome to analyze, or ALL (--target)."
                 },
+                "distance": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 3,
+                    "description": "Reference-TE boundary window for dropping one-sided calls (--distance)."
+                },
                 "te_name": {
                     "type": "string",
                     "pattern": "^\\S+$",
@@ -137,6 +153,11 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Genotype each insertion (run-all --genotype)."
+                },
+                "excision": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Also search for excision events that leave a footprint (--excision)."
                 }
             }
         },

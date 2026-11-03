@@ -38,6 +38,10 @@ RUN_ALL_DEST = {
     "target": "target",
     "te_name": "te_name",
     "repeatmasker": "repeatmasker",
+    "te_opts": "te_opts",
+    "genome_opts": "genome_opts",
+    "distance": "distance",
+    "excision": "excision",
 }
 
 
