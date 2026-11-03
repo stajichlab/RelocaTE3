@@ -8,9 +8,9 @@
  * Arguments are those cmd_run_all passes to `characterize`. samtools and
  * bcftools are run-all's defaults: the tools come from the task environment.
  *
- * The BAM is an explicit path input: a sample's genotype_bam lives in meta
- * (nf-schema), and files in meta are not staged. Task wiring passes either
- * that BAM/CRAM with its index or RELOCATE3_ALIGN_READS' BAM.
+ * The BAM is an explicit path input (meta holds only the sample id). Task
+ * wiring passes either the sample's genotype_bam BAM/CRAM with its index or
+ * RELOCATE3_ALIGN_READS' BAM.
  *
  * The sites table is staged as results/<name> and is not emitted; only the
  * new results/*.characTErized.{txt,gff} are.

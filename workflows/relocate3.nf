@@ -17,12 +17,21 @@ include { ONE_SAMPLE     } from '../subworkflows/local/one_sample'
 
 workflow RELOCATE3 {
     take:
-    ch_samples // channel: [ meta (id, genotype_bam), [ R1 lanes ], [ R2 lanes ] ], one per sample (groupLanes)
+    ch_samples // channel: [ meta (id), [ R1 lanes ], [ R2 lanes ], genotype_bam or [] ], one per sample (groupLanes)
 
     main:
     ch_versions = channel.empty()
 
+    // The genotype BAM travels apart from meta and the reads: only
+    // CHARACTERIZE reads it, so adding, moving or touching it must not change
+    // the inputs (and -resume hashes) of the sample's other tasks.
+    // [ meta, BAM/CRAM, index ] for samples that bring their own alignment
+    ch_genotype_bams = ch_samples
+        .filter { _meta, _reads_1, _reads_2, bam -> bam }
+        .map { meta, _reads_1, _reads_2, bam -> [ meta, bam, genotypeBamIndex(meta.id, bam) ] }
+
     ch_lanes = ch_samples
+        .map { meta, reads_1, reads_2, _bam -> [ meta, reads_1, reads_2 ] }
         .branch { _meta, reads_1, _reads_2 ->
             merge: reads_1.size() > 1
             single: true
@@ -35,11 +44,6 @@ workflow RELOCATE3 {
     ch_reads = ch_lanes.single
         .map { meta, reads_1, reads_2 -> [ meta, reads_1[0], reads_2 ? reads_2[0] : [] ] }
         .mix(CAT_FASTQ.out.reads)
-
-    // [ meta, BAM/CRAM, index ] for samples that bring their own alignment
-    ch_genotype_bams = ch_reads
-        .filter { meta, _reads_1, _reads_2 -> meta.genotype_bam }
-        .map { meta, _reads_1, _reads_2 -> [ meta, meta.genotype_bam, genotypeBamIndex(meta.id, meta.genotype_bam) ] }
 
     PREPARE_GENOME(file(params.genome, checkIfExists: true))
     ch_versions = ch_versions.mix(PREPARE_GENOME.out.versions)
@@ -61,7 +65,7 @@ workflow RELOCATE3 {
 }
 
 /*
- * Group sample-sheet rows ([ meta, fastq_1, fastq_2 ] from samplesheetToList)
+ * Group sample-sheet rows ([ meta, fastq_1, fastq_2, genotype_bam ] from samplesheetToList)
  * by sample, keeping sheet order (groupBy keeps the first-seen order of keys
  * and the order of rows within a key). The rows of a sample must agree on
  * single- vs paired-end and on genotype_bam; a given genotype_bam needs its
@@ -69,7 +73,8 @@ workflow RELOCATE3 {
  * its message before any task starts (an error raised inside a channel
  * operator is reported only as InvocationTargetException).
  *
- * Returns [ [ meta, [ R1 lanes ], [ R2 lanes ] ], ... ]   (R2 lanes [] for single-end)
+ * Returns [ [ meta, [ R1 lanes ], [ R2 lanes ], genotype_bam ], ... ]
+ *   meta is [ id: sample ] only; R2 lanes [] for single-end; genotype_bam [] if none.
  */
 def groupLanes(rows) {
     return rows
@@ -79,15 +84,15 @@ def groupLanes(rows) {
             if (paired.size() > 1) {
                 error("Sample '${id}': its sample-sheet rows mix paired-end and single-end reads (${paired.join(', ')}); all lanes of a sample must be the same")
             }
-            def bams = lanes.collect { row -> row[0].genotype_bam ? row[0].genotype_bam.toString() : '' }.unique()
+            def bams = lanes.collect { row -> row[3] ? row[3].toString() : '' }.unique()
             if (bams.size() > 1) {
                 error("Sample '${id}': its sample-sheet rows give different genotype_bam values (${bams.collect { b -> b ?: '<empty>' }.join(', ')}); all lanes of a sample must give the same one")
             }
-            def meta = lanes[0][0]
-            if (meta.genotype_bam) {
-                genotypeBamIndex(id, meta.genotype_bam)
+            def bam = lanes[0][3] ?: []
+            if (bam) {
+                genotypeBamIndex(id, bam)
             }
-            [ meta, lanes.collect { row -> row[1] }, lanes.findAll { row -> row[2] }.collect { row -> row[2] } ]
+            [ [ id: id ], lanes.collect { row -> row[1] }, lanes.findAll { row -> row[2] }.collect { row -> row[2] }, bam ]
         }
 }
 

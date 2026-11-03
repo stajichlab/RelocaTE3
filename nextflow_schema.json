@@ -150,12 +150,12 @@
             "title": "Genotyping options",
             "type": "object",
             "description": "Classify each insertion as homozygous, heterozygous or somatic.",
-            "help_text": "On by default in the pipeline (opt-in with --genotype for run-all), so the cohort genotype matrix is filled. A sample's genotype_bam column reuses an existing alignment instead of realigning its reads.",
+            "help_text": "On by default in the pipeline (opt-in with --genotype for run-all), so the cohort genotype matrix is filled. A sample's genotype_bam column reuses an existing alignment instead of realigning its reads, and such a sample is always genotyped, as run-all does with --genotype-bam.",
             "properties": {
                 "genotype": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Genotype each insertion (run-all --genotype)."
+                    "description": "Genotype each insertion (run-all --genotype). With false, only samples with a genotype_bam are genotyped."
                 },
                 "excision": {
                     "type": "boolean",

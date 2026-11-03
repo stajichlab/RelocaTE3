@@ -1,12 +1,13 @@
 /*
  * ONE_SAMPLE: the per-sample steps of `relocaTE3 run-all`, one task each.
  *
- *   TE_SEARCH -> ALIGN_GENOME -> FIND_INSERTIONS -> CHARACTERIZE   (genotype)
+ *   TE_SEARCH -> ALIGN_GENOME -> FIND_INSERTIONS -> CHARACTERIZE   (genotype, or genotype_bam given)
  *                             \-> FIND_REFERENCE                   (repeatmasker)
  *   ALIGN_READS (genotype, sample without genotype_bam), in parallel with TE_SEARCH
  *
- * Channels are joined on meta (id, genotype_bam), which is the same map at
- * every step of one sample.
+ * Channels are joined on meta ([ id: sample ]), the same map at every step of
+ * one sample. The genotype BAM is not in meta: it reaches CHARACTERIZE only,
+ * so it does not change any other task's inputs (-resume).
  *
  * Take: reads              [ meta, R1, R2 ]   R2 is [] for single-end
  *       genome_with_index  [ genome, [ index files ] ]   (value channel)
@@ -68,21 +69,28 @@ workflow ONE_SAMPLE {
         ch_versions = ch_versions.mix(RELOCATE3_FIND_REFERENCE.out.versions)
     }
 
-    // run-all step 7: genotyping, on the sample's genotype_bam if given,
-    // else on ALIGN_READS' alignment of the original reads.
+    // run-all step 7: genotyping (`if args.genotype or args.genotype_bam`).
+    // A sample with a genotype_bam is always characterized on it, as run-all
+    // does; params.genotype only decides whether ALIGN_READS aligns the reads
+    // of the samples without one.
+    ch_genotype_bams = genotype_bams
     if (params.genotype) {
         RELOCATE3_ALIGN_READS(
-            reads.filter { meta, _r1, _r2 -> !meta.genotype_bam },
+            reads
+                .join(genotype_bams.map { meta, _bam, _index -> [ meta, true ] }, remainder: true)
+                .filter { _meta, _r1, _r2, has_bam -> !has_bam }
+                .map { meta, r1, r2, _has_bam -> [ meta, r1, r2 ] },
             genome_with_index.map { genome, _index -> genome }
         )
         ch_versions = ch_versions.mix(RELOCATE3_ALIGN_READS.out.versions)
-
-        RELOCATE3_CHARACTERIZE(
-            RELOCATE3_FIND_INSERTIONS.out.sites.join(genotype_bams.mix(RELOCATE3_ALIGN_READS.out.bam)),
-            genome_with_index
-        )
-        ch_versions = ch_versions.mix(RELOCATE3_CHARACTERIZE.out.versions)
+        ch_genotype_bams = ch_genotype_bams.mix(RELOCATE3_ALIGN_READS.out.bam)
     }
+
+    RELOCATE3_CHARACTERIZE(
+        RELOCATE3_FIND_INSERTIONS.out.sites.join(ch_genotype_bams),
+        genome_with_index
+    )
+    ch_versions = ch_versions.mix(RELOCATE3_CHARACTERIZE.out.versions)
 
     emit:
     versions = ch_versions

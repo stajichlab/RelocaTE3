@@ -18,8 +18,9 @@ workflow {
     validateParameters()
     log.info(paramsSummaryLog(workflow))
 
-    // Sheet rows [ meta (id, genotype_bam), fastq_1, fastq_2 ] grouped into
-    // one item per sample: [ meta, [ R1 lanes ], [ R2 lanes ] ], sheet order.
+    // Sheet rows [ meta (id), fastq_1, fastq_2, genotype_bam ] grouped into
+    // one item per sample, in sheet order:
+    // [ meta, [ R1 lanes ], [ R2 lanes ], genotype_bam or [] ].
     ch_samples = channel.fromList(
         groupLanes(samplesheetToList(params.input, "${projectDir}/assets/schema_input.json"))
     )

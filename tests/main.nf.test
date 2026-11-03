@@ -296,6 +296,40 @@ nextflow_pipeline {
         }
     }
 
+    // run-all genotypes whenever --genotype-bam is given (`--genotype or
+    // --genotype-bam`); --genotype only decides whether reads are aligned.
+    test("--genotype false still characterizes a sample with a genotype_bam") {
+        options "-stub"
+        tag "genotype"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def dir = new File("${outputDir}/inputs"); dir.mkdirs()
+            def bam = new File(dir, 'given.bam'); bam.text = ''
+            new File(dir, 'given.bam.bai').text = ''
+            def sheet = new File(dir, 'samplesheet_bam.csv')
+            sheet.text = "sample,fastq_1,fastq_2,genotype_bam\n" +
+                "given,${reads}_1.fq.gz,${reads}_2.fq.gz,${bam.absolutePath}\n" +
+                "plain,${reads}_1.fq.gz,${reads}_2.fq.gz,\n"
+            params {
+                input    = sheet.absolutePath
+                outdir   = "${outputDir}/results"
+                genotype = false
+            }
+        }
+
+        then {
+            def n = { String p -> workflow.trace.tasks().count { t -> t.name.tokenize(' ')[0].tokenize(':')[-1] == p } }
+            assert workflow.success
+            assert n('RELOCATE3_ALIGN_READS') == 0
+            assert n('RELOCATE3_CHARACTERIZE') == 1
+            def characterized = workflow.trace.tasks().find { t -> t.name.startsWith('RELOCATE3:ONE_SAMPLE:RELOCATE3_CHARACTERIZE') }
+            assert characterized.name.contains('(given)')
+            assert new File("${outputDir}/results/given/results/ALL.repeat.all_nonref_insert.characTErized.txt").exists()
+            assert !new File("${outputDir}/results/plain/results/ALL.repeat.all_nonref_insert.characTErized.txt").exists()
+        }
+    }
+
     test("a genotype_bam without its index fails before characterization") {
         options "-stub"
 

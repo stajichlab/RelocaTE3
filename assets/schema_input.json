@@ -32,8 +32,7 @@
                 "format": "file-path",
                 "exists": true,
                 "pattern": "^\\S+\\.(bam|cram)$",
-                "errorMessage": "Genotype alignment cannot contain spaces and must end in '.bam' or '.cram'",
-                "meta": ["genotype_bam"]
+                "errorMessage": "Genotype alignment cannot contain spaces and must end in '.bam' or '.cram'"
             }
         },
         "required": ["sample", "fastq_1"]
