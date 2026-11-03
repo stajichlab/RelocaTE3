@@ -74,6 +74,16 @@ subcommand table + `docs/source/usage.rst`. The acceptance test imports library
 functions directly, so it does not catch CLI drift — the subprocess smoke tests
 in `tests/main_test.py` cover both entry points.
 
+### Nextflow pipeline
+
+`main.nf` → `workflows/relocate3.nf` → `subworkflows/local/` → `modules/local/<process>/` (one `relocaTE3` subcommand each); config in `nextflow.config` and `conf/`. The core rule: no detection logic in Nextflow. Each process passes exactly the arguments `cmd_run_all` (`cli.py`) gives that step, so per-sample output equals `run-all --genotype`; `tests/nextflow_modules_args_test.py` and `tests/nextflow_schema_test.py` pin modules, schema and config to `cli.py`.
+
+```bash
+pixi run -e nf nf-test test               # pipeline + module tests
+pixi run -e nf nextflow lint .
+sbatch tests/nextflow/parity_chr3.sh      # parity gate vs run-all on Chr3; must print RESULT: PASS
+```
+
 ## Testing
 
 - `tests/` mirrors the module layout (`trim_test.py`, `insertions_test.py`, …) plus `acceptance_test.py` (the recall/precision gate on the rice Chr3 2 Mb fixture) and `pipeline_test.py` (end-to-end on a small fixture).

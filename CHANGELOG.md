@@ -12,6 +12,10 @@
   - Per-sample output is identical to `run-all` on the Chr3 test data
     (`tests/nextflow/parity_chr3.sh`).
   - Needs Nextflow ≥ 25.10.
+  - Sample names, `--te_name` and `--target` are limited to `[A-Za-z0-9._-]`.
+  - A sample with a `genotype_bam` is genotyped even with `--genotype false`,
+    as `run-all` does with `--genotype-bam`.
+  - New `--bcftools` setting (as `run-all --bcftools`).
 - `relocaTE3 align-reads`: the genotyping alignment as its own step. `run-all`
   uses it.
 - New pixi environment `nf` (Nextflow, nf-test).

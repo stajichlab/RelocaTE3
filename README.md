@@ -115,7 +115,8 @@ non-zero either way if anything failed).
 
 The repository is also a Nextflow pipeline (nf-core layout). Each task runs one
 `relocaTE3` subcommand with the settings `run-all` uses, so every sample's
-files are identical to `run-all -o <sample>`.
+files are identical to `run-all --genotype` with the same settings (a sample
+merged from several lanes has no `run-all` equivalent).
 `tests/nextflow/parity_chr3.sh` checks this on the Chr3 test data. Samples run
 in parallel, the genome is indexed once, and the genotyping alignment runs
 alongside the TE search.
@@ -134,7 +135,8 @@ pixi run -e nf nextflow run . -profile pixi \
 The sample sheet is CSV, one row per sequencing lane. Rows with the same
 `sample` are merged in sheet order. `fastq_2` is optional (single-end).
 `genotype_bam` is an optional existing BAM or CRAM for genotyping, with its
-`.bai` or `.crai` beside it.
+`.bai` or `.csi` (BAM) or `.crai` (CRAM) beside it. Sample names may contain
+only letters, digits, `.`, `_` and `-`, and start with a letter or digit.
 
 ```csv
 sample,fastq_1,fastq_2,genotype_bam
@@ -153,8 +155,9 @@ Outputs:
 
 Settings use `run-all`'s names in snake case, with the same defaults:
 `--te_aligner`, `--genome_aligner`, `--mismatch`, `--size`, `--min_mapq`,
-`--tsd` and so on. The exception is `--genotype`, which is **on** by default
-(`--genotype false` turns it off). `nextflow_schema.json` describes every
+`--tsd` and so on. The exception is `--genotype`, which is **on** by default.
+`--genotype false` stops aligning reads for genotyping, but, as in `run-all`, a
+sample with a `genotype_bam` is always genotyped. `nextflow_schema.json` describes every
 setting, and they can be supplied in one file with `-params-file params.yaml`.
 
 Coming next:
