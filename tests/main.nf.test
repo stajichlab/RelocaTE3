@@ -35,6 +35,85 @@ nextflow_pipeline {
         }
     }
 
+    // Sample names reach task scripts, output file names and publish paths, so
+    // only [A-Za-z0-9._-] (starting alphanumeric) is accepted.
+    ['x;touch_PWNED', 'a/b', 'a*', '-a'].each { bad ->
+        test("rejects the sample name '${bad}' before any task runs") {
+            tag "validation"
+            options "-stub"
+
+            when {
+                def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+                def sheet = new File("${outputDir}/samplesheet_bad_name.csv")
+                sheet.parentFile.mkdirs()
+                sheet.text = "sample,fastq_1,fastq_2\n${bad},${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+                params {
+                    input  = sheet.absolutePath
+                    outdir = "${outputDir}/results"
+                }
+            }
+
+            then {
+                def log = (workflow.stdout + workflow.stderr).join("\n")
+                assert workflow.failed
+                assert log.contains("Sample name")
+                assert log.contains("A-Za-z0-9")
+                assert workflow.trace.tasks().size() == 0
+                assert !new File("${launchDir}/PWNED").exists()
+                assert !new File("${launchDir}/touch_PWNED").exists()
+            }
+        }
+    }
+
+    [te_name: 'a;b', target: 'Chr3;x'].each { param, bad ->
+        test("rejects --${param} '${bad}' before any task runs") {
+            tag "validation"
+            options "-stub"
+
+            when {
+                def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+                def sheet = new File("${outputDir}/samplesheet_chr3.csv")
+                sheet.parentFile.mkdirs()
+                sheet.text = "sample,fastq_1,fastq_2\nchr3,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+                params {
+                    input  = sheet.absolutePath
+                    outdir = "${outputDir}/results"
+                }
+                params[param] = bad
+            }
+
+            then {
+                def log = (workflow.stdout + workflow.stderr).join("\n")
+                assert workflow.failed
+                assert log.contains("--${param}")
+                assert workflow.trace.tasks().size() == 0
+            }
+        }
+    }
+
+    test("a contig name is a valid --target") {
+        tag "validation"
+        options "-stub"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_chr3.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\nchr3.v1_x-2,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+            params {
+                input    = sheet.absolutePath
+                outdir   = "${outputDir}/results"
+                target   = "Chr3"
+                genotype = false
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert new File("${outputDir}/results/chr3.v1_x-2/results/Chr3.repeat.all_nonref_insert.txt").exists()
+        }
+    }
+
     test("a missing sample sheet fails validation before any task runs") {
         tag "validation"
 

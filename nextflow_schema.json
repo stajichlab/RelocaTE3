@@ -126,6 +126,8 @@
                 },
                 "target": {
                     "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]+$",
+                    "errorMessage": "--target must be ALL or a contig name made of [A-Za-z0-9._-] (it becomes part of file names and commands)",
                     "default": "ALL",
                     "description": "Chromosome to analyze, or ALL (--target)."
                 },
@@ -137,7 +139,8 @@
                 },
                 "te_name": {
                     "type": "string",
-                    "pattern": "^\\S+$",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+                    "errorMessage": "--te_name must start with a letter or digit and contain only [A-Za-z0-9._-] (it becomes part of file names and commands)",
                     "default": "repeat",
                     "description": "TE label used in output file names (--te-name)."
                 }

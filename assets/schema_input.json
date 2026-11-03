@@ -9,8 +9,8 @@
         "properties": {
             "sample": {
                 "type": "string",
-                "pattern": "^\\S+$",
-                "errorMessage": "Sample name must be provided and cannot contain spaces",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+                "errorMessage": "Sample name must be provided, start with a letter or digit and contain only [A-Za-z0-9._-] (it becomes part of file names and commands)",
                 "meta": ["id"]
             },
             "fastq_1": {
