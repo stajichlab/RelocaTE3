@@ -1,0 +1,60 @@
+// RELOCATE3_FIND_INSERTIONS: stub runs, declared outputs only, with and
+// without the optional RepeatMasker and fullreads inputs ([]).
+
+nextflow_process {
+
+    name "RELOCATE3_FIND_INSERTIONS"
+    script "../main.nf"
+    process "RELOCATE3_FIND_INSERTIONS"
+    tag "modules"
+    tag "relocate3_find_insertions"
+
+    def expected = [ 'all.gff', 'all.txt', 'gff', 'high_conf.gff', 'high_conf.txt', 'raw.gff', 'raw.txt', 'txt' ]
+        .collect { s -> "ALL.repeat.all_nonref_insert.${s}".toString() } +
+        [ 'ALL.repeat.all_nonref_supporting.gff', 'ALL.repeat.all_nonref_supporting.txt' ]
+
+    test("stub: emits the results/ non-reference tables") {
+        options "-stub"
+
+        when {
+            process {
+                """
+                def d = file("\${workflow.workDir}/find_insertions_inputs"); d.mkdirs()
+                input[0] = [ [ id:'chr3' ], d.resolve('chr3.repeat.bwaaln.sorted.bam').with { f -> f.text = ''; f }, d.resolve('chr3.repeat.bwaaln.sorted.bam.bai').with { f -> f.text = ''; f },
+                             d.resolve('chr3.read_repeat_name.txt').with { f -> f.text = ''; f },
+                             [ d.resolve('chr3.fullreads.genome.bam').with { f -> f.text = ''; f }, d.resolve('chr3.fullreads.genome.bam.bai').with { f -> f.text = ''; f } ] ]
+                input[1] = file("${baseDir}/tests/data/sim_genome/MSU7.Chr3_2M.fa.RepeatMasker.out")
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def files = process.out.results[0][1].collect { p -> new File(p) }
+            assert files.collect { f -> f.name }.sort() == expected.sort()
+            assert files.every { f -> f.parentFile.name == 'results' }
+            assert new File(process.out.sites[0][1]).name == 'ALL.repeat.all_nonref_insert.txt'
+            assert process.out.versions.size() == 1
+        }
+    }
+
+    test("stub: optional inputs may be empty") {
+        options "-stub"
+
+        when {
+            process {
+                """
+                def d = file("\${workflow.workDir}/find_insertions_inputs2"); d.mkdirs()
+                input[0] = [ [ id:'chr3' ], d.resolve('chr3.repeat.bwaaln.sorted.bam').with { f -> f.text = ''; f }, d.resolve('chr3.repeat.bwaaln.sorted.bam.bai').with { f -> f.text = ''; f },
+                             d.resolve('chr3.read_repeat_name.txt').with { f -> f.text = ''; f }, [] ]
+                input[1] = []
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert process.out.results[0][1].size() == expected.size()
+        }
+    }
+}

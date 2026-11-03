@@ -34,9 +34,11 @@ process RELOCATE3_ALIGN_GENOME {
 
     script:
     def prefix = meta.id
+    // A staged path prints as its stageAs location ("flanking/<file>"), the
+    // string run-all sorts; match run-all's glob <id>.*.flankingReads.fq on the base name.
     def flanks = flanking
-        .findAll { f -> f.name.startsWith("${prefix}.") && f.name.endsWith('.flankingReads.fq') }
-        .collect { f -> "flanking/${f.name}".toString() }
+        .collect { f -> f.toString() }
+        .findAll { f -> def base = f.tokenize('/')[-1]; base.startsWith("${prefix}.") && base.endsWith('.flankingReads.fq') }
         .sort()
     def right = reads_2 ? "-2 ${reads_2}" : ''
     """
