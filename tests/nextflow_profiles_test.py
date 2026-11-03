@@ -109,3 +109,35 @@ def test_container_tag_cli_override(tmp_path):
     got = _probe(tmp_path, "docker", "--container_registry", "example.org/rt3",
                  "--container_tag", "sha-abc1234")
     assert got["container"] == "example.org/rt3:sha-abc1234"
+
+
+# ----------------------------------------------------------------- hpcc
+
+
+def test_hpcc_profile_submits_to_slurm():
+    cfg = _config("hpcc,apptainer")
+    assert cfg["process.executor"] == "'slurm'"
+    assert cfg["process.queue"] == "'intel'"
+    # intel nodes: 64 CPUs, 450000 MB (439 GiB) RAM, 30-day limit.
+    assert cfg["process.resourceLimits.cpus"] == "64"
+    assert cfg["process.resourceLimits.memory"] == "'430 GB'"
+    assert cfg["process.resourceLimits.time"] == "'30d'"
+    assert cfg["executor.$slurm.queueSize"] == "50"
+    assert cfg["executor.$slurm.submitRateLimit"] == "'10/1min'"
+    # The apptainer profile still provides the image; no cacheDir override.
+    assert cfg["process.container"] == f"'{IMAGE}:dev'"
+    assert "apptainer.cacheDir" not in cfg
+
+
+def test_slurm_partition_cli_override(tmp_path):
+    assert _probe(tmp_path, "hpcc,apptainer") == {
+        "container": f"{IMAGE}:dev", "queue": "intel", "executor": "slurm",
+    }
+    got = _probe(tmp_path, "hpcc,apptainer", "--slurm_partition", "epyc")
+    assert got["queue"] == "epyc"
+
+
+def test_test_profile_stays_local():
+    cfg = _config("test,pixi")
+    assert "process.executor" not in cfg
+    assert "process.queue" not in cfg

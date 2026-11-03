@@ -195,3 +195,9 @@ def test_container_tag_default_names_a_published_image():
     else:
         assert tag == str(version)
 
+
+
+def test_slurm_partition_param():
+    props = _schema_properties()
+    assert _config_params()["slurm_partition"] == "intel"
+    assert props["slurm_partition"]["type"] == "string"

@@ -203,6 +203,12 @@
                     "format": "directory-path",
                     "description": "Pixi environment providing relocaTE3 and the aligners (pixi profile). Default: <projectDir>/.pixi/envs/blat.",
                     "hidden": true
+                },
+                "slurm_partition": {
+                    "type": "string",
+                    "default": "intel",
+                    "description": "SLURM partition tasks are submitted to (hpcc profile). conf/hpcc.config's resource limits fit intel nodes.",
+                    "fa_icon": "fas fa-server"
                 }
             }
         }
