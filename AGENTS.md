@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-RelocaTE3 is a pure-Python reimplementation of [RelocaTE2](https://github.com/JinfengChen/RelocaTE2) that calls transposable-element (TE) insertion polymorphisms from short-read resequencing data at single-base resolution. External dependencies are minimized to `minimap2`, `samtools`, `bedtools`, and the Python libraries `pysam`/`biopython`/`pybedtools`. The roadmap in `plans/PLAN.md` targets a validated Python reference, then Rust acceleration of per-read hotspots, then Nextflow scatter.
+RelocaTE3 is a pure-Python reimplementation of [RelocaTE2](https://github.com/JinfengChen/RelocaTE2) that calls transposable-element (TE) insertion polymorphisms from short-read resequencing data at single-base resolution. External dependencies are minimized to `minimap2`, `samtools`, `bedtools`, and the Python libraries `pysam`/`biopython`/`pybedtools`. RelocaTE2 parity was reached in v0.2.0rc2. Roadmap order, set 2026-11-02: Nextflow pipeline (`plans/2026-11-02-nextflow-pipeline-design.md`) → long reads → multiple reference genomes as separate FASTAs → pangenome reference → Rust acceleration.
 
 Status: end-to-end pipeline runs; rice Chr3 2 Mb acceptance benchmark recovers ~178/200 simulated insertions (~89% recall, ~90% precision) and is gated by `tests/acceptance_test.py`.
 

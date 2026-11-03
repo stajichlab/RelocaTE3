@@ -111,7 +111,10 @@ cohort:     COHORT_TABLE -> SUMMARY (MultiQC)
 | `test` | Chr3 2 Mb fixture (`tests/data/sim_*`, `TE_lib`), minutes |
 | `hpcc` | UCR SLURM: `--slurm_partition` (default `intel`), queue size, Apptainer cache, time limits |
 
-Minimum Nextflow version: 25.04. The cluster provides 25.10.4 and 26.04.x.
+Minimum Nextflow version: **25.10** (changed during M1 Task 3). nf-schema ≥ 2.6
+needs it, and earlier releases predate fixes for typed CLI parameters under
+strict syntax. The cluster provides 25.10.4 and 26.04.x; the `nf` pixi env
+has 26.10.4.
 
 ## Testing
 
