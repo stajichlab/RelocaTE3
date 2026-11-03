@@ -1,0 +1,2 @@
+sample,fastq_1,fastq_2
+chr3,tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500_1.fq.gz,tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500_2.fq.gz

@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/stajichlab/RelocaTE3/main/assets/schema_input.json",
+    "title": "stajichlab/RelocaTE3 sample sheet",
+    "description": "One row per sample or lane: sample,fastq_1,fastq_2[,genotype_bam]. Rows sharing a sample name are lanes of one sample.",
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "sample": {
+                "type": "string",
+                "pattern": "^\\S+$",
+                "errorMessage": "Sample name must be provided and cannot contain spaces",
+                "meta": ["id"]
+            },
+            "fastq_1": {
+                "type": "string",
+                "format": "file-path",
+                "exists": true,
+                "pattern": "^\\S+\\.f(ast)?q(\\.gz)?$",
+                "errorMessage": "FastQ file for reads 1 must be provided, cannot contain spaces and must end in '.fq', '.fastq', '.fq.gz' or '.fastq.gz'"
+            },
+            "fastq_2": {
+                "type": "string",
+                "format": "file-path",
+                "exists": true,
+                "pattern": "^\\S+\\.f(ast)?q(\\.gz)?$",
+                "errorMessage": "FastQ file for reads 2 cannot contain spaces and must end in '.fq', '.fastq', '.fq.gz' or '.fastq.gz'"
+            },
+            "genotype_bam": {
+                "type": "string",
+                "format": "file-path",
+                "exists": true,
+                "pattern": "^\\S+\\.(bam|cram)$",
+                "errorMessage": "Genotype alignment cannot contain spaces and must end in '.bam' or '.cram'",
+                "meta": ["genotype_bam"]
+            }
+        },
+        "required": ["sample", "fastq_1"]
+    }
+}

@@ -1,0 +1,79 @@
+// Pipeline-level tests for main.nf (parameter and sample-sheet validation).
+//
+// nf-test runs Nextflow from .nf-test/tests/<hash>/, and nf-schema resolves
+// relative paths in a sample sheet against the launch directory, so the
+// repo-root-relative tests/data/samplesheet_chr3.csv cannot be used here.
+// Each test writes its own copy of that sheet with absolute read paths.
+
+nextflow_pipeline {
+
+    name "RelocaTE3 pipeline"
+    script "../main.nf"
+    profile "test,pixi"
+
+    test("rejects a fixed --tsd motif and names the only accepted mode") {
+        tag "validation"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_chr3.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\nchr3,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+            params {
+                input  = sheet.absolutePath
+                outdir = "${outputDir}/results"
+                tsd    = "TTA"
+            }
+        }
+
+        then {
+            def log = (workflow.stdout + workflow.stderr).join("\n")
+            assert workflow.failed
+            assert log.contains("tsd")
+            assert log.contains("UNK")
+            assert workflow.trace.tasks().size() == 0
+        }
+    }
+
+    test("a missing sample sheet fails validation before any task runs") {
+        tag "validation"
+
+        when {
+            params {
+                input  = "missing.csv"
+                outdir = "${outputDir}/results"
+            }
+        }
+
+        then {
+            def log = (workflow.stdout + workflow.stderr).join("\n")
+            assert workflow.failed
+            assert log.contains("missing.csv")
+            assert log.contains("does not exist")
+            assert workflow.trace.tasks().size() == 0
+        }
+    }
+
+    // PENDING until Tasks 4-5 add the processes and their stubs. The task
+    // count assertion keeps it from passing vacuously on the empty workflow.
+    test("test profile runs end to end in stub mode") {
+        tag "pending"
+        options "-stub"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_chr3.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\nchr3,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+            params {
+                input  = sheet.absolutePath
+                outdir = "${outputDir}/results"
+            }
+        }
+
+        then {
+            assert workflow.success
+            assert workflow.trace.tasks().size() > 0
+        }
+    }
+}
