@@ -54,10 +54,9 @@ nextflow_pipeline {
         }
     }
 
-    // PENDING until Tasks 4-5 add the processes and their stubs. The task
-    // count assertion keeps it from passing vacuously on the empty workflow.
+    // Stub runs: every process runs its stub; the assertions count tasks per
+    // process (the simple name after the last ':' of the task name).
     test("test profile runs end to end in stub mode") {
-        tag "pending"
         options "-stub"
 
         when {
@@ -72,8 +71,197 @@ nextflow_pipeline {
         }
 
         then {
+            def n = { String p -> workflow.trace.tasks().count { t -> t.name.tokenize(' ')[0].tokenize(':')[-1] == p } }
             assert workflow.success
-            assert workflow.trace.tasks().size() > 0
+            assert n('RELOCATE3_INDEX_GENOME') == 1
+            assert n('CAT_FASTQ') == 0
+            ['RELOCATE3_TE_SEARCH', 'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS', 'RELOCATE3_FIND_REFERENCE',
+             'RELOCATE3_ALIGN_READS', 'RELOCATE3_CHARACTERIZE'].each { p -> assert n(p) == 1 : p }
+            // Published: the sample's run-all layout and pipeline_info only.
+            def out = new File("${outputDir}/results")
+            assert out.list().toList().sort() == ['chr3', 'pipeline_info']
+            def published = []
+            new File(out, 'chr3').eachFileRecurse(groovy.io.FileType.FILES) { f -> published << out.toPath().resolve('chr3').relativize(f.toPath()).toString() }
+            assert published.sort() == [
+                'chr3.left.bam', 'chr3.left.bam.bai', 'chr3.repeat.bwaaln.sorted.bam', 'chr3.repeat.bwaaln.sorted.bam.bai',
+                'chr3.right.bam', 'chr3.right.bam.bai', 'existingTE.bed',
+                'flanking/chr3.left.flankingReads.fq', 'flanking/chr3.right.flankingReads.fq',
+                'genome_aln/chr3.fullreads.genome.bam', 'genome_aln/chr3.fullreads.genome.bam.bai',
+                'genome_aln/chr3.reads.genome.bam', 'genome_aln/chr3.reads.genome.bam.bai',
+                'results/ALL.repeat.all_nonref_insert.all.gff', 'results/ALL.repeat.all_nonref_insert.all.txt',
+                'results/ALL.repeat.all_nonref_insert.characTErized.gff', 'results/ALL.repeat.all_nonref_insert.characTErized.txt',
+                'results/ALL.repeat.all_nonref_insert.gff', 'results/ALL.repeat.all_nonref_insert.high_conf.gff',
+                'results/ALL.repeat.all_nonref_insert.high_conf.txt', 'results/ALL.repeat.all_nonref_insert.raw.gff',
+                'results/ALL.repeat.all_nonref_insert.raw.txt', 'results/ALL.repeat.all_nonref_insert.txt',
+                'results/ALL.repeat.all_nonref_supporting.gff', 'results/ALL.repeat.all_nonref_supporting.txt',
+                'results/chr3.all_ref_insert.gff', 'results/chr3.all_ref_insert.txt',
+                'te_containing/chr3.left.ContainingReads.fq', 'te_containing/chr3.read_repeat_name.txt',
+                'te_containing/chr3.right.ContainingReads.fq', 'te_containing/chr3.te_hit_names.txt',
+                'te_portions/chr3.five_prime.fa', 'te_portions/chr3.three_prime.fa',
+            ].sort()
+            def versions = new File(out, 'pipeline_info/software_versions.yml').text
+            // One entry per process (deduplicated across samples).
+            assert versions.readLines().count { l -> l.startsWith('"') } == 7
+        }
+    }
+
+    test("lanes of one sample are merged once; one task per sample per step") {
+        options "-stub"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_lanes.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\n" +
+                "a,${reads}_1.fq.gz,${reads}_2.fq.gz\n" +
+                "b,${reads}_1.fq.gz,${reads}_2.fq.gz\n" +
+                "a,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+            params {
+                input  = sheet.absolutePath
+                outdir = "${outputDir}/results"
+            }
+        }
+
+        then {
+            def n = { String p -> workflow.trace.tasks().count { t -> t.name.tokenize(' ')[0].tokenize(':')[-1] == p } }
+            assert workflow.success
+            assert n('RELOCATE3_INDEX_GENOME') == 1
+            assert n('CAT_FASTQ') == 1
+            ['RELOCATE3_TE_SEARCH', 'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS', 'RELOCATE3_FIND_REFERENCE',
+             'RELOCATE3_ALIGN_READS', 'RELOCATE3_CHARACTERIZE'].each { p -> assert n(p) == 2 : p }
+            def out = new File("${outputDir}/results")
+            assert out.list().toList().sort() == ['a', 'b', 'pipeline_info']
+        }
+    }
+
+    test("--genotype false runs neither ALIGN_READS nor CHARACTERIZE") {
+        options "-stub"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_chr3.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\nchr3,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+            params {
+                input    = sheet.absolutePath
+                outdir   = "${outputDir}/results"
+                genotype = false
+            }
+        }
+
+        then {
+            def n = { String p -> workflow.trace.tasks().count { t -> t.name.tokenize(' ')[0].tokenize(':')[-1] == p } }
+            assert workflow.success
+            assert n('RELOCATE3_ALIGN_READS') == 0
+            assert n('RELOCATE3_CHARACTERIZE') == 0
+            ['RELOCATE3_INDEX_GENOME', 'RELOCATE3_TE_SEARCH', 'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS',
+             'RELOCATE3_FIND_REFERENCE'].each { p -> assert n(p) == 1 : p }
+        }
+    }
+
+    test("without --repeatmasker FIND_REFERENCE does not run") {
+        options "-stub"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_chr3.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\nchr3,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+            params {
+                input        = sheet.absolutePath
+                outdir       = "${outputDir}/results"
+                repeatmasker = null
+            }
+        }
+
+        then {
+            def n = { String p -> workflow.trace.tasks().count { t -> t.name.tokenize(' ')[0].tokenize(':')[-1] == p } }
+            assert workflow.success
+            assert n('RELOCATE3_FIND_REFERENCE') == 0
+            ['RELOCATE3_INDEX_GENOME', 'RELOCATE3_TE_SEARCH', 'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS',
+             'RELOCATE3_ALIGN_READS', 'RELOCATE3_CHARACTERIZE'].each { p -> assert n(p) == 1 : p }
+        }
+    }
+
+    test("a sample with genotype_bam skips ALIGN_READS and is characterized") {
+        options "-stub"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def dir = new File("${outputDir}/inputs"); dir.mkdirs()
+            def bam = new File(dir, 'given.bam'); bam.text = ''
+            new File(dir, 'given.bam.bai').text = ''
+            def sheet = new File(dir, 'samplesheet_bam.csv')
+            sheet.text = "sample,fastq_1,fastq_2,genotype_bam\n" +
+                "given,${reads}_1.fq.gz,${reads}_2.fq.gz,${bam.absolutePath}\n" +
+                "aligned,${reads}_1.fq.gz,${reads}_2.fq.gz,\n"
+            params {
+                input  = sheet.absolutePath
+                outdir = "${outputDir}/results"
+            }
+        }
+
+        then {
+            def n = { String p -> workflow.trace.tasks().count { t -> t.name.tokenize(' ')[0].tokenize(':')[-1] == p } }
+            assert workflow.success
+            assert n('RELOCATE3_ALIGN_READS') == 1
+            assert n('RELOCATE3_CHARACTERIZE') == 2
+            def given = workflow.trace.tasks().find { t -> t.name.startsWith('RELOCATE3:ONE_SAMPLE:RELOCATE3_ALIGN_READS') }
+            assert given.name.contains('(aligned)')
+            // The given BAM is an input, so it is not published; no reads BAM is made.
+            def given_files = []
+            new File("${outputDir}/results/given").eachFileRecurse(groovy.io.FileType.FILES) { f -> given_files << f.name }
+            assert !given_files.any { f -> f.startsWith('given.bam') || f.startsWith('given.reads.genome.bam') }
+            assert given_files.contains('ALL.repeat.all_nonref_insert.characTErized.txt')
+            assert new File("${outputDir}/results/aligned/genome_aln/aligned.reads.genome.bam").exists()
+        }
+    }
+
+    test("a genotype_bam without its index fails before characterization") {
+        options "-stub"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def dir = new File("${outputDir}/inputs"); dir.mkdirs()
+            def bam = new File(dir, 'noindex.bam'); bam.text = ''
+            def sheet = new File(dir, 'samplesheet_bam.csv')
+            sheet.text = "sample,fastq_1,fastq_2,genotype_bam\ngiven,${reads}_1.fq.gz,${reads}_2.fq.gz,${bam.absolutePath}\n"
+            params {
+                input  = sheet.absolutePath
+                outdir = "${outputDir}/results"
+            }
+        }
+
+        then {
+            def log = (workflow.stdout + workflow.stderr).join("\n")
+            assert workflow.failed
+            assert log.contains('noindex.bam.bai')
+            assert workflow.trace.tasks().size() == 0
+        }
+    }
+
+    test("lanes of one sample that disagree on paired-end are rejected") {
+        options "-stub"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_mixed.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\n" +
+                "a,${reads}_1.fq.gz,${reads}_2.fq.gz\n" +
+                "a,${reads}_1.fq.gz,\n"
+            params {
+                input  = sheet.absolutePath
+                outdir = "${outputDir}/results"
+            }
+        }
+
+        then {
+            def log = (workflow.stdout + workflow.stderr).join("\n")
+            assert workflow.failed
+            assert log.contains("Sample 'a'")
+            assert log.contains('single-end')
+            assert workflow.trace.tasks().size() == 0
         }
     }
 }

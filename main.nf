@@ -11,16 +11,17 @@
  */
 
 include { validateParameters; paramsSummaryLog; samplesheetToList } from 'plugin/nf-schema'
-include { RELOCATE3 } from './workflows/relocate3'
+include { RELOCATE3; groupLanes } from './workflows/relocate3'
 
 workflow {
     main:
     validateParameters()
     log.info(paramsSummaryLog(workflow))
 
-    // Each item: [ meta (id, genotype_bam), fastq_1, fastq_2 ]
+    // Sheet rows [ meta (id, genotype_bam), fastq_1, fastq_2 ] grouped into
+    // one item per sample: [ meta, [ R1 lanes ], [ R2 lanes ] ], sheet order.
     ch_samples = channel.fromList(
-        samplesheetToList(params.input, "${projectDir}/assets/schema_input.json")
+        groupLanes(samplesheetToList(params.input, "${projectDir}/assets/schema_input.json"))
     )
 
     RELOCATE3(ch_samples)
