@@ -141,3 +141,22 @@ def test_test_profile_stays_local():
     cfg = _config("test,pixi")
     assert "process.executor" not in cfg
     assert "process.queue" not in cfg
+
+
+def test_nf_test_tasks_fit_a_github_runner():
+    """Every nf-test task must fit ubuntu-latest (4 CPUs, 16 GB).
+
+    Module tests run without the `test` profile, so tests/nextflow.config (applied
+    by nf-test to every test) caps resources. Without it RELOCATE3_TE_SEARCH
+    (process_high, 8 CPUs) failed on CI: "Task requirement exceeds available
+    CPUs -- req: 8; avail: 4".
+    """
+    import re
+
+    text = (ROOT / "tests" / "nextflow.config").read_text()
+    m = re.search(r"resourceLimits\s*=\s*\[([^\]]*)\]", text)
+    assert m, "tests/nextflow.config must set process.resourceLimits"
+    limits = m.group(1)
+    cpus = int(re.search(r"cpus:\s*(\d+)", limits).group(1))
+    mem_gb = int(re.search(r"memory:\s*(\d+)\.GB", limits).group(1))
+    assert cpus <= 4 and mem_gb <= 14, limits
