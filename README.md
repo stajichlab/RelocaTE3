@@ -4,7 +4,7 @@ RelocaTE3 identifies transposable element (TE) insertion polymorphisms from
 short-read resequencing data, at single-base resolution, by comparison to a
 reference genome. It is a modern, pure-Python reimplementation of
 [RelocaTE2](https://github.com/JinfengChen/RelocaTE2) built on `samtools`
-(plus `pysam`/`biopython`), with no Perl. By default it uses the same
+(plus `pysam`), with no Perl. By default it uses the same
 aligner pair as RelocaTE2, `blat` for TE search and `bwa aln` for genome
 placement, but the aligner for each stage is selectable: `minimap2`, `bwa`,
 `bwa-mem2`, `bwa aln`, `bowtie2`, or `blat` (see "Choosing an aligner").

@@ -115,9 +115,9 @@ def _apt_packages(text: str) -> list[str]:
 def test_dry_run_installs_the_same_apt_packages_as_the_dockerfile():
     build, *_, runtime = _stages()
     dry = DRY_RUN.read_text()
-    # build stage: git (versioningit) + a C/C++ toolchain: pixi.lock's blat env
-    # carries pybedtools as a PyPI sdist, compiled during `pixi install`.
-    assert _apt_packages(build) == [["git", "build-essential"]]
+    # build stage: git only (versioningit). No compiler: nothing in pixi.lock's
+    # blat env is built from an sdist (pybedtools, the one that was, is gone).
+    assert _apt_packages(build) == [["git"]]
     assert _apt_packages(runtime) == [["procps"]]
     assert _apt_packages(dry) == _apt_packages(build) + _apt_packages(runtime)
 

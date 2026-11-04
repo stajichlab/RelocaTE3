@@ -99,7 +99,7 @@ git -C "${CTX}" describe --tags
 echo "== build stage: ${PIXI_IMAGE}"
 apptainer build --sandbox "${BUILD}" "docker://${PIXI_IMAGE}"
 "${ROOT_EXEC[@]}" "${BUILD}" bash -c \
-  "apt-get ${APT_ROOT[*]} update && apt-get ${APT_ROOT[*]} install -y --no-install-recommends git build-essential && rm -rf /var/lib/apt/lists/*"
+  "apt-get ${APT_ROOT[*]} update && apt-get ${APT_ROOT[*]} install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*"
 mkdir -p "${BUILD}${IMG_PROJECT_DIR}"
 cp -a "${CTX}/.git" "${BUILD}${IMG_PROJECT_DIR}/.git"              # COPY .git
 install -m 0755 "${CTX}/containers/build_env.sh" "${BUILD}/usr/local/bin/build_env.sh"  # COPY build_env.sh

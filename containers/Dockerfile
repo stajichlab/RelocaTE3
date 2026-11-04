@@ -27,14 +27,12 @@ ARG ENV_DIR=/opt/relocate3/.pixi/envs/blat
 FROM ${PIXI_IMAGE} AS build
 ARG PROJECT_DIR
 ARG ENV_DIR
-# The pixi image ships only pixi + ca-certificates. Build-stage only:
-#   git              versioningit's "git" method shells out to `git describe`;
-#   build-essential  pixi.lock's blat env carries pybedtools 0.12.0 as a PyPI
-#                    sdist (next to the bioconda build), which `pixi install`
-#                    compiles (C++ extension).
+# The pixi image ships only pixi + ca-certificates. Build-stage only: git, for
+# versioningit's "git" method (`git describe`). No compiler: every package in
+# pixi.lock's blat env is a binary (conda or wheel).
 # Keep in sync with containers/dry_run_recipe.sh (tests/container_recipe_test.py).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git build-essential \
+    && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR ${PROJECT_DIR}
 COPY .git ${PROJECT_DIR}/.git
