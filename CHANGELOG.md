@@ -18,6 +18,20 @@
   - A sample with a `genotype_bam` is genotyped even with `--genotype false`,
     as `run-all` does with `--genotype-bam`.
   - New `--bcftools` setting (as `run-all --bcftools`).
+- Nextflow pipeline, milestone 2:
+  - Container image `ghcr.io/stajichlab/relocate3`, built by GitHub Actions
+    from `pixi.lock` (`containers/Dockerfile`). Tags:
+    - the version on release tags;
+    - `dev` for `main`;
+    - `pr-<n>` and `sha-<commit>`.
+  - Profiles `apptainer`, `singularity` and `docker` (`--container_tag`), and
+    `hpcc` for UCR SLURM (`--slurm_partition`).
+  - CI runs pytest, nf-test, `nextflow lint` and the Chr3 parity check inside
+    the image on every pull request.
+  - Validation:
+    - Chr3 parity passes with pixi, Docker and Apptainer.
+    - The 10 real-rice samples run through `-profile hpcc,apptainer` are
+      identical to v0.2.0rc2.
 - `relocaTE3 align-reads`: the genotyping alignment as its own step. `run-all`
   uses it.
 - New pixi environment `nf` (Nextflow ≥ 26.04, nf-test).
