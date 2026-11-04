@@ -158,3 +158,46 @@ def test_shared_inputs_are_required(name):
     schema = json.loads(SCHEMA.read_text())
     required = {r for g in schema["$defs"].values() for r in g.get("required", [])}
     assert name in required
+
+
+# ------------------------------------------------------- container params
+
+IMAGE = "ghcr.io/stajichlab/relocate3"
+
+
+def _manifest_version() -> Version:
+    manifest = _config_block(CONFIG.read_text(), "manifest")
+    m = re.search(r"""^\s*version\s*=\s*'([^']+)'""", manifest, re.M)
+    assert m, "manifest.version not set"
+    return Version(m.group(1))
+
+
+def test_container_params_are_declared():
+    props = _schema_properties()
+    config = _config_params()
+    assert config["container_registry"] == IMAGE
+    assert props["container_registry"]["default"] == IMAGE
+    assert props["container_tag"]["type"] == "string"
+
+
+def test_container_tag_default_names_a_published_image():
+    """The default tag must exist in ghcr (.github/workflows/container.yml).
+
+    CI publishes ``dev`` (main), ``pr-<n>``, ``sha-<short>`` and, on ``v*``
+    tags, the PEP 440 version. A development manifest (``0.3.0dev``) has no
+    image of its own, so it defaults to ``dev``; a release or release
+    candidate manifest defaults to its own version, which its tag publishes.
+    """
+    tag = _config_params()["container_tag"]
+    version = _manifest_version()
+    if version.is_devrelease:
+        assert tag == "dev"
+    else:
+        assert tag == str(version)
+
+
+
+def test_slurm_partition_param():
+    props = _schema_properties()
+    assert _config_params()["slurm_partition"] == "intel"
+    assert props["slurm_partition"]["type"] == "string"

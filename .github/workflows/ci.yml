@@ -1,0 +1,48 @@
+# Test suites on every PR and on main, in the locked pixi environments:
+#   pytest            blat env (the real aligners on PATH)
+#   nf-test           nf env (Nextflow, nf-test, Java)
+#   nextflow lint
+# The pipeline in the published image runs in container.yml (pipeline-container).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth 0: versioningit (the env's editable RelocaTE3) reads tags.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # pixi 0.70.2 wrote pixi.lock (and is the image's pixi). The blat env is
+      # linux-64 only, which ubuntu-latest is.
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          pixi-version: v0.70.2
+          locked: true
+          environments: blat nf
+
+      - name: pytest
+        run: |
+          E="${PWD}/.pixi/envs/blat/bin"
+          PATH="${E}:${PATH}" PYTHONPATH="${PWD}/src" "${E}/python" -m pytest tests -p no:cacheprovider -ra
+
+      - name: nf-test
+        run: pixi run -e nf nf-test test
+
+      - name: nextflow lint
+        run: pixi run -e nf nextflow lint .

@@ -1,0 +1,172 @@
+# Build the RelocaTE3 image (containers/Dockerfile), check it, publish it to
+# ghcr.io/stajichlab/relocate3, then run the pipeline in it.
+#
+# Tags (docker/metadata-action):
+#   pr-<n>        pull requests from this repository
+#   dev           pushes to main
+#   <version>     v* tags, PEP 440 like the git tags (v0.2.0rc2 -> 0.2.0rc2)
+#   sha-<short>   every published build (on PRs: the PR head commit)
+# No `latest`: release candidates must not become `latest`.
+#
+# One workflow, two jobs: `pipeline-container` has `needs: image`, so the image
+# it pulls was pushed earlier in the same run. (`workflow_run` would only fire
+# once this file is on the default branch, so not on the PR that adds it.)
+#
+# Fork PRs: GITHUB_TOKEN cannot write packages there. The image is still built
+# and checked, but not pushed, and `pipeline-container` is skipped.
+name: container
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+
+# A newer push to the same PR cancels the older run, so an older build can't
+# overwrite pr-<n> after a newer one. main and tags always run to completion.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE: ghcr.io/stajichlab/relocate3
+  TEST_TAG: relocate3:test
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    env:
+      # metadata-action: on PRs, sha-<short> names the head commit (the one
+      # checked out below), not GitHub's merge commit.
+      DOCKER_METADATA_PR_HEAD_SHA: true
+    steps:
+      # The PR head commit, not the merge commit: build_env.sh builds from the
+      # copied .git HEAD and versioningit names that commit in the version
+      # (e.g. 0.2.0rc2.post5+g<sha>), so the image matches a real branch
+      # commit. ci.yml still tests the merge commit.
+      # fetch-depth 0: all history and tags (`git describe --tags` must find a
+      # tag, or the build fails).
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=pr
+            type=raw,value=dev,enable={{is_default_branch}}
+            type=pep440,pattern={{version}}
+            type=sha
+          flavor: |
+            latest=false
+
+      # The immutable tag the pipeline job pulls.
+      - name: Pick the sha tag
+        id: tag
+        env:
+          META_JSON: ${{ steps.meta.outputs.json }}
+        run: |
+          tag="$(jq -r '.tags[] | select(test(":sha-")) | sub(".*:"; "")' <<< "${META_JSON}" | head -n 1)"
+          [[ -n "${tag}" ]] || { echo "ERROR: no sha-<short> tag in metadata" >&2; exit 1; }
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "image tag: ${tag}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # "Test before push" (docs.docker.com/build/ci/github-actions/test-before-push/):
+      # build and load into the local Docker, check, then push. The push build
+      # reuses this builder's cache, so the image is built once. No cross-run
+      # cache: the env layer follows `COPY .git`, so it changes every commit.
+      - name: Build and load
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: containers/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.TEST_TAG }}
+
+      - name: Check the image
+        run: docker run --rm "${TEST_TAG}" bash /opt/relocate3/check_image.sh
+
+      - name: Log in to ghcr.io
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: containers/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # The pipeline in the published image: the test profile, then the Chr3 parity
+  # gate with run-all in the same image.
+  # Depends on Task 3 of plans/2026-11-03-nextflow-m2-plan.md: the `docker`
+  # profile, the `container_tag` param and parity_chr3.sh's mode argument.
+  pipeline-container:
+    needs: image
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      TAG: ${{ needs.image.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      # Nextflow (nf env); compare_outputs.sh reads BAMs with the blat env's
+      # samtools.
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          pixi-version: v0.70.2
+          locked: true
+          environments: blat nf
+
+      # The package may still be private; Nextflow's `docker pull` needs this.
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pipeline, test profile, in the image
+        run: |
+          pixi run -e nf nextflow run . -profile test,docker --container_tag "${TAG}" \
+            --outdir results/ci/nextflow_test -work-dir results/ci/work
+
+      - name: Chr3 parity (run-all vs pipeline, both in the image)
+        run: bash tests/nextflow/parity_chr3.sh docker "${TAG}"
+
+      - name: Logs on failure
+        if: failure()
+        run: |
+          tail -n 100 .nextflow.log || true
+          find results -maxdepth 3 -name '*.log' -print -exec tail -n 50 {} \; || true
