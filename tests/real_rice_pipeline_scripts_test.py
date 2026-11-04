@@ -354,7 +354,7 @@ def _flag(words: list[str], flag: str) -> str:
 def test_dry_run_prints_the_pipeline_command_with_the_config_settings(tmp_path):
     root = _fake_root(tmp_path)
     out = tmp_path / "nf_out"
-    proc = _run_pipeline(root, "pr-7", str(out))
+    proc = _run_pipeline(root, "sha-abc1237", str(out))
     assert proc.returncode == 0, proc.stderr
     words = _nf_line(proc)
     assert words[:8] == ["pixi", "run", "--manifest-path", str(ROOT / "pixi.toml"),
@@ -362,7 +362,7 @@ def test_dry_run_prints_the_pipeline_command_with_the_config_settings(tmp_path):
     assert words[8:10] == ["run", str(ROOT)]
     expected = {
         "-profile": "hpcc,apptainer",
-        "--container_tag": "pr-7",
+        "--container_tag": "sha-abc1237",
         "--input": str(out / "samplesheet.csv"),
         "--outdir": str(out),
         "-work-dir": str(tmp_path / "nf_out.nextflow" / "work"),
@@ -402,7 +402,7 @@ def test_dry_run_default_outdir_is_per_tag(tmp_path):
 
 def test_dry_run_prints_date_and_parameters(tmp_path):
     root = _fake_root(tmp_path)
-    proc = _run_pipeline(root, "pr-7", str(tmp_path / "o"))
+    proc = _run_pipeline(root, "sha-abc1237", str(tmp_path / "o"))
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.startswith("date")
     for key in ("container tag", "outdir", "work dir", "config", "apptainer cache", "size", "te_name"):
@@ -412,12 +412,12 @@ def test_dry_run_prints_date_and_parameters(tmp_path):
 def test_dry_run_checks_the_inputs(tmp_path):
     root = _fake_root(tmp_path)
     (root / "aln_input" / "S_1" / "S_1.sorted.markdup.cram.crai").unlink()
-    proc = _run_pipeline(root, "pr-7", str(tmp_path / "o"))
+    proc = _run_pipeline(root, "sha-abc1237", str(tmp_path / "o"))
     assert proc.returncode != 0
     assert "S_1.sorted.markdup.cram.crai" in proc.stderr
 
 
-@pytest.mark.parametrize("args", [(), ("a b",), ("pr-7", "out", "extra"), ("-x",)])
+@pytest.mark.parametrize("args", [(), ("a b",), ("sha-abc1237", "out", "extra"), ("-x",)])
 def test_bad_arguments_fail_with_usage(tmp_path, args):
     root = _fake_root(tmp_path)
     proc = _run_pipeline(root, *args)
@@ -435,10 +435,102 @@ def test_outdir_from_another_container_tag_is_refused(tmp_path):
     root = _fake_root(tmp_path)
     out = tmp_path / "o"
     out.mkdir()
-    (out / "container_tag.txt").write_text("pr-6\n")
-    proc = _run_pipeline(root, "pr-7", str(out))
+    (out / "container_tag.txt").write_text("sha-abc1236\n")
+    proc = _run_pipeline(root, "sha-abc1237", str(out))
     assert proc.returncode != 0
-    assert "pr-6" in proc.stderr
+    assert "sha-abc1236" in proc.stderr
+
+
+@pytest.mark.parametrize("tag", ["dev", "pr-7", "pr-123"])
+def test_mutable_tags_are_refused(tmp_path, tag):
+    # CI re-pushes dev and pr-<n>: a rerun (-resume) could silently use another image.
+    root = _fake_root(tmp_path)
+    proc = _run_pipeline(root, tag, str(tmp_path / "o"))
+    assert proc.returncode != 0
+    assert "ALLOW_MUTABLE_TAG=1" in proc.stderr and "sha-" in proc.stderr
+    assert "nextflow run" not in proc.stdout
+    assert not (tmp_path / "o").exists()
+
+
+def test_mutable_tag_allowed_with_override(tmp_path):
+    root = _fake_root(tmp_path)
+    proc = _run_pipeline(root, "dev", str(tmp_path / "o"), ALLOW_MUTABLE_TAG="1")
+    assert proc.returncode == 0, proc.stderr
+    assert _flag(_nf_line(proc), "--container_tag") == "dev"
+    assert "mutable" in proc.stdout
+
+
+@pytest.mark.parametrize("tag", ["sha-abc1234", "0.3.0", "0.2.0rc2", "develop"])
+def test_immutable_tags_need_no_override(tmp_path, tag):
+    proc = _run_pipeline(_fake_root(tmp_path), tag, str(tmp_path / "o"))
+    assert proc.returncode == 0, proc.stderr
+
+
+def _stub_tools(tmp_path: Path, nextflow_rc: int = 0) -> Path:
+    """pixi (the nextflow launch) and apptainer stubs; apptainer inspect
+    prints OCI labels."""
+    bindir = tmp_path / "stubbin"
+    bindir.mkdir()
+    (bindir / "pixi").write_text(f"#!/usr/bin/env bash\necho \"pixi $*\" >> {tmp_path}/pixi.calls\nexit {nextflow_rc}\n")
+    (bindir / "apptainer").write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1" in\n'
+        "  --version) echo 'apptainer version 1.5.3' ;;\n"
+        "  inspect) echo 'org.opencontainers.image.created: 2026-11-04T00:00:00Z'\n"
+        "           echo 'org.opencontainers.image.revision: 0123456789abcdef0123456789abcdef01234567'\n"
+        "           echo 'org.opencontainers.image.version: sha-0123456' ;;\n"
+        "esac\n"
+    )
+    for f in bindir.iterdir():
+        f.chmod(0o755)
+    return bindir
+
+
+def _real_run(tmp_path: Path, tag: str, sif: bool = True, nextflow_rc: int = 0):
+    root = _fake_root(tmp_path)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    if sif:
+        (cache / f"ghcr.io-stajichlab-relocate3-{tag}.img").write_bytes(b"SIF")
+    bindir = _stub_tools(tmp_path, nextflow_rc)
+    out = tmp_path / "o"
+    proc = _run_pipeline(root, tag, str(out), dry=False, NXF_APPTAINER_CACHEDIR=str(cache),
+                         PATH=f"{bindir}:{os.environ['PATH']}")
+    return proc, out
+
+
+def test_run_records_the_image_it_used(tmp_path):
+    proc, out = _real_run(tmp_path, "sha-0123456")
+    assert proc.returncode == 0, proc.stderr
+    record = (out / "container_image.txt").read_text()
+    assert "tag: sha-0123456" in record
+    assert "image: ghcr.io/stajichlab/relocate3:sha-0123456" in record
+    assert "org.opencontainers.image.revision: 0123456789abcdef0123456789abcdef01234567" in record
+    # sha256 of the cached SIF bytes (b"SIF").
+    import hashlib
+    assert f"sif_sha256: {hashlib.sha256(b'SIF').hexdigest()}" in record
+
+
+def test_each_run_appends_a_record(tmp_path):
+    proc, out = _real_run(tmp_path, "sha-0123456")
+    assert proc.returncode == 0, proc.stderr
+    bindir = tmp_path / "stubbin"
+    proc = _run_pipeline(tmp_path / "real_rice", "sha-0123456", str(out), dry=False,
+                         NXF_APPTAINER_CACHEDIR=str(tmp_path / "cache"), PATH=f"{bindir}:{os.environ['PATH']}")
+    assert proc.returncode == 0, proc.stderr
+    assert (out / "container_image.txt").read_text().count("tag: sha-0123456") == 2
+
+
+def test_failed_run_still_records_the_image_and_fails(tmp_path):
+    proc, out = _real_run(tmp_path, "sha-0123456", nextflow_rc=3)
+    assert proc.returncode == 3
+    assert "org.opencontainers.image.revision" in (out / "container_image.txt").read_text()
+
+
+def test_missing_sif_is_recorded(tmp_path):
+    proc, out = _real_run(tmp_path, "sha-0123456", sif=False)
+    assert proc.returncode == 0, proc.stderr
+    assert "sif: not found" in (out / "container_image.txt").read_text()
 
 
 # ---------------------------------------------------------------- compare script
