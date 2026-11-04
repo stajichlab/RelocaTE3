@@ -549,10 +549,15 @@ def _tree(base: Path, samples=SAMPLES) -> Path:
 
 
 def _compare(nf: Path, rc2: Path, tmp_path: Path) -> subprocess.CompletedProcess:
-    # samtools stub: `samtools view X` prints X (fake BAMs are text).
+    # samtools stub: `samtools view X` prints X (fake BAMs are text);
+    # `samtools view -H X` prints X's @ lines (none).
     stub = tmp_path / "bin"
     stub.mkdir(exist_ok=True)
-    (stub / "samtools").write_text('#!/usr/bin/env bash\n[[ "$1" == view ]] && cat "$2"\n')
+    (stub / "samtools").write_text(
+        '#!/usr/bin/env bash\n'
+        'if [[ "$1" == view && "$2" == -H ]]; then grep "^@" "$3" || true\n'
+        'elif [[ "$1" == view ]]; then cat "$2"; else exit 1; fi\n'
+    )
     (stub / "samtools").chmod(0o755)
     env = {k: v for k, v in os.environ.items() if k != "SLURM_JOB_ID"}
     env["PIXI_BIN"] = str(stub)
