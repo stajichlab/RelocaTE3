@@ -95,11 +95,24 @@ jobs:
           context: .
           file: containers/Dockerfile
           platforms: linux/amd64
+          # v* tags: build_env.sh builds exactly this tag (an rc and a final
+          # tag may share a commit). Same value in the push build below.
+          build-args: |
+            RELEASE_TAG=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           load: true
           tags: ${{ env.TEST_TAG }}
 
       - name: Check the image
         run: docker run --rm "${TEST_TAG}" bash /opt/relocate3/check_image.sh
+
+      # Release tags only, before anything is pushed: the tag, the image's
+      # relocaTE3 --version, manifest.version and the default
+      # params.container_tag must be one version (v0.3.0 -> 0.3.0).
+      - name: Check release versions
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          image_version="$(docker run --rm "${TEST_TAG}" relocaTE3 --version)"
+          bash containers/check_release.sh "${GITHUB_REF_NAME#v}" "${image_version}" nextflow.config
 
       - name: Log in to ghcr.io
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -116,6 +129,8 @@ jobs:
           context: .
           file: containers/Dockerfile
           platforms: linux/amd64
+          build-args: |
+            RELEASE_TAG=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

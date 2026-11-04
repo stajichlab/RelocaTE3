@@ -27,6 +27,9 @@ ARG ENV_DIR=/opt/relocate3/.pixi/envs/blat
 FROM ${PIXI_IMAGE} AS build
 ARG PROJECT_DIR
 ARG ENV_DIR
+# The git tag being released; empty except on v* tag builds (container.yml).
+# build_env.sh then versions the image from exactly this tag.
+ARG RELEASE_TAG=
 # The pixi image ships only pixi + ca-certificates. Build-stage only: git, for
 # versioningit's "git" method (`git describe`). No compiler: every package in
 # pixi.lock's blat env is a binary (conda or wheel).
@@ -37,7 +40,7 @@ RUN apt-get update \
 WORKDIR ${PROJECT_DIR}
 COPY .git ${PROJECT_DIR}/.git
 COPY containers/build_env.sh /usr/local/bin/build_env.sh
-RUN bash /usr/local/bin/build_env.sh "${PROJECT_DIR}" "${ENV_DIR}"
+RUN RELEASE_TAG="${RELEASE_TAG}" bash /usr/local/bin/build_env.sh "${PROJECT_DIR}" "${ENV_DIR}"
 
 FROM ${RUNTIME_IMAGE} AS runtime
 ARG PROJECT_DIR

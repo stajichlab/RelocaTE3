@@ -179,3 +179,11 @@ def test_image_checks_every_locked_tool():
     locked = _locked_conda_versions("blat")
     for tool in checked:
         assert tool in locked, f"{tool} is checked but not locked in the blat env"
+
+
+def test_release_tag_reaches_build_env():
+    # Empty except on v* tag builds (.github/workflows/container.yml).
+    build, *_ = _stages()
+    assert re.search(r"^ARG RELEASE_TAG=\s*$", build, re.M)
+    assert re.search(r'^RUN RELEASE_TAG="\$\{RELEASE_TAG\}" bash /usr/local/bin/build_env.sh ', build, re.M)
+    assert '--env "RELEASE_TAG=${RELEASE_TAG:-}"' in DRY_RUN.read_text()

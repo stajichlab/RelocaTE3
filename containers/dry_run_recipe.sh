@@ -23,7 +23,9 @@
 #
 # Usage (from the project root):  sbatch containers/dry_run_recipe.sh
 # Env: DRYRUN_DIR (default /scratch/$USER/<jobid>/relocate3-dryrun, node-local),
-#      KEEP_DRYRUN=1 to keep the sandboxes for inspection.
+#      KEEP_DRYRUN=1 to keep the sandboxes for inspection,
+#      RELEASE_TAG=v<version> to replay a release build (the Dockerfile's
+#      build-arg; HEAD must carry that tag).
 #
 # Root inside the sandboxes: `apptainer exec --fakeroot --writable`. Without
 # /etc/subuid entries Apptainer uses a root-mapped user namespace (only uid 0
@@ -103,7 +105,7 @@ apptainer build --sandbox "${BUILD}" "docker://${PIXI_IMAGE}"
 mkdir -p "${BUILD}${IMG_PROJECT_DIR}"
 cp -a "${CTX}/.git" "${BUILD}${IMG_PROJECT_DIR}/.git"              # COPY .git
 install -m 0755 "${CTX}/containers/build_env.sh" "${BUILD}/usr/local/bin/build_env.sh"  # COPY build_env.sh
-"${ROOT_EXEC[@]}" --pwd "${IMG_PROJECT_DIR}" "${BUILD}" \
+"${ROOT_EXEC[@]}" --pwd "${IMG_PROJECT_DIR}" --env "RELEASE_TAG=${RELEASE_TAG:-}" "${BUILD}" \
   bash /usr/local/bin/build_env.sh "${IMG_PROJECT_DIR}" "${ENV_DIR}"
 
 echo "== runtime stage: ${RUNTIME_IMAGE}"

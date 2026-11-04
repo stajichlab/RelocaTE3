@@ -6,7 +6,9 @@
 #
 # Prints, then asserts:
 #   - relocaTE3 --version derives from the git tag recorded at build time
-#     (never 0.0.0 or versioningit's default-tag fallback);
+#     (never 0.0.0 or versioningit's default-tag fallback), equals the version
+#     build_env.sh installed (relocate3_version), and has no versioningit
+#     dirty-tree suffix (+d<YYYYMMDD> / .d<YYYYMMDD>);
 #   - blat, bwa, samtools, bcftools, minimap2, seqtk, bedtools, bowtie2 run
 #     and report the versions locked in pixi.lock's blat env
 #     (expected_versions.tsv, written from `pixi list -e blat --locked` during
@@ -72,15 +74,20 @@ done
 
 # RelocaTE3 version: derived from the tag the build saw.
 base="$(expected relocate3_base)"
+installed="$(expected relocate3_version)"
 if version="$(relocaTE3 --version 2>&1)"; then
   if [[ -z "${base}" ]]; then
     fail relocaTE3 "found=${version}; no relocate3_base in ${EXPECTED}"
   elif [[ "${version}" == "0.0.0" || ( "${base}" != "${DEFAULT_TAG}" && "${version}" == "${DEFAULT_TAG}"* ) ]]; then
     fail relocaTE3 "found=${version}: placeholder/default-tag version"
-  elif [[ "${version}" == "${base}" || "${version}" == "${base}.post"* || "${version}" == "${base}+"* ]]; then
-    pass relocaTE3 "found=${version} tag_base=${base}"
-  else
+  elif [[ "${version}" =~ [+.]d[0-9]{8}$ ]]; then
+    fail relocaTE3 "found=${version}: dirty-tree build (versioningit date suffix)"
+  elif ! [[ "${version}" == "${base}" || "${version}" == "${base}.post"* || "${version}" == "${base}+"* ]]; then
     fail relocaTE3 "found=${version} does not derive from tag_base=${base}"
+  elif [[ -z "${installed}" || "${version}" != "${installed}" ]]; then
+    fail relocaTE3 "found=${version} != installed at build=${installed:-<missing>}"
+  else
+    pass relocaTE3 "found=${version} tag_base=${base} installed=${installed}"
   fi
 else
   fail relocaTE3 "relocaTE3 --version failed: ${version}"
