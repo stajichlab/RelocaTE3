@@ -26,8 +26,11 @@ permissions:
   contents: read
   packages: write
 
-# A newer push to the same PR cancels the older run, so an older build can't
-# overwrite pr-<n> after a newer one. main and tags always run to completion.
+# One run per ref at a time. On a PR a newer push cancels the running build.
+# On main and tags a running build is not cancelled, but GitHub keeps only the
+# newest PENDING run per group: a queued older run is cancelled when a newer
+# one arrives. Either way runs on a ref never overlap, so `dev` and `pr-<n>`
+# end at the newest commit that finished (sha-<short> tags are per commit).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -52,11 +55,14 @@ jobs:
       # commit. ci.yml still tests the merge commit.
       # fetch-depth 0: all history and tags (`git describe --tags` must find a
       # tag, or the build fails).
+      # persist-credentials false: the Dockerfile copies .git into the build
+      # stage, and a persisted token lives in .git/config.
       - name: Checkout
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Image metadata
         id: meta

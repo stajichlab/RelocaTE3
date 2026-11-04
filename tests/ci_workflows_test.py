@@ -117,6 +117,14 @@ def test_container_builds_pr_head_commit():
     assert "DOCKER_METADATA_PR_HEAD_SHA: true" in job
 
 
+def test_image_checkout_does_not_persist_the_token():
+    # The Dockerfile copies .git into the build stage; a persisted token
+    # (http.extraheader in .git/config) would go with it.
+    steps = _steps(_job(_read(CONTAINER), "image"))
+    checkout = steps[_step_index(steps, "actions/checkout@")]
+    assert "persist-credentials: false" in checkout
+
+
 def test_container_build_inputs():
     steps = _steps(_job(_read(CONTAINER), "image"))
     builds = [s for s in steps if "docker/build-push-action@" in s]
