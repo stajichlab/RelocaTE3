@@ -18,6 +18,7 @@ import csv
 import io
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -150,27 +151,164 @@ def test_existing_sheet_is_kept_when_identical_and_refused_when_different(tmp_pa
     assert out.read_text() == first
 
 
-def test_params_come_from_the_config_run_relocate3_reads(tmp_path):
+# ------------------------------------------- run_relocate3.sh <-> pipeline
+
+RUN_RELOCATE3 = HARNESS / "run_relocate3.sh"
+# run-all options run_relocate3.sh passes that are not pipeline params: per
+# sample (sample sheet columns), per run (--outdir) or task resources.
+NOT_PARAMS = {"left", "right", "name", "outdir", "threads", "genotype_bam"}
+# run-all argparse dest -> pipeline param (tests/nextflow_schema_test.py's
+# RUN_ALL_DEST, inverted, plus the inputs and --genotype).
+DEST_TO_PARAM = {
+    "te_aligner": "te_aligner", "genome_aligner": "genome_aligner",
+    "mismatch_allowance": "mismatch", "minimum_match_length": "min_match",
+    "minimum_trimmed_length": "min_trimmed", "insert_size": "size",
+    "min_mapq": "min_mapq", "tsd": "tsd", "require_both_junctions": "require_both_junctions",
+    "target": "target", "te_name": "te_name", "repeatmasker": "repeatmasker",
+    "te_opts": "te_opts", "genome_opts": "genome_opts", "distance": "distance",
+    "excision": "excision", "bcftools": "bcftools",
+    "te_library": "te_library", "genome_fasta": "genome", "genotype": "genotype",
+}
+
+
+def _run_all_dest(option: str) -> str:
+    from RelocaTE3.cli import build_parser
+
+    parser = build_parser()
+    sub = next(a for a in parser._actions if a.__class__.__name__ == "_SubParsersAction")
+    for action in sub.choices["run-all"]._actions:
+        if option in action.option_strings:
+            return action.dest
+    raise AssertionError(f"run_relocate3.sh passes {option}, which run-all does not have")
+
+
+def _run_all_call(script: str) -> list[tuple[str, str | None]]:
+    """(option, value word) for every option of the ``relocaTE3 run-all`` call."""
+    lines = script.splitlines()
+    i = next(n for n, l in enumerate(lines) if l.strip().startswith("relocaTE3 run-all"))
+    words = []
+    for line in lines[i:]:
+        words += shlex.split(line.strip().rstrip("\\"))
+        if not line.rstrip().endswith("\\"):
+            break
+    expanded = []
+    for w in words[2:]:
+        m = re.fullmatch(r"\$\{(\w+)\[@\]\}", w)
+        if m:  # an array of options, e.g. GENOTYPE_ARGS=(--genotype ...)
+            decl = re.search(rf"^\s*{m.group(1)}=\((.+)\)\s*$", script, re.M)
+            assert decl, f"no assignment of {m.group(1)} with options"
+            expanded += shlex.split(decl.group(1))
+        else:
+            expanded.append(w)
+    pairs: list[tuple[str, str | None]] = []
+    for n, w in enumerate(expanded):
+        if w.startswith("-"):
+            nxt = expanded[n + 1] if n + 1 < len(expanded) else None
+            pairs.append((w, nxt if nxt is not None and not nxt.startswith("-") else None))
+    return pairs
+
+
+def _config_source(script: str, word: str | None, option: str) -> tuple[str, str]:
+    """The [section] key a value word comes from, via read_cfg's CFG array."""
+    if word is None:
+        # A switch: set when its guard variable is "1" (GENOTYPE_ARGS under
+        # DO_CHARACTERIZE).
+        m = re.search(r'if \[\[ "\$(\w+)" == "1" \]\]; then\n(?:.*\n){0,4}?\s*\w+=\(' + re.escape(option) + r"\b", script)
+        assert m, f"{option}: no guard variable found"
+        var = m.group(1)
+    else:
+        m = re.fullmatch(r"\$\{?(\w+)\}?", word)
+        assert m, f"{option} {word}: not a plain variable"
+        var = m.group(1)
+    idx = re.search(rf'^{var}="\$\{{CFG\[(\d+)\]\}}"$', script, re.M)
+    assert idx, f"{option}: {var} is not read from the config (CFG array)"
+    body = script[script.index("read_cfg() {"):]
+    prints = re.findall(r"^print\((.*)\)$", body, re.M)
+    expr = prints[int(idx.group(1))]
+    keys = re.findall(r"\['(\w+)'\]|\.get\('(\w+)'", expr)
+    keys = [a or b for a, b in keys]
+    assert len(keys) == 2, f"{option}: cannot read config key from {expr}"
+    return keys[0], keys[1]
+
+
+def _distinct_config(tmp_path: Path, root: Path) -> Path:
+    """config.example.toml with a distinct value for every [relocate3] number,
+    so a param mapped from the wrong key cannot match by accident."""
+    text = EXAMPLE_CONFIG.read_text().replace('repository_root = "../.."', f'repository_root = "{ROOT}"')
+    out, section, n = [], None, 0
+    for line in text.splitlines():
+        s = re.match(r"^\[(\w+)\]", line)
+        if s:
+            section = s.group(1)
+        m = re.match(r"^(\w+)(\s*=\s*)(\d+)(.*)$", line)
+        if section == "relocate3" and m and m.group(1) != "threads":
+            n += 1
+            line = f"{m.group(1)}{m.group(2)}{700 + n}{m.group(4)}"
+        out.append(line)
+    cfg = tmp_path / "config.toml"
+    cfg.write_text("\n".join(out) + "\n")
+    return cfg
+
+
+def _drift(tmp_path: Path, script_path: Path) -> list[str]:
+    """Settings run_relocate3.sh passes to run-all that --print-params does not
+    map to the matching pipeline param with the value of the same config key,
+    and printed params run_relocate3.sh does not pass."""
+    sys.path.insert(0, str(HARNESS))
+    from _config import load_config
+
     root = _fake_root(tmp_path)
-    proc = _sheet(root, "--print-params")
+    cfg_path = _distinct_config(tmp_path, root)
+    proc = _sheet(root, "--print-params", config=cfg_path)
     assert proc.returncode == 0, proc.stderr
-    params = dict(line.split("\t", 1) for line in proc.stdout.splitlines())
-    assert params == {
-        "te_aligner": "blat",
-        "genome_aligner": "bwaaln",
-        "mismatch": "2",
-        "min_match": "10",
-        "min_trimmed": "10",
-        "min_mapq": "0",
-        "size": "250",
-        "te_name": "mping",
-        "target": "ALL",
-        "tsd": "UNK",
-        "genotype": "true",
-        "genome": str(root / "ref_genome" / "MSU_r7.fa"),
-        "te_library": str(ROOT / "tests" / "data" / "TE_lib" / "mping.fa"),
-        "repeatmasker": str(root / "repeatmasker" / "MSU_r7.fa.out"),
-    }
+    printed = dict(line.split("\t", 1) for line in proc.stdout.splitlines())
+    os.environ["RELOCATE3_VALIDATION_ROOT"] = str(root)
+    try:
+        cfg = load_config(cfg_path)
+    finally:
+        del os.environ["RELOCATE3_VALIDATION_ROOT"]
+
+    script = script_path.read_text()
+    problems, mapped = [], set()
+    for option, word in _run_all_call(script):
+        dest = _run_all_dest(option)
+        if dest in NOT_PARAMS:
+            continue
+        param = DEST_TO_PARAM.get(dest)
+        if param is None:
+            problems.append(f"{option}: no pipeline param for run-all dest {dest}")
+            continue
+        mapped.add(param)
+        section, key = _config_source(script, word, option)
+        want = cfg[section][key]
+        if isinstance(want, bool):
+            want = "true" if want else "false"
+        elif section == "paths":
+            want = os.path.normpath(Path(cfg["_config_dir"]) / want)
+        if param not in printed:
+            problems.append(f"{option} ([{section}] {key}): --print-params has no {param}")
+        elif printed[param] != str(want):
+            problems.append(f"{option} ([{section}] {key} = {want}): --print-params {param} = {printed[param]}")
+    for param in sorted(set(printed) - mapped):
+        problems.append(f"--print-params {param}: run_relocate3.sh does not pass it")
+    return problems
+
+
+def test_every_run_all_setting_of_run_relocate3_is_a_pipeline_param(tmp_path):
+    assert _drift(tmp_path, RUN_RELOCATE3) == []
+
+
+def test_drift_guard_catches_a_new_run_all_flag(tmp_path):
+    # The guard itself: a flag added to run_relocate3.sh but not to
+    # make_samplesheet.py must be reported.
+    copy = tmp_path / "run_relocate3.sh"
+    copy.write_text(RUN_RELOCATE3.read_text().replace(
+        '    --min-mapq "$MIN_MAPQ" \\\n',
+        '    --min-mapq "$MIN_MAPQ" \\\n    --distance "$MISMATCH" \\\n',
+    ))
+    assert "--distance" in copy.read_text()
+    problems = _drift(tmp_path, copy)
+    assert any(p.startswith("--distance") for p in problems), problems
 
 
 def test_print_samples(tmp_path):
