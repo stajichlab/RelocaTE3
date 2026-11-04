@@ -187,3 +187,11 @@ def test_release_tag_reaches_build_env():
     assert re.search(r"^ARG RELEASE_TAG=\s*$", build, re.M)
     assert re.search(r'^RUN RELEASE_TAG="\$\{RELEASE_TAG\}" bash /usr/local/bin/build_env.sh ', build, re.M)
     assert '--env "RELEASE_TAG=${RELEASE_TAG:-}"' in DRY_RUN.read_text()
+
+
+def test_runtime_ignores_host_user_site_packages():
+    # Apptainer binds $HOME; without this, ~/.local/lib/python3.12 packages
+    # would shadow the locked environment's.
+    *_, runtime = _stages()
+    assert re.search(r"^ENV PYTHONNOUSERSITE=1\s*$", runtime, re.M)
+    assert "PYTHONNOUSERSITE=1" in DRY_RUN.read_text()

@@ -15,7 +15,8 @@
 #                 env to the SAME path + meta/ + check_image.sh
 #   check         check_image.sh in the runtime sandbox, read-only, as the
 #                 calling (non-root) user, with only the Dockerfile's ENV
-#                 (PATH, CONDA_PREFIX) on top of a clean environment.
+#                 (PATH, CONDA_PREFIX, PYTHONNOUSERSITE) on top of a clean
+#                 environment.
 #
 # The context is a fresh clone of the project's HEAD (full history + tags, as
 # actions/checkout fetch-depth: 0 gives CI), so uncommitted edits are NOT
@@ -124,6 +125,7 @@ set +e
 apptainer exec --no-home --cleanenv \
   --env "PATH=${ENV_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
   --env "CONDA_PREFIX=${ENV_DIR}" \
+  --env "PYTHONNOUSERSITE=1" \
   "${RUNTIME}" bash "${IMG_PROJECT_DIR}/check_image.sh"
 RC=$?
 set -e

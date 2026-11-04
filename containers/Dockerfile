@@ -62,3 +62,6 @@ COPY --from=build ${PROJECT_DIR}/containers/check_image.sh ${PROJECT_DIR}/check_
 # activation (see meta/shell-hook.sh).
 ENV PATH="${ENV_DIR}/bin:$PATH"
 ENV CONDA_PREFIX=${ENV_DIR}
+# Apptainer/Singularity bind the host $HOME: keep ~/.local site-packages out of
+# the environment's Python.
+ENV PYTHONNOUSERSITE=1
