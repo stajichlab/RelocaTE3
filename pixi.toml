@@ -14,6 +14,10 @@ bwa = ">=0.7.17"
 bwa-mem2 = ">=2.2"
 bowtie2 = ">=2.5"
 samtools = ">=1.17"
+# Excision mode (characterize -x, run-all/pipeline --excision) calls bcftools
+# mpileup/call. bcftools pins htslib to its own minor series, so the solver
+# keeps it in samtools' series (tests/container_recipe_test.py).
+bcftools = ">=1.17"
 bedtools = ">=2.30"
 # FASTQ -> FASTA for the BLAT backend (BLAT cannot read FASTQ). RelocaTE2 uses
 # seqtk for the same conversion; doing it in Python is the dominant cost of the
@@ -52,6 +56,10 @@ platforms = ["linux-64"]
 
 [feature.blat.dependencies]
 blat = "*"
+# bcftools in samtools' series (samtools/htslib 1.24 in this env), so the
+# image's bcftools and samtools share one htslib release
+# (tests/container_recipe_test.py checks the lock).
+bcftools = "1.24.*"
 
 # Nextflow and nf-test, for the pipeline (main.nf). A standalone environment:
 # it must not co-solve with blat (bioconda blat pins zlib 1.2.11). Pipeline

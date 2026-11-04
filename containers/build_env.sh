@@ -75,7 +75,7 @@ import sys
 
 packages = json.load(open(sys.argv[1]))
 conda = {p["name"]: p["version"] for p in packages if p.get("kind") == "conda"}
-for tool in ("blat", "bwa", "samtools", "minimap2", "seqtk", "bedtools", "bowtie2", "pysam", "python"):
+for tool in ("blat", "bwa", "bwa-mem2", "samtools", "bcftools", "minimap2", "seqtk", "bedtools", "bowtie2", "pysam", "python"):
     if tool not in conda:
         sys.exit(f"ERROR: {tool} not in the locked blat environment")
     print(f"{tool}\t{conda[tool]}")

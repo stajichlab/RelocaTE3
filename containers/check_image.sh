@@ -7,9 +7,11 @@
 # Prints, then asserts:
 #   - relocaTE3 --version derives from the git tag recorded at build time
 #     (never 0.0.0 or versioningit's default-tag fallback);
-#   - blat, bwa, samtools, minimap2, seqtk, bedtools, bowtie2 run and report
-#     the versions locked in pixi.lock's blat env (expected_versions.tsv,
-#     written from `pixi list -e blat --locked` during the build);
+#   - blat, bwa, samtools, bcftools, minimap2, seqtk, bedtools, bowtie2 run
+#     and report the versions locked in pixi.lock's blat env
+#     (expected_versions.tsv, written from `pixi list -e blat --locked` during
+#     the build). bwa-mem2 must run and print a version, but it is not
+#     compared: bioconda's bwa-mem2 2.3 binary reports 2.2.1;
 #   - ps exists (Nextflow task metrics);
 #   - python imports RelocaTE3 and pysam, RelocaTE3 non-editable, from the env.
 # Exits non-zero if any check fails.
@@ -41,6 +43,9 @@ found_version() {
     blat)     out="$(blat 2>&1 || true)";               sed -nE 's/.*BLAT v\. *([0-9][^ ]*).*/\1/p' <<<"${out}" | head -1 ;;
     bwa)      out="$(bwa 2>&1 || true)";                sed -nE 's/^Version: *([0-9][^ -]*).*/\1/p' <<<"${out}" | head -1 ;;
     samtools) out="$(samtools --version 2>&1 || true)"; sed -nE 's/^samtools ([0-9][^ ]*).*/\1/p' <<<"${out}" | head -1 ;;
+    bcftools) out="$(bcftools --version 2>&1 || true)"; sed -nE 's/^bcftools ([0-9][^ ]*).*/\1/p' <<<"${out}" | head -1 ;;
+    # The launcher prints its SIMD choice first; the version is the last line.
+    bwa-mem2) out="$(bwa-mem2 version 2>&1 || true)";   grep -E '^[0-9]+\.[0-9][^ ]*$' <<<"${out}" | tail -1 ;;
     minimap2) out="$(minimap2 --version 2>&1 || true)"; sed -nE 's/^([0-9][^ -]*).*/\1/p' <<<"${out}" | head -1 ;;
     seqtk)    out="$(seqtk 2>&1 || true)";              sed -nE 's/^Version: *([0-9][^ -]*).*/\1/p' <<<"${out}" | head -1 ;;
     bedtools) out="$(bedtools --version 2>&1 || true)"; sed -nE 's/^bedtools v([0-9][^ ]*).*/\1/p' <<<"${out}" | head -1 ;;
@@ -48,14 +53,17 @@ found_version() {
   esac
 }
 
-for tool in blat bwa samtools minimap2 seqtk bedtools bowtie2; do
+for tool in blat bwa bwa-mem2 samtools bcftools minimap2 seqtk bedtools bowtie2; do
   want="$(expected "${tool}")"
   if ! path="$(command -v "${tool}")"; then
     fail "${tool}" "not on PATH"
     continue
   fi
   got="$(found_version "${tool}")"
-  if [[ -n "${want}" && "${got}" == "${want}" ]]; then
+  if [[ "${tool}" == bwa-mem2 && -n "${want}" && -n "${got}" ]]; then
+    # Upstream: the 2.3 release still prints 2.2.1 (see header).
+    pass "${tool}" "found=${got} locked=${want} (version not compared) (${path})"
+  elif [[ -n "${want}" && "${got}" == "${want}" ]]; then
     pass "${tool}" "found=${got} expected=${want} (${path})"
   else
     fail "${tool}" "found=${got:-<none>} expected=${want:-<missing>} (${path})"
