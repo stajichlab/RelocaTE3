@@ -45,7 +45,8 @@ far fewer insertions (see "Choosing an aligner").
 
 Or with pip, into an environment that already provides the external tools
 (`blat`, `bwa`, `samtools`, `bedtools`, and optionally `seqtk`, which speeds up
-the BLAT stage; `bcftools` is needed only for excision mode, `characterize -x`):
+the BLAT stage; `bcftools` is needed only for excision mode, `characterize -x`;
+the pixi environments and the container include it):
 
 ```bash
 pip install .        # or: pip install -e . for development
@@ -129,7 +130,10 @@ places:
   tool versions RelocaTE3 is validated with (from `pixi.lock`). Choose
   `-profile apptainer`, `singularity` or `docker`.
   - `--container_tag` picks the image: a release version such as `0.3.0`,
-    `dev` (latest `main`, the default) or `sha-<commit>`.
+    `dev` (latest `main`, the default) or `sha-<commit>`. `dev` and `pr-<n>`
+    move with every push; pin a version or `sha-<commit>` for results you keep
+    (and for `-resume`). `pipeline_info/software_environment.txt` records the
+    image reference a run used.
   - Set `NXF_APPTAINER_CACHEDIR` (or `NXF_SINGULARITY_CACHEDIR`) to a
     directory with space, so the image (~340 MB) is downloaded once.
 - **`-profile pixi`.** Uses the `blat` pixi environment of a local clone. It
@@ -137,7 +141,10 @@ places:
 
 On UCR HPCC, add `-profile hpcc` to send each task to SLURM. The partition
 defaults to `intel`; change it with `--slurm_partition`. At most 50 jobs are
-queued at a time. Run Nextflow itself from a small sbatch job, never on the
+queued at a time. Profiles apply in command-line order, so with `test` the
+later one sets the task resource caps: `-profile test,hpcc,apptainer` keeps
+hpcc's (64 CPUs, 430 GB), `-profile hpcc,test,apptainer` caps tasks at the test
+profile's 4 CPUs and 8 GB. Run Nextflow itself from a small sbatch job, never on the
 login node:
 
 ```bash
@@ -156,7 +163,7 @@ From a clone, without containers:
 
 ```bash
 pixi install -e blat -e nf
-pixi run -e nf nextflow run . -profile test,pixi          # Chr3 test data, ~2 min
+pixi run -e nf nextflow run . -profile test,pixi          # Chr3 test data, ~2 min (any launch dir)
 pixi run -e nf nextflow run . -profile pixi \
   --input samples.csv --genome reference.fa --te_library RiceTE.fa \
   --repeatmasker reference.fa.RepeatMasker.out --te_name mping --outdir results
