@@ -13,6 +13,7 @@
 
 include { paramsHelp; validateParameters; paramsSummaryLog; samplesheetToList } from 'plugin/nf-schema'
 include { RELOCATE3; groupLanes } from './workflows/relocate3'
+include { softwareEnvironment } from './subworkflows/local/software_environment'
 
 workflow {
     main:
@@ -29,6 +30,25 @@ workflow {
     validateParameters()
     log.info(paramsSummaryLog())
 
+    // -profile pixi puts ${params.pixi_env}/bin first on every task's PATH
+    // (nextflow.config). Stop here, not in the first task, when relocaTE3 is
+    // not there. Container profiles never read pixi_env.
+    if (workflow.profile.tokenize(',').contains('pixi')) {
+        def exe = file("${params.pixi_env}/bin/relocaTE3")
+        if (!exe.exists()) {
+            error("-profile pixi: no relocaTE3 at ${exe} (--pixi_env ${params.pixi_env}). Run `pixi install -e blat` in the pipeline directory, or point --pixi_env at an environment that has it.")
+        }
+    }
+
+    // What ran the tasks: pipeline_info/software_environment.txt.
+    channel.of(softwareEnvironment())
+        .collectFile(name: 'software_environment.txt', storeDir: "${params.outdir}/pipeline_info")
+
+    // The sheet's rows are validated here, against assets/schema_input.json,
+    // not by validateParameters(): the `input` param has no "schema" link,
+    // because nf-schema 3.0.0 applies validation.allowParamsSubstitution
+    // (on in the test profile: ${params.test_data}) only in samplesheetToList.
+    // Still before any task runs.
     // Sheet rows [ meta (id), fastq_1, fastq_2, genotype_bam ] grouped into
     // one item per sample, in sheet order:
     // [ meta, [ R1 lanes ], [ R2 lanes ], genotype_bam or [] ].

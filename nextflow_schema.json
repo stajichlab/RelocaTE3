@@ -16,7 +16,6 @@
                     "type": "string",
                     "format": "file-path",
                     "exists": true,
-                    "schema": "assets/schema_input.json",
                     "mimetype": "text/csv",
                     "pattern": "^\\S+\\.csv$",
                     "description": "Sample sheet (CSV): sample,fastq_1,fastq_2[,genotype_bam].",
@@ -202,6 +201,12 @@
                     "type": "string",
                     "format": "directory-path",
                     "description": "Pixi environment providing relocaTE3 and the aligners (pixi profile). Default: <projectDir>/.pixi/envs/blat.",
+                    "hidden": true
+                },
+                "test_data": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Test data directory (test profile: <projectDir>/tests/data). The test sample sheet refers to it as ${params.test_data}.",
                     "hidden": true
                 },
                 "slurm_partition": {

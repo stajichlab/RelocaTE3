@@ -206,6 +206,13 @@ def test_pipeline_container_job_runs_after_image():
     assert "tests/nextflow/parity_chr3.sh docker" in job
 
 
+def test_pipeline_container_job_checks_the_recorded_image():
+    # pipeline_info/software_environment.txt names the image the run used.
+    job = _job(_read(CONTAINER), "pipeline-container")
+    assert "pipeline_info/software_environment.txt" in job
+    assert 'container: ${IMAGE}:${TAG}' in job
+
+
 # ------------------------------------------------------------------- ci.yml
 
 

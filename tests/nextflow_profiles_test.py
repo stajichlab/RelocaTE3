@@ -160,3 +160,40 @@ def test_nf_test_tasks_fit_a_github_runner():
     cpus = int(re.search(r"cpus:\s*(\d+)", limits).group(1))
     mem_gb = int(re.search(r"memory:\s*(\d+)\.GB", limits).group(1))
     assert cpus <= 4 and mem_gb <= 14, limits
+
+
+# ------------------------------------------- pipeline_info/software_environment.txt
+
+ENV_PROBE = """\
+include { softwareEnvironment } from '{root}/subworkflows/local/software_environment.nf'
+workflow {
+    print softwareEnvironment()
+}
+"""
+
+
+def _software_environment(tmp_path: Path, profile: str, *args: str) -> str:
+    (tmp_path / "env_probe.nf").write_text(ENV_PROBE.replace("{root}", str(ROOT)))
+    proc = subprocess.run(
+        [*NEXTFLOW, "-q", "run", "env_probe.nf", "-c", str(ROOT / "nextflow.config"),
+         "-profile", profile, *args],
+        cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return proc.stdout
+
+
+@pytest.mark.parametrize("engine", ["apptainer", "docker", "singularity"])
+def test_software_environment_records_the_container(tmp_path, engine):
+    record = _software_environment(tmp_path, engine, "--container_tag", "sha-abc1234")
+    assert f"container_engine: {engine}" in record
+    assert f"container: {IMAGE}:sha-abc1234" in record
+    assert "digest: not recorded by Nextflow" in record
+    assert "pixi_env:" not in record
+
+
+def test_software_environment_records_the_pixi_env(tmp_path):
+    record = _software_environment(tmp_path, "pixi", "--pixi_env", "/some/env")
+    assert "container_engine: none" in record
+    assert "container: none" in record
+    assert "pixi_env: /some/env" in record

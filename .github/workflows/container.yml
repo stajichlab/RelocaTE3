@@ -182,6 +182,9 @@ jobs:
         run: |
           pixi run -e nf nextflow run . -profile test,docker --container_tag "${TAG}" \
             --outdir results/ci/nextflow_test -work-dir results/ci/work
+          record=results/ci/nextflow_test/pipeline_info/software_environment.txt
+          cat "${record}"
+          grep -qxF "container: ${IMAGE}:${TAG}" "${record}"
 
       - name: Chr3 parity (run-all vs pipeline, both in the image)
         run: bash tests/nextflow/parity_chr3.sh docker "${TAG}"
