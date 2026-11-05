@@ -35,11 +35,19 @@ A side with no rows had no reads (empty read file).
 from __future__ import annotations
 
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
 from RelocaTE3 import logger
-from RelocaTE3.aligners import TEChunk, TESide
+from RelocaTE3.aligners import (
+    BLAT_CHUNK_SEQS,
+    TEChunk,
+    TESide,
+    search_te_chunk,
+    split_te_query,
+    te_sam_header,
+)
 
 MANIFEST_NAME = "manifest.tsv"
 MANIFEST_COLUMNS = ("side", "index", "chunk", "n_reads", "mate", "read_file")
@@ -196,3 +204,89 @@ def sides_from_manifest(rows, chunk_bams, read_files) -> list[TESide]:
     if extra:
         raise ValueError(f"chunk BAM(s) not in the manifest: {', '.join(extra)}")
     return sides
+
+
+# ---------------------------------------------------------------------------
+# the three steps as the subcommands run them
+# ---------------------------------------------------------------------------
+
+
+def chunk_dir_for(outdir, name: str) -> Path:
+    """``<outdir>/<name>.te_chunks``: where :func:`split_reads` writes."""
+    return Path(outdir) / f"{name}.te_chunks"
+
+
+def split_reads(read_files, name: str, outdir, chunk_reads: int = BLAT_CHUNK_SEQS) -> Path:
+    """``te-split``: cut each read side into chunk FASTAs and write the manifest.
+
+    Writes ``<outdir>/<name>.te_chunks/chunk.<name>.<side>.NNNNN.fa`` and
+    ``manifest.tsv`` there; returns the manifest path.
+
+    Raises:
+        FileExistsError: if ``<name>.te_chunks`` already exists.
+    """
+    read_files = [Path(f) for f in read_files]
+    if not 1 <= len(read_files) <= 2:
+        raise ValueError(f"expected one or two read files, got {len(read_files)}")
+    chunk_dir = chunk_dir_for(outdir, name)
+    if chunk_dir.exists():
+        raise FileExistsError(
+            f"{chunk_dir} already exists; remove it or choose another --outdir"
+        )
+    chunk_dir.mkdir(parents=True)
+    paired = len(read_files) == 2
+    rows = []
+    for number, (side, read_file) in enumerate(zip(SIDES, read_files)):
+        chunks = split_te_query(read_file, chunk_dir, f"{name}.{side}", chunk_reads)
+        rows.extend(
+            ManifestRow(
+                side, index, Path(fa).name, n_reads,
+                str(number + 1) if paired else None, read_file.name,
+            )
+            for index, (fa, n_reads) in enumerate(chunks)
+        )
+        logger.info("%s: %d chunk(s) of up to %d reads", read_file, len(chunks), chunk_reads)
+    return write_manifest(chunk_dir / MANIFEST_NAME, rows)
+
+
+def search_chunks(te_library, manifest, chunk_fastas, outdir, te_opts=(), threads: int = 1):
+    """``te-search-chunk``: BLAT each chunk FASTA into ``<outdir>/<chunk>.bam``.
+
+    Each chunk's mate comes from the manifest (so read names are canonicalised
+    exactly as in ``relocaTE3 run``); ``threads`` chunks run at once.
+
+    Returns:
+        The chunk BAM paths, in the order of ``chunk_fastas``.
+
+    Raises:
+        ValueError: if a chunk is not in the manifest, is given twice, or
+            holds a different number of reads than the manifest says.
+    """
+    rows = {r.chunk: r for r in read_manifest(manifest)}
+    names = [Path(fa).name for fa in chunk_fastas]
+    unknown = [n for n in names if n not in rows]
+    if unknown:
+        raise ValueError(f"chunk(s) not in the manifest {manifest}: {', '.join(unknown)}")
+    repeated = sorted(n for n, c in Counter(names).items() if c > 1)
+    if repeated:
+        raise ValueError(f"chunk(s) given more than once: {', '.join(repeated)}")
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    sam_header = te_sam_header(te_library)  # once, before the threads start
+
+    def one(fa) -> TEChunk:
+        row = rows[Path(fa).name]
+        found = search_te_chunk(
+            te_library, fa, outdir / chunk_bam_name(fa), mate=row.mate,
+            te_opts=te_opts, sam_header=sam_header,
+        )
+        if found.n_reads != row.n_reads:
+            raise ValueError(
+                f"{fa} holds {found.n_reads} reads; the manifest says {row.n_reads}"
+            )
+        return found
+
+    if not chunk_fastas:
+        return []
+    with ThreadPoolExecutor(max_workers=max(1, min(int(threads or 1), len(chunk_fastas)))) as pool:
+        return [chunk.bam for chunk in pool.map(one, chunk_fastas)]

@@ -10,7 +10,7 @@ import textwrap
 from pathlib import Path
 
 from RelocaTE3 import __author__, __entry_points__, __version__, logger
-from RelocaTE3.aligners import GENOME_ALIGNERS, TE_ALIGNERS
+from RelocaTE3.aligners import BLAT_CHUNK_SEQS, GENOME_ALIGNERS, TE_ALIGNERS
 
 
 class CustomHelpFormatter(argparse.HelpFormatter):
@@ -251,6 +251,160 @@ def _menu_run(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     )
     _add_common_args(parser)
     parser.set_defaults(func=cmd_run)
+    return parser
+
+
+# Read-file options of the scatter subcommands: run-all's -1/-2 and run's -l/-r.
+def _add_scatter_reads(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "-1", "-l", "--left", "--r1",
+        required=True,
+        dest="left",
+        metavar="R1",
+        help="Left/R1 read file (FASTQ, may be gzipped)",
+    )
+    parser.add_argument(
+        "-2", "-r", "--right", "--r2",
+        dest="right",
+        metavar="R2",
+        help="Right/R2 read file for paired-end (FASTQ, may be gzipped)",
+    )
+
+
+def _add_te_library(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "-T",
+        "--te-library",
+        required=True,
+        dest="te_library",
+        metavar="FASTA",
+        help="Transposon library FASTA file",
+    )
+
+
+def _add_threads(parser: argparse.ArgumentParser, help: str) -> None:
+    parser.add_argument("--threads", type=int, default=1, help=help)
+
+
+def _menu_te_split(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Arguments for 'te-split' (BLAT TE search, step 1 of 3)."""
+    _add_scatter_reads(parser)
+    parser.add_argument(
+        "-n",
+        "--name",
+        required=True,
+        help="Sample/individual name (used as output prefix)",
+    )
+    parser.add_argument(
+        "-o",
+        "--outdir",
+        default=".",
+        help="Output directory; chunks and manifest.tsv go to <outdir>/<name>.te_chunks/",
+    )
+    parser.add_argument(
+        "--chunk-reads",
+        type=int,
+        default=BLAT_CHUNK_SEQS,
+        dest="chunk_reads",
+        metavar="N",
+        help="Reads per chunk (RelocaTE2's 200,000 by default). Outputs do not "
+        "depend on it; smaller chunks mean more, shorter te-search-chunk jobs",
+    )
+    _add_common_args(parser)
+    parser.set_defaults(func=cmd_te_split)
+    return parser
+
+
+def _menu_te_search_chunk(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Arguments for 'te-search-chunk' (BLAT TE search, step 2 of 3)."""
+    _add_te_library(parser)
+    parser.add_argument(
+        "--manifest",
+        required=True,
+        metavar="TSV",
+        help="manifest.tsv written by te-split (gives each chunk's mate)",
+    )
+    parser.add_argument(
+        "--chunk",
+        required=True,
+        nargs="+",
+        action="extend",
+        dest="chunks",
+        metavar="FASTA",
+        help="Chunk FASTA(s) from te-split; may be repeated",
+    )
+    parser.add_argument(
+        "-o",
+        "--outdir",
+        default=".",
+        help="Output directory for <chunk>.bam and <chunk>.bam.bai",
+    )
+    _add_threads(parser, "Chunks searched at once (BLAT is single-threaded)")
+    parser.add_argument(
+        "--te-opts",
+        dest="te_opts",
+        default="",
+        help=(
+            "Extra BLAT options, appended after RelocaTE2's -minScore=10 "
+            '-tileSize=7, e.g. "-minIdentity=80"; as for run --te-opts'
+        ),
+    )
+    _add_common_args(parser)
+    parser.set_defaults(func=cmd_te_search_chunk)
+    return parser
+
+
+def _menu_te_merge_trim(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Arguments for 'te-merge-trim' (BLAT TE search, step 3 of 3)."""
+    _add_scatter_reads(parser)
+    _add_te_library(parser)
+    parser.add_argument(
+        "-n",
+        "--name",
+        required=True,
+        help="Sample/individual name (used as output prefix)",
+    )
+    parser.add_argument("-o", "--outdir", default=".", help="Output directory")
+    parser.add_argument(
+        "--manifest",
+        required=True,
+        metavar="TSV",
+        help="manifest.tsv written by te-split",
+    )
+    parser.add_argument(
+        "--chunk-bams",
+        required=True,
+        nargs="+",
+        action="extend",
+        dest="chunk_bams",
+        metavar="BAM",
+        help="Every chunk BAM from te-search-chunk, any order (matched to the "
+        "manifest by file name); may be repeated",
+    )
+    _add_threads(parser, "Threads for samtools merge")
+    parser.add_argument(
+        "--min-match",
+        type=int,
+        default=10,
+        dest="minimum_match_length",
+        help="Minimum alignment match length to TE",
+    )
+    parser.add_argument(
+        "--min-trimmed",
+        type=int,
+        default=10,
+        dest="minimum_trimmed_length",
+        help="Minimum trimmed flanking sequence length to retain",
+    )
+    parser.add_argument(
+        "--mismatch",
+        type=int,
+        default=2,
+        dest="mismatch_allowance",
+        help="Allowed mismatches in TE alignment (default: 2, matching RelocaTE2)",
+    )
+    _add_common_args(parser)
+    parser.set_defaults(func=cmd_te_merge_trim)
     return parser
 
 
@@ -1006,6 +1160,55 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_te_split(args: argparse.Namespace) -> int:
+    """BLAT TE search step 1: split the reads into chunk FASTAs plus a manifest."""
+    from RelocaTE3 import te_scatter
+
+    fileset = [args.left] + ([args.right] if args.right else [])
+    manifest = te_scatter.split_reads(fileset, args.name, args.outdir, args.chunk_reads)
+    logger.info("Chunk manifest: %s", manifest)
+    return 0
+
+
+def cmd_te_search_chunk(args: argparse.Namespace) -> int:
+    """BLAT TE search step 2: search chunk FASTAs into chunk BAMs."""
+    from RelocaTE3 import te_scatter
+
+    bams = te_scatter.search_chunks(
+        args.te_library,
+        args.manifest,
+        args.chunks,
+        args.outdir,
+        te_opts=split_aligner_opts(args.te_opts),
+        threads=args.threads,
+    )
+    logger.info("%d chunk BAM(s) written to %s", len(bams), args.outdir)
+    return 0
+
+
+def cmd_te_merge_trim(args: argparse.Namespace) -> int:
+    """BLAT TE search step 3: merge the chunk BAMs and trim; run's outputs."""
+    from RelocaTE3 import te_scatter
+    from RelocaTE3.librelocate import merge_trim
+
+    fileset = [args.left] + ([args.right] if args.right else [])
+    sides = te_scatter.sides_from_manifest(
+        te_scatter.read_manifest(args.manifest), args.chunk_bams, fileset
+    )
+    n = merge_trim(
+        args.name,
+        sides,
+        Path(args.outdir),
+        args.te_library,
+        threads=args.threads,
+        minimum_match_length=args.minimum_match_length,
+        minimum_trimmed_length=args.minimum_trimmed_length,
+        mismatch_allowance=args.mismatch_allowance,
+    )
+    logger.info("%d read(s) written", n)
+    return 0
+
+
 def cmd_characterize(args: argparse.Namespace) -> int:
     """Characterize insertion sites as homozygous, heterozygous, somatic or excised."""
     from RelocaTE3.characterize import Characterizer
@@ -1714,6 +1917,42 @@ def build_parser() -> argparse.ArgumentParser:
             "portion, emitting flanking reads and the read_repeat_name table. "
             "This is TE-read identification and flank generation (steps 2-3), "
             "NOT the complete insertion-calling pipeline.",
+        )
+    )
+    _menu_te_split(
+        subparsers.add_parser(
+            "te-split",
+            formatter_class=CustomHelpFormatter,
+            help="BLAT TE search across jobs, 1/3: split reads into chunks",
+            description="Step 1 of the BLAT TE search spread over jobs (te-split -> "
+            "te-search-chunk -> te-merge-trim, together identical to 'run' with "
+            "--te-aligner blat). Converts each read file to FASTA chunks of "
+            "--chunk-reads reads in <outdir>/<name>.te_chunks/, with manifest.tsv "
+            "(side, index, chunk, n_reads, mate, read_file).",
+        )
+    )
+    _menu_te_search_chunk(
+        subparsers.add_parser(
+            "te-search-chunk",
+            formatter_class=CustomHelpFormatter,
+            help="BLAT TE search across jobs, 2/3: search chunks against the TE library",
+            description="Step 2 of the BLAT TE search spread over jobs. BLATs each "
+            "--chunk FASTA against the TE library with RelocaTE2's options (plus "
+            "--te-opts) into <outdir>/<chunk>.bam (+ .bai), sorted, read names "
+            "carrying the mate from the manifest. Run it on any subsets of the "
+            "chunks, in any number of jobs.",
+        )
+    )
+    _menu_te_merge_trim(
+        subparsers.add_parser(
+            "te-merge-trim",
+            formatter_class=CustomHelpFormatter,
+            help="BLAT TE search across jobs, 3/3: merge chunk BAMs and trim",
+            description="Step 3 of the BLAT TE search spread over jobs. Checks the "
+            "chunk BAMs against the manifest (none missing, extra or repeated), "
+            "merges each side in chunk order and trims, writing exactly what 'run' "
+            "writes: <name>.{left,right}.bam(.bai), te_containing/, flanking/ and "
+            "te_portions/. The chunk BAMs are left in place.",
         )
     )
     _menu_annotate_ref(
