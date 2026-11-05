@@ -5,15 +5,20 @@
  *                     -> CAT_FASTQ (only for a sample with several lanes)
  *   genome            -> PREPARE_GENOME (once)
  *   per sample        -> ONE_SAMPLE
+ *   all characterized -> RELOCATE3_COHORT (once; only if any sample was characterized)
+ *   summaries         -> MULTIQC (once, at the end; unless skip_multiqc)
  *   versions.yml      -> ${params.outdir}/pipeline_info/software_versions.yml
  *
- * Published files (conf/modules.config) are run-all's, under
- * ${params.outdir}/<sample>/.
+ * Published files (conf/modules.config): each sample's are run-all's, under
+ * ${params.outdir}/<sample>/; the cohort's under ${params.outdir}/cohort/;
+ * the report under ${params.outdir}/multiqc/.
  */
 
 include { CAT_FASTQ      } from '../modules/local/cat_fastq/main'
 include { PREPARE_GENOME } from '../subworkflows/local/prepare_genome'
 include { ONE_SAMPLE     } from '../subworkflows/local/one_sample'
+include { RELOCATE3_COHORT } from '../modules/local/relocate3_cohort/main'
+include { MULTIQC        } from '../modules/local/multiqc/main'
 
 workflow RELOCATE3 {
     take:
@@ -57,11 +62,69 @@ workflow RELOCATE3 {
     )
     ch_versions = ch_versions.mix(ONE_SAMPLE.out.versions)
 
-    // One entry per process: identical versions.yml of several samples collapse.
-    ch_versions
+    // Cohort tables, once. toSortedList waits for every sample and orders the
+    // tables by sample id, so the task's inputs (-resume) do not depend on
+    // the order samples finish. It emits [] when no sample was characterized
+    // (--genotype false, no genotype_bam): then no COHORT.
+    RELOCATE3_COHORT(
+        ONE_SAMPLE.out.characterized
+            .map { meta, table -> [ meta.id, table ] }
+            .toSortedList { a, b -> a[0] <=> b[0] }
+            .filter { pairs -> pairs.size() > 0 }
+            .map { pairs -> [ pairs.collect { p -> p[0] }, pairs.collect { p -> p[1] } ] }
+    )
+    ch_versions = ch_versions.mix(RELOCATE3_COHORT.out.versions)
+
+    // One entry per process: identical versions.yml of several samples
+    // collapse. Plus the workflow's own entry (as nf-core pipelines do).
+    ch_versions_text = ch_versions
         .map { f -> f.text }
         .unique()
+        .mix(channel.of(workflowVersions()))
+
+    ch_report_versions = channel.empty()
+    if (!params.skip_multiqc) {
+        // MultiQC's "Software versions" section reads *_mqc_versions.yml:
+        // { group: { tool: version } }. Groups are the simple process names.
+        ch_mqc_versions = ch_versions_text
+            .map { text -> text.replaceAll(/(?m)^"(?:[^":]*:)*([^":]+)":/, '$1:') }
+            .collectFile(name: 'relocate3_software_mqc_versions.yml', sort: true)
+
+        // Summary files only; sorted by name (unique: cohort, <id>.stats,
+        // versions) so the task's inputs do not depend on completion order.
+        MULTIQC(
+            RELOCATE3_COHORT.out.summary
+                .mix(ONE_SAMPLE.out.stats.map { _meta, stats -> stats })
+                .mix(ch_mqc_versions)
+                .toSortedList { a, b -> a.name <=> b.name },
+            file("${projectDir}/assets/multiqc_config.yml", checkIfExists: true),
+            reportComment()
+        )
+        ch_report_versions = MULTIQC.out.versions.map { f -> f.text }
+    }
+
+    ch_versions_text
+        .mix(ch_report_versions)
         .collectFile(name: 'software_versions.yml', storeDir: "${params.outdir}/pipeline_info", sort: true)
+}
+
+/*
+ * The workflow's entry in software_versions.yml, as nf-core pipelines write it.
+ */
+def workflowVersions() {
+    return "Workflow:\n    Nextflow: ${workflow.nextflow.version}\n    ${workflow.manifest.name}: ${workflow.manifest.version}\n"
+}
+
+/*
+ * The MultiQC report comment: pipeline version and what ran the tasks
+ * (pipeline_info/software_environment.txt has the full record).
+ */
+def reportComment() {
+    def revision = workflow.commitId ? " (${workflow.revision ?: 'commit'} ${workflow.commitId.take(7)})" : ''
+    def software = workflow.containerEngine
+        ? "${workflow.containerEngine} image ${workflow.container}"
+        : (workflow.profile.tokenize(',').contains('pixi') ? "pixi environment ${params.pixi_env}" : 'tools on the host PATH')
+    return "${workflow.manifest.name} ${workflow.manifest.version}${revision}; software: ${software}. Run ${workflow.runName}, ${workflow.start}."
 }
 
 /*

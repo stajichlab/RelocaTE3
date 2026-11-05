@@ -1,0 +1,27 @@
+# MultiQC configuration for the RelocaTE3 report (modules/local/multiqc).
+# Option names checked against MultiQC 1.35 (multiqc/config_defaults.yaml and
+# docs/markdown/reports/customisation.md, custom_content/index.md).
+#
+# The report comment (pipeline version, software environment) is given per
+# run on the command line (--comment), and --multiqc_title overrides `title`
+# (--title); command-line values win over this file.
+
+title: "RelocaTE3"
+subtitle: "Transposable element insertions"
+intro_text: "Summary of a stajichlab/RelocaTE3 Nextflow run: characterized non-reference insertions per sample (cohort summary), reads and calls per sample, and the software versions that made them. The calls themselves are in <outdir>/<sample>/results/ and <outdir>/cohort/."
+
+# Paths would be Nextflow work directories; no network call to check for a
+# newer MultiQC.
+show_analysis_paths: false
+no_version_check: true
+
+# Section order: the custom-content sections in this order; MultiQC always
+# puts "Software versions" (from *_mqc_versions.yml) last.
+custom_content:
+  order:
+    - relocate3_cohort_summary
+    - relocate3_sample_stats
+
+# Sample names are RelocaTE3 sample ids; do not strip "file extensions" from
+# them.
+fn_clean_sample_names: false

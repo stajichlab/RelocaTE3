@@ -4,6 +4,8 @@
  *   TE_SEARCH -> ALIGN_GENOME -> FIND_INSERTIONS -> CHARACTERIZE   (genotype, or genotype_bam given)
  *                             \-> FIND_REFERENCE                   (repeatmasker)
  *   ALIGN_READS (genotype, sample without genotype_bam), in parallel with TE_SEARCH
+ *   SAMPLE_STATS  (unless skip_multiqc) counts reads and calls for the report
+ *                 from the outputs above; not a run-all step, not published
  *
  * Channels are joined on meta ([ id: sample ]), the same map at every step of
  * one sample. The genotype BAM is not in meta: it reaches CHARACTERIZE only,
@@ -15,7 +17,9 @@
  *       repeatmasker       RepeatMasker .out, or [] (no FIND_REFERENCE)
  *       genotype_bams      [ meta, BAM/CRAM, index ] for samples with a
  *                          genotype_bam (index checked by the caller)
- * Emit: versions           versions.yml of every task
+ * Emit: characterized      [ meta, <target>.<te_name>.all_nonref_insert.characTErized.txt ]
+ *       stats              [ meta, <id>.stats_mqc.tsv ]   (empty with skip_multiqc)
+ *       versions           versions.yml of every task
  */
 
 include { RELOCATE3_TE_SEARCH       } from '../../modules/local/relocate3_te_search/main'
@@ -24,6 +28,7 @@ include { RELOCATE3_ALIGN_READS     } from '../../modules/local/relocate3_align_
 include { RELOCATE3_FIND_INSERTIONS } from '../../modules/local/relocate3_find_insertions/main'
 include { RELOCATE3_FIND_REFERENCE  } from '../../modules/local/relocate3_find_reference/main'
 include { RELOCATE3_CHARACTERIZE    } from '../../modules/local/relocate3_characterize/main'
+include { RELOCATE3_SAMPLE_STATS    } from '../../modules/local/relocate3_sample_stats/main'
 
 workflow ONE_SAMPLE {
     take:
@@ -61,12 +66,14 @@ workflow ONE_SAMPLE {
     ch_versions = ch_versions.mix(RELOCATE3_FIND_INSERTIONS.out.versions)
 
     // run-all steps 0/6: reference TE calls, only with --repeatmasker
+    ch_reference = channel.empty()
     if (params.repeatmasker) {
         RELOCATE3_FIND_REFERENCE(
             RELOCATE3_ALIGN_GENOME.out.bam.join(RELOCATE3_TE_SEARCH.out.read_repeat),
             repeatmasker
         )
         ch_versions = ch_versions.mix(RELOCATE3_FIND_REFERENCE.out.versions)
+        ch_reference = RELOCATE3_FIND_REFERENCE.out.results
     }
 
     // run-all step 7: genotyping (`if args.genotype or args.genotype_bam`).
@@ -92,6 +99,29 @@ workflow ONE_SAMPLE {
     )
     ch_versions = ch_versions.mix(RELOCATE3_CHARACTERIZE.out.versions)
 
+    // Report counts, from files the steps above already wrote. Characterized
+    // and reference tables are optional ([] when the sample has none), so a
+    // sample's counts wait for CHARACTERIZE / FIND_REFERENCE to finish or to
+    // have nothing for it.
+    ch_stats = channel.empty()
+    if (!params.skip_multiqc) {
+        RELOCATE3_SAMPLE_STATS(
+            RELOCATE3_TE_SEARCH.out.read_repeat
+                .join(RELOCATE3_TE_SEARCH.out.flanking)
+                .join(RELOCATE3_FIND_INSERTIONS.out.results)
+                .join(RELOCATE3_CHARACTERIZE.out.results, remainder: true)
+                .join(ch_reference, remainder: true)
+                .map { meta, read_repeat, flanking, nonref, characterized, reference ->
+                    [ meta, read_repeat, flanking, nonref, characterized ?: [], reference ?: [] ]
+                }
+        )
+        ch_versions = ch_versions.mix(RELOCATE3_SAMPLE_STATS.out.versions)
+        ch_stats = RELOCATE3_SAMPLE_STATS.out.stats
+    }
+
     emit:
-    versions = ch_versions
+    characterized = RELOCATE3_CHARACTERIZE.out.results
+        .map { meta, files -> [ meta, files.find { f -> f.name.endsWith('.characTErized.txt') } ] }
+    stats         = ch_stats
+    versions      = ch_versions
 }

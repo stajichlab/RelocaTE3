@@ -201,3 +201,25 @@ def test_slurm_partition_param():
     props = _schema_properties()
     assert _config_params()["slurm_partition"] == "intel"
     assert props["slurm_partition"]["type"] == "string"
+
+
+# ------------------------------------------------------- report params
+
+
+def test_report_params_are_declared():
+    """Pipeline-only: run-all has no MultiQC report (run-batch writes the cohort only)."""
+    props = _schema_properties()
+    config = _config_params()
+    assert config["skip_multiqc"] is False
+    assert props["skip_multiqc"]["type"] == "boolean"
+    assert config["multiqc_title"] is None
+    assert props["multiqc_title"]["type"] == "string"
+    run_all = vars(_run_all_defaults())
+    assert "skip_multiqc" not in run_all and "multiqc_title" not in run_all
+
+
+def test_report_params_have_their_own_schema_group():
+    schema = json.loads(SCHEMA.read_text())
+    group = schema["$defs"]["report_options"]
+    assert set(group["properties"]) == {"skip_multiqc", "multiqc_title"}
+    assert {"$ref": "#/$defs/report_options"} in schema["allOf"]

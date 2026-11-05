@@ -180,10 +180,15 @@ nextflow_pipeline {
             assert n('RELOCATE3_INDEX_GENOME') == 1
             assert n('CAT_FASTQ') == 0
             ['RELOCATE3_TE_SEARCH', 'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS', 'RELOCATE3_FIND_REFERENCE',
-             'RELOCATE3_ALIGN_READS', 'RELOCATE3_CHARACTERIZE'].each { p -> assert n(p) == 1 : p }
-            // Published: the sample's run-all layout and pipeline_info only.
+             'RELOCATE3_ALIGN_READS', 'RELOCATE3_CHARACTERIZE', 'RELOCATE3_SAMPLE_STATS'].each { p -> assert n(p) == 1 : p }
+            // Once per run, after every sample.
+            assert n('RELOCATE3_COHORT') == 1
+            assert n('MULTIQC') == 1
+            // Published: the sample's run-all layout, the cohort, the report and pipeline_info only.
             def out = new File("${outputDir}/results")
-            assert out.list().toList().sort() == ['chr3', 'pipeline_info']
+            assert out.list().toList().sort() == ['chr3', 'cohort', 'multiqc', 'pipeline_info']
+            assert new File(out, 'cohort').list().toList().sort() == ['cohort.characTErized.txt', 'cohort.genotype_matrix.tsv', 'cohort.summary_mqc.tsv']
+            assert new File(out, 'multiqc').list().toList().sort() == ['relocate3_report.html', 'relocate3_report_data']
             def published = []
             new File(out, 'chr3').eachFileRecurse(groovy.io.FileType.FILES) { f -> published << out.toPath().resolve('chr3').relativize(f.toPath()).toString() }
             assert published.sort() == [
@@ -204,8 +209,10 @@ nextflow_pipeline {
                 'te_portions/chr3.five_prime.fa', 'te_portions/chr3.three_prime.fa',
             ].sort()
             def versions = new File(out, 'pipeline_info/software_versions.yml').text
-            // One entry per process (deduplicated across samples).
-            assert versions.readLines().count { l -> l.startsWith('"') } == 7
+            // One entry per process (deduplicated across samples), and the workflow's.
+            assert versions.readLines().count { l -> l.startsWith('"') } == 10
+            assert versions.readLines().contains('Workflow:')
+            assert versions.contains('stajichlab/RelocaTE3: ')
         }
     }
 
@@ -232,9 +239,11 @@ nextflow_pipeline {
             assert n('RELOCATE3_INDEX_GENOME') == 1
             assert n('CAT_FASTQ') == 1
             ['RELOCATE3_TE_SEARCH', 'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS', 'RELOCATE3_FIND_REFERENCE',
-             'RELOCATE3_ALIGN_READS', 'RELOCATE3_CHARACTERIZE'].each { p -> assert n(p) == 2 : p }
+             'RELOCATE3_ALIGN_READS', 'RELOCATE3_CHARACTERIZE', 'RELOCATE3_SAMPLE_STATS'].each { p -> assert n(p) == 2 : p }
+            assert n('RELOCATE3_COHORT') == 1
+            assert n('MULTIQC') == 1
             def out = new File("${outputDir}/results")
-            assert out.list().toList().sort() == ['a', 'b', 'pipeline_info']
+            assert out.list().toList().sort() == ['a', 'b', 'cohort', 'multiqc', 'pipeline_info']
         }
     }
 
@@ -258,8 +267,36 @@ nextflow_pipeline {
             assert workflow.success
             assert n('RELOCATE3_ALIGN_READS') == 0
             assert n('RELOCATE3_CHARACTERIZE') == 0
+            // Nothing characterized: no cohort; the report still has the per-sample counts.
+            assert n('RELOCATE3_COHORT') == 0
             ['RELOCATE3_INDEX_GENOME', 'RELOCATE3_TE_SEARCH', 'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS',
-             'RELOCATE3_FIND_REFERENCE'].each { p -> assert n(p) == 1 : p }
+             'RELOCATE3_FIND_REFERENCE', 'RELOCATE3_SAMPLE_STATS', 'MULTIQC'].each { p -> assert n(p) == 1 : p }
+            assert !new File("${outputDir}/results/cohort").exists()
+        }
+    }
+
+    test("--skip_multiqc runs neither SAMPLE_STATS nor MULTIQC; the cohort is still written") {
+        options "-stub"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_chr3.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\nchr3,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+            params {
+                input        = sheet.absolutePath
+                outdir       = "${outputDir}/results"
+                skip_multiqc = true
+            }
+        }
+
+        then {
+            def n = { String p -> workflow.trace.tasks().count { t -> t.name.tokenize(' ')[0].tokenize(':')[-1] == p } }
+            assert workflow.success
+            assert n('MULTIQC') == 0
+            assert n('RELOCATE3_SAMPLE_STATS') == 0
+            assert n('RELOCATE3_COHORT') == 1
+            assert new File("${outputDir}/results").list().toList().sort() == ['chr3', 'cohort', 'pipeline_info']
         }
     }
 
@@ -348,6 +385,8 @@ nextflow_pipeline {
             assert workflow.success
             assert n('RELOCATE3_ALIGN_READS') == 0
             assert n('RELOCATE3_CHARACTERIZE') == 1
+            // One sample characterized is enough for the cohort.
+            assert n('RELOCATE3_COHORT') == 1
             def characterized = workflow.trace.tasks().find { t -> t.name.startsWith('RELOCATE3:ONE_SAMPLE:RELOCATE3_CHARACTERIZE') }
             assert characterized.name.contains('(given)')
             assert new File("${outputDir}/results/given/results/ALL.repeat.all_nonref_insert.characTErized.txt").exists()
@@ -455,6 +494,7 @@ nextflow_pipeline {
                                             '--no-require-both-junctions', '--size 501', '--distance 4',
                                             '--reference-ins MSU7.Chr3_2M.fa.RepeatMasker.out'],
                 RELOCATE3_CHARACTERIZE   : ['-s results/Chr3.other.all_nonref_insert.txt', '--bcftools bcftools-custom'],
+                RELOCATE3_SAMPLE_STATS   : ['-n chr3', '--target Chr3', '--te-name other'],
             ]
             expected.each { proc, args ->
                 assert scripts.containsKey(proc) : proc
@@ -471,6 +511,52 @@ nextflow_pipeline {
             }
             assert !scripts['RELOCATE3_CHARACTERIZE'].contains('--excision')
             assert new File("${outputDir}/results/chr3/results/Chr3.other.all_nonref_insert.characTErized.txt").exists()
+        }
+    }
+
+    // A real run with the test profile's settings (those of the parity gate):
+    // the cohort table is the one sample's characterized table, and the
+    // MultiQC report has the cohort, per-sample and software-version sections.
+    test("real run: cohort table equals the sample's characterized table; MultiQC report") {
+        tag "report"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_chr3.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\nchr3,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+            params {
+                input  = sheet.absolutePath
+                outdir = "${outputDir}/results"
+            }
+        }
+
+        then {
+            assert workflow.success
+            def out = new File("${outputDir}/results")
+            def sample = new File(out, 'chr3/results/ALL.repeat.all_nonref_insert.characTErized.txt').readLines()
+            def cohort = new File(out, 'cohort/cohort.characTErized.txt').readLines()
+            assert cohort == sample
+            assert cohort.size() == 197
+            def matrix = new File(out, 'cohort/cohort.genotype_matrix.tsv').readLines()
+            assert matrix[0] == 'chromosome\tstart\tend\tstrand\tTE\tchr3'
+            assert matrix.size() == sample.size()
+            def summary = new File(out, 'cohort/cohort.summary_mqc.tsv').readLines().findAll { l -> !l.startsWith('#') }
+            assert summary[1].startsWith("chr3\t${sample.size() - 1}\t")
+
+            assert new File(out, 'multiqc/relocate3_report.html').size() > 0
+            def data_dir = new File(out, 'multiqc/relocate3_report_data')
+            def json = new File(data_dir, 'multiqc_data.json').text
+            assert json.contains('relocate3_cohort_summary')
+            def data = new groovy.json.JsonSlurper().parseText(json)
+            assert data.config_title == 'RelocaTE3'
+            assert data.config_report_comment.contains('stajichlab/RelocaTE3 ')
+            def stats = data.report_saved_raw_data.multiqc_relocate3_sample_stats_table.chr3
+            assert stats.characterized == sample.size() - 1
+            assert stats.nonref_raw == new File(out, 'chr3/results/ALL.repeat.all_nonref_insert.raw.txt').readLines().size()
+            def versions = new File(data_dir, 'multiqc_software_versions.txt').readLines()
+            assert versions.any { l -> l.startsWith('RELOCATE3_TE_SEARCH\t') }
+            assert versions.any { l -> l.startsWith('Workflow\t') }
         }
     }
 }
