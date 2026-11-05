@@ -4,6 +4,24 @@
 
 ### Added
 
+- Nextflow pipeline, milestone 3:
+  - New `relocaTE3 cohort` writes:
+    - `cohort.characTErized.txt`: every sample's characterized rows, unchanged;
+    - `cohort.genotype_matrix.tsv`: exact sites × samples, cell = status,
+      `.` = no call;
+    - `cohort.summary_mqc.tsv`.
+  - `run-batch` and the pipeline write it to `<outdir>/cohort/`.
+  - New `relocaTE3 sample-stats`: per-sample read and call counts for the
+    report.
+  - The pipeline ends with a MultiQC report, `multiqc/relocate3_report.html`.
+    New settings `--skip_multiqc` and `--multiqc_title`.
+  - MultiQC 1.35 joins the image through a new pixi environment, `pipeline`
+    (`blat` + MultiQC, solved together, so every tool build is identical). The
+    pixi profile and the image now use `pipeline`.
+  - Checked on the 10 real-rice samples: the cohort holds all 5,775 calls,
+    identical to the per-sample tables. The matrix has 2,847 sites, 1,056 of
+    them called in at least 2 samples (`validation/real_rice/cohort_report.sh`).
+
 - Nextflow pipeline, milestone 1:
   - `main.nf` in nf-core layout, with parameter and sample-sheet checks
     (nf-schema) and `pixi` and `test` profiles.

@@ -201,8 +201,17 @@ from, so use absolute paths.
 
 Outputs:
 - `results/<sample>/`: the same layout as `run-all`.
-- `results/pipeline_info/`: software versions, and Nextflow's report,
-  timeline, trace and DAG.
+- `results/cohort/`: the `relocaTE3 cohort` outputs over all characterized
+  samples (see "Cohort outputs"). They are written when at least one sample
+  was genotyped.
+- `results/multiqc/relocate3_report.html`: one summary report.
+  - Calls per sample and per genotype class.
+  - Per-sample counts: TE-containing reads, flanking reads, calls per output
+    tier, reference calls.
+  - Software versions.
+  - `--skip_multiqc` turns it off; `--multiqc_title` sets its title.
+- `results/pipeline_info/`: software versions, the software environment, and
+  Nextflow's report, timeline, trace and DAG.
 
 Settings use `run-all`'s names in snake case, with the same defaults:
 `--te_aligner`, `--genome_aligner`, `--mismatch`, `--size`, `--min_mapq`,
@@ -212,7 +221,6 @@ sample with a `genotype_bam` is always genotyped. `nextflow_schema.json` describ
 setting, and they can be supplied in one file with `-params-file params.yaml`.
 
 Coming next:
-- a cohort table and summary report;
 - spreading BLAT across cluster jobs.
 
 See `plans/2026-11-02-nextflow-pipeline-design.md`.
