@@ -74,6 +74,83 @@ class _Capture:
         return text
 
 
+def merge_trim(
+    name: str,
+    sides,
+    outdir,
+    te_library,
+    *,
+    threads: int = 1,
+    minimum_match_length: int = 10,
+    minimum_trimmed_length: int = 10,
+    mismatch_allowance: int = 2,
+    tmpdir=None,
+    relocate: "RelocaTE | None" = None,
+) -> int:
+    """Step 3 of the BLAT TE search: merge each side's chunk BAMs, then trim.
+
+    After :func:`RelocaTE3.aligners.split_te_query` and
+    :func:`RelocaTE3.aligners.search_te_chunk`. For each side, in order:
+
+    - ``samtools merge`` its chunk BAMs, in chunk order, into
+      ``<outdir>/<name>.<direction>.bam`` (+ ``.bai``). Sort and merge are
+      stable, so this equals one sort of the whole side;
+    - :meth:`RelocaTE.write_trimmed_reads_chunked` over the chunks and the
+      side's read file, writing ``te_containing/``, ``flanking/`` and
+      ``te_portions/``.
+
+    These are exactly the files ``relocaTE3 run`` writes for BLAT, whatever the
+    chunk size and wherever the chunks were searched. The chunk BAMs are
+    inputs and are left in place.
+
+    Args:
+        name: sample name (output prefix).
+        sides: :class:`RelocaTE3.aligners.TESide` per read side, ``[left]`` or
+            ``[left, right]``; each side's ``chunks`` in read-file order.
+        outdir: output directory.
+        te_library: TE library FASTA (the header of an empty side's BAM).
+        threads: ``samtools merge`` threads (does not change the output).
+        minimum_match_length, minimum_trimmed_length, mismatch_allowance: trim
+            cut-offs, as for ``relocaTE3 run``.
+        tmpdir: scratch directory (default: a temporary one).
+        relocate: the :class:`RelocaTE` to trim with (default: a new one).
+
+    Returns:
+        Number of flanking reads written.
+
+    Raises:
+        ValueError: if a side's read file does not hold exactly the reads its
+            chunks cover (Σ ``n_reads``).
+    """
+    from RelocaTE3.aligners import _merge_sorted_bams, _tmp, te_sam_header
+
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    sides = list(sides)
+    if not 1 <= len(sides) <= 2:
+        raise ValueError(f"expected one or two read sides, got {len(sides)}")
+    sam_header = te_sam_header(te_library)
+    with _tmp(tmpdir) as td:
+        for side in sides:
+            _merge_sorted_bams(
+                [chunk.bam for chunk in side.chunks],
+                outdir / f"{name}.{side.direction}.bam",
+                sam_header,
+                threads,
+                td,
+            )
+    relocate = relocate if relocate is not None else RelocaTE()
+    return relocate.write_trimmed_reads_chunked(
+        name,
+        [(side.direction, side) for side in sides],
+        outdir,
+        source_fastqs=[side.read_file for side in sides],
+        minimum_match_length=minimum_match_length,
+        minimum_trimmed_length=minimum_trimmed_length,
+        mismatch_allowance=mismatch_allowance,
+    )
+
+
 class RelocaTE:
     """Process reads to identify transposon insertion and excision sites."""
 
@@ -123,23 +200,26 @@ class RelocaTE:
 
         backend = get_aligner(tool, self.cpu_threads, te_opts=te_opts)
         backend.index(TE_library)
-        map_chunked = getattr(backend, "map_te_library_chunked", None)
-        if map_chunked is not None:
+        search_chunks = getattr(backend, "search_te_chunks", None)
+        if search_chunks is not None:
             # BLAT admits far more reads than the other aligners (~17M per side
             # on riceTElib 30x), so trim it chunk by chunk as RelocaTE2 does.
-            alignments = map_chunked(seqreads, TE_library, str(outdir))
-            directions = self._bam_directions([a.bam for a in alignments])
-            written = self.write_trimmed_reads_chunked(
+            # Same three steps as the scatter subcommands (te-split,
+            # te-search-chunk, te-merge-trim), here in one process.
+            sides = search_chunks(seqreads, TE_library, str(outdir))
+            written = merge_trim(
                 seqreads.name,
-                list(zip(directions, alignments)),
+                sides,
                 outdir,
-                source_fastqs=seqreads.file_set,
+                TE_library,
+                threads=self.cpu_threads,
                 minimum_match_length=minimum_match_length,
                 minimum_trimmed_length=minimum_trimmed_length,
                 mismatch_allowance=mismatch_allowance,
+                relocate=self,
             )
-            for alignment in alignments:
-                shutil.rmtree(alignment.chunk_dir, ignore_errors=True)
+            for side in sides:
+                shutil.rmtree(side.chunk_dir, ignore_errors=True)
             return written
 
         bamfiles = backend.map_te_library(seqreads, TE_library, str(outdir))
@@ -296,8 +376,10 @@ class RelocaTE:
 
         Args:
             name: sample name (output prefix).
-            direction_alignments: ``(direction, ChunkedTEAlignment)`` pairs, one
-                per read side, in the same order as ``source_fastqs``.
+            direction_alignments: ``(direction, alignment)`` pairs, one
+                per read side, in the same order as ``source_fastqs``; each
+                ``alignment`` has ``chunks`` (``TEChunk`` s in read-file
+                order), e.g. a ``ChunkedTEAlignment`` or ``TESide``.
             outdir: base output directory.
             source_fastqs: the read files the chunks were cut from; chunk ``i``
                 covers the next ``chunks[i].n_reads`` records.
