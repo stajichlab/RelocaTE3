@@ -1,0 +1,66 @@
+// RELOCATE3_COHORT: the three cohort files from per-sample characterized
+// tables, which all have the same file name (staged in numbered dirs) and are
+// passed as NAME=PATH, so a header-only table works.
+
+nextflow_process {
+
+    name "RELOCATE3_COHORT"
+    script "../main.nf"
+    process "RELOCATE3_COHORT"
+    tag "modules"
+    tag "relocate3_cohort"
+    // pixi: the real test runs relocaTE3 from the pipeline env.
+    profile "pixi"
+
+    test("stub: emits the three cohort files") {
+        options "-stub"
+
+        when {
+            def d = new File("${outputDir}/inputs/a"); d.mkdirs()
+            new File(d, 'ALL.repeat.all_nonref_insert.characTErized.txt').text = ''
+            process {
+                """
+                input[0] = [ [ 'a' ], [ file('${d.absolutePath}/ALL.repeat.all_nonref_insert.characTErized.txt') ] ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert new File(process.out.table[0]).name == 'cohort.characTErized.txt'
+            assert new File(process.out.matrix[0]).name == 'cohort.genotype_matrix.tsv'
+            assert new File(process.out.summary[0]).name == 'cohort.summary_mqc.tsv'
+            assert process.out.versions.size() == 1
+        }
+    }
+
+    test("same-named tables of two samples, one header-only") {
+
+        when {
+            def header = 'strain\tTE\tTSD\tchromosome.pos\tstrand\tavg_flankers\tspanners\tstatus'
+            def name = 'ALL.repeat.all_nonref_insert.characTErized.txt'
+            def a = new File("${outputDir}/inputs/a"); a.mkdirs()
+            def b = new File("${outputDir}/inputs/b"); b.mkdirs()
+            new File(a, name).text = "${header}\na\tmPing\tTAA\tChr1:10..12\t+\t5\t0\thomozygous\n"
+            new File(b, name).text = "${header}\n"
+            process {
+                """
+                input[0] = [ [ 'a', 'b' ], [ file('${a.absolutePath}/${name}'), file('${b.absolutePath}/${name}') ] ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def table = new File(process.out.table[0]).readLines()
+            assert table.size() == 2
+            assert table[1].startsWith('a\tmPing')
+            def matrix = new File(process.out.matrix[0]).readLines()
+            assert matrix == [ 'chromosome\tstart\tend\tstrand\tTE\ta\tb', 'Chr1\t10\t12\t+\tmPing\thomozygous\t.' ]
+            def summary = new File(process.out.summary[0]).readLines().findAll { l -> !l.startsWith('#') }
+            assert summary[1].startsWith('a\t1\t')
+            assert summary[2].startsWith('b\t0\t')
+            assert new File(process.out.versions[0]).text.contains('relocate3:')
+        }
+    }
+}

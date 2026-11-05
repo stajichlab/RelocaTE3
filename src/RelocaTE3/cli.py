@@ -601,6 +601,63 @@ def _menu_run_batch(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return parser
 
 
+def _menu_cohort(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Arguments for the 'cohort' subcommand (combine per-sample tables)."""
+    parser.add_argument(
+        "-i",
+        "--input",
+        required=True,
+        nargs="+",
+        action="extend",
+        dest="inputs",
+        metavar="TABLE",
+        help="Per-sample *.all_nonref_insert.characTErized.txt tables, as PATH "
+        "(sample name read from the strain column) or NAME=PATH (required for a "
+        "header-only table). Repeatable; order does not matter",
+    )
+    parser.add_argument(
+        "-o",
+        "--outdir",
+        required=True,
+        help="Output directory for cohort.characTErized.txt, "
+        "cohort.genotype_matrix.tsv and cohort.summary_mqc.tsv",
+    )
+    _add_common_args(parser)
+    parser.set_defaults(func=cmd_cohort)
+    return parser
+
+
+def _menu_sample_stats(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Arguments for the 'sample-stats' subcommand (per-sample report counts)."""
+    parser.add_argument(
+        "-d",
+        "--sample-dir",
+        required=True,
+        dest="sample_dir",
+        help="The sample's output directory, in run-all layout (te_containing/, "
+        "flanking/, results/)",
+    )
+    parser.add_argument("-n", "--name", required=True, help="Sample name")
+    parser.add_argument(
+        "-c", "--target", default="ALL", help="--target of the run (names the tables)"
+    )
+    parser.add_argument(
+        "--te-name",
+        default="repeat",
+        dest="te_name",
+        help="--te-name of the run (names the tables)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        help="Output file, conventionally <name>.stats_mqc.tsv",
+    )
+    _add_common_args(parser)
+    parser.set_defaults(func=cmd_sample_stats)
+    return parser
+
+
 def _menu_find_reference(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Arguments for the 'find-reference' subcommand (steps 0/6)."""
     parser.add_argument(
@@ -1190,14 +1247,31 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
         )
         return argparse.Namespace(**values)
 
+    genotyping = bool(args.genotype or args.genotype_bam)
+
     def _already_done(sample) -> bool:
-        table = (
-            root
-            / sample.name
-            / "results"
-            / f"{args.target}.{args.te_name}.all_nonref_insert.txt"
-        )
-        return table.is_file() and table.stat().st_size > 0
+        """The nonref table exists; with genotyping, also a characterized table
+        not older than it (a crashed earlier batch can leave it missing or stale)."""
+        stem = root / sample.name / "results" / f"{args.target}.{args.te_name}"
+        table = Path(f"{stem}.all_nonref_insert.txt")
+        if not (table.is_file() and table.stat().st_size > 0):
+            return False
+        if not genotyping:
+            return True
+        characterized = Path(f"{stem}.all_nonref_insert.characTErized.txt")
+        if not characterized.is_file():
+            logger.info(
+                "run-batch: %s has no characterized table; re-running", sample.name
+            )
+            return False
+        if characterized.stat().st_mtime < table.stat().st_mtime:
+            logger.info(
+                "run-batch: %s's characterized table is older than its nonref "
+                "table; re-running",
+                sample.name,
+            )
+            return False
+        return True
 
     pending = []
     for sample in samples:
@@ -1208,7 +1282,6 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
 
     if not pending:
         logger.info("run-batch: nothing to do (use --force to re-run)")
-        return 0
 
     failures: list[tuple[str, str]] = []
 
@@ -1241,13 +1314,105 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
                 if not args.keep_going:
                     break
 
-    done = len(pending) - len(failures)
-    logger.info("run-batch: %d succeeded, %d failed", done, len(failures))
-    if failures:
-        for name, err in failures:
-            logger.error("  failed: %s (%s)", name, err)
-        return 1
+    if pending:
+        done = len(pending) - len(failures)
+        logger.info("run-batch: %d succeeded, %d failed", done, len(failures))
+    cohort_failed = False
+    if not failures or args.keep_going:
+        # Every sample not failed in this run: re-run ones and ones skipped as
+        # already complete, so a resumed batch still gets the whole cohort.
+        failed = {name for name, _ in failures}
+        try:
+            _batch_cohort(
+                args, root, [s.name for s in samples if s.name not in failed], genotyping
+            )
+        except Exception as err:  # noqa: BLE001 - reported with the sample failures
+            cohort_failed = True
+            logger.error("run-batch: cohort step failed: %s", err)
+    for name, err in failures:
+        logger.error("  failed: %s (%s)", name, err)
+    return 1 if failures or cohort_failed else 0
+
+
+def cmd_cohort(args: argparse.Namespace) -> int:
+    """Combine per-sample characterized tables into cohort-level outputs.
+
+    See :mod:`RelocaTE3.cohort` for the exact file formats and rules.
+    """
+    from RelocaTE3.cohort import write_cohort
+
+    logger.info("cohort: %d input table(s) -> %s", len(args.inputs), args.outdir)
+    write_cohort(args.inputs, args.outdir)
     return 0
+
+
+def cmd_sample_stats(args: argparse.Namespace) -> int:
+    """Count one sample's reads and calls for the MultiQC report.
+
+    See :mod:`RelocaTE3.sample_stats` for the columns and the files counted.
+    """
+    from RelocaTE3.sample_stats import write_sample_stats
+
+    out = write_sample_stats(
+        args.sample_dir, args.name, args.output, target=args.target, te_name=args.te_name
+    )
+    logger.info("sample-stats: %s -> %s", args.name, out)
+    return 0
+
+
+def _batch_cohort(
+    args: argparse.Namespace, root: Path, names: list[str], genotyping: bool
+) -> None:
+    """Write ``<root>/cohort/`` from the samples' characterized tables.
+
+    Only when this run genotypes (``--genotype`` or ``--genotype-bam``): a
+    characterized table left by an earlier run must not enter a cohort of a
+    run that did not genotype. Delegates to :func:`cmd_cohort`, so run-batch
+    and ``relocaTE3 cohort`` produce identical files. Inputs are passed as
+    ``NAME=PATH`` so a sample with no characterized calls still gets its own
+    matrix column. Samples without a table are left out; with none, it is
+    skipped. A skipped cohort never deletes an existing ``<root>/cohort/``.
+    """
+    cohort_dir = root / "cohort"
+
+    def _skipped(reason: str) -> None:
+        logger.info("run-batch: cohort skipped: %s", reason)
+        if cohort_dir.exists():
+            logger.warning(
+                "run-batch: %s is from an earlier run and was not updated by this one",
+                cohort_dir,
+            )
+
+    if not genotyping:
+        _skipped("run without --genotype")
+        return
+    tables, missing = [], []
+    for name in names:
+        table = (
+            root
+            / name
+            / "results"
+            / f"{args.target}.{args.te_name}.all_nonref_insert.characTErized.txt"
+        )
+        if table.is_file():
+            tables.append(f"{name}={table}")
+        else:
+            missing.append(name)
+    if not tables:
+        _skipped("no characterized tables")
+        return
+    if missing:
+        logger.warning(
+            "run-batch: no characterized table for %s; left out of the cohort",
+            ", ".join(missing),
+        )
+    rc = cmd_cohort(
+        argparse.Namespace(
+            inputs=tables, outdir=str(cohort_dir), verbose=args.verbose
+        )
+    )
+    if rc != 0:
+        raise RuntimeError(f"run-batch: cohort failed with exit code {rc}")
 
 
 def _find_genome_bam(outdir: Path, sample: str) -> Path:
@@ -1579,8 +1744,12 @@ def build_parser() -> argparse.ArgumentParser:
             help="Run the whole pipeline for many samples (sample sheet or FASTQ dir)",
             description="Run the full pipeline for every sample in a CSV/TSV sample "
             "sheet or a directory of paired FASTQs, one 'run-all' per sample into "
-            "<outdir>/<sample>. Resumable: samples with a results table are skipped "
-            "unless --force.",
+            "<outdir>/<sample>. Resumable: samples with a results table (and, with "
+            "--genotype or --genotype-bam, a characterized table not older than it) "
+            "are skipped unless --force. With --genotype or --genotype-bam, also "
+            "writes <outdir>/cohort/ via 'relocaTE3 cohort' from every sample that "
+            "did not fail, including ones skipped as complete; exits non-zero if "
+            "that cohort step fails. Sample names may not be 'cohort' or contain '='.",
         )
     )
     _menu_find_reference(
@@ -1630,6 +1799,32 @@ def build_parser() -> argparse.ArgumentParser:
             help="Find non-reference TE insertions from genome-aligned flanking reads (step 5)",
             description="Cluster genome-aligned flanking reads into candidate non-reference insertion "
             "sites and write the all_nonref_insert table consumed by 'characterize'.",
+        )
+    )
+    _menu_cohort(
+        subparsers.add_parser(
+            "cohort",
+            formatter_class=CustomHelpFormatter,
+            help="Combine per-sample characterized tables into cohort outputs",
+            description="Combine per-sample characterTErized tables into a cohort "
+            "call table (rows unchanged, ordered by sample), a sites-by-samples "
+            "genotype matrix keyed by exact chromosome/start/end/strand/TE "
+            "('.' = no call; nearby sites are not merged) and a MultiQC "
+            "summary table. The TSD is not part of the site key: samples with "
+            "different TSDs at the same site share a matrix row (their TSDs stay "
+            "in the cohort table), and one sample with two rows at the same key "
+            "is an error. Output does not depend on input order.",
+        )
+    )
+    _menu_sample_stats(
+        subparsers.add_parser(
+            "sample-stats",
+            formatter_class=CustomHelpFormatter,
+            help="Count one sample's reads and calls for the MultiQC report",
+            description="Count TE-containing reads, flanking reads, non-reference "
+            "calls per tier, characterized calls and reference calls from the files "
+            "a sample's run wrote (run-all layout), and write them as one MultiQC "
+            "custom-content table row. Counts lines only; changes no file.",
         )
     )
     _menu_characterize(

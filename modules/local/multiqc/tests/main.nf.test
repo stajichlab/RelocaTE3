@@ -1,0 +1,76 @@
+// MULTIQC: the summary report over custom-content files. The real test runs
+// MultiQC 1.35 from the pipeline env (pixi profile) on a cohort summary and a
+// software-versions YAML and checks the sections reach the report data.
+
+nextflow_process {
+
+    name "MULTIQC"
+    script "../main.nf"
+    process "MULTIQC"
+    tag "modules"
+    tag "multiqc"
+    profile "pixi"
+
+    test("stub: emits the report and its data dir") {
+        options "-stub"
+
+        when {
+            def d = new File("${outputDir}/inputs"); d.mkdirs()
+            new File(d, 'cohort.summary_mqc.tsv').text = ''
+            process {
+                """
+                input[0] = [ file('${d.absolutePath}/cohort.summary_mqc.tsv') ]
+                input[1] = file('${baseDir}/assets/multiqc_config.yml')
+                input[2] = 'stub comment'
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert new File(process.out.report[0]).name == 'relocate3_report.html'
+            assert new File(process.out.data[0]).name == 'relocate3_report_data'
+            assert process.out.versions.size() == 1
+        }
+    }
+
+    test("renders the cohort summary and the software versions; title and comment") {
+
+        when {
+            def d = new File("${outputDir}/inputs"); d.mkdirs()
+            new File(d, 'cohort.summary_mqc.tsv').text = [
+                "# id: 'relocate3_cohort_summary'",
+                "# section_name: 'RelocaTE3 cohort summary'",
+                "# format: 'tsv'",
+                "# plot_type: 'table'",
+                "# pconfig:",
+                "#     id: 'relocate3_cohort_summary_table'",
+                "Sample\ttotal_calls",
+                "A\t3",
+                "",
+            ].join('\n')
+            new File(d, 'relocate3_software_mqc_versions.yml').text = 'RELOCATE3_COHORT:\n    relocate3: 9.9.9\n'
+            process {
+                """
+                input[0] = [ file('${d.absolutePath}/cohort.summary_mqc.tsv'), file('${d.absolutePath}/relocate3_software_mqc_versions.yml') ]
+                input[1] = file('${baseDir}/assets/multiqc_config.yml')
+                input[2] = "it's RelocaTE3 test"
+                """
+            }
+            params {
+                multiqc_title = "My 'cohort'"
+            }
+        }
+
+        then {
+            assert process.success
+            def data = new groovy.json.JsonSlurper().parse(new File(process.out.data[0], 'multiqc_data.json'))
+            assert data.report_plot_data.containsKey('relocate3_cohort_summary_table')
+            assert data.config_title == "My 'cohort'"
+            assert data.config_report_comment == "it's RelocaTE3 test"
+            // The Software versions section's table (MultiQC writes it to the data dir, not the JSON).
+            assert new File(process.out.data[0], 'multiqc_software_versions.txt').readLines() == [ 'Sample\trelocate3', 'RELOCATE3_COHORT\t9.9.9' ]
+            assert new File(process.out.versions[0]).text.contains('multiqc: 1.35')
+        }
+    }
+}

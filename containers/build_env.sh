@@ -7,7 +7,7 @@
 #                     base_version=<v>; tests/release_version_test.py)
 #   project_dir  holds a copy of the repository's .git (and nothing else needed)
 #   env_dir      the absolute prefix the runtime stage copies; must equal
-#                <project_dir>/.pixi/envs/blat
+#                <project_dir>/.pixi/envs/pipeline
 #
 # Env: RELEASE_TAG  the git tag being released (v*), set by the Dockerfile's
 #      build-arg on tag builds (.github/workflows/container.yml); empty
@@ -24,7 +24,10 @@
 #   1. Check out the committed tree from .git, so versioningit sees a clean
 #      repository (a partial COPY of tracked files would mark it dirty and add
 #      a build-date suffix to the version).
-#   2. pixi install --locked -e blat: the environment exactly as in pixi.lock.
+#   2. pixi install --locked -e pipeline: the environment exactly as in
+#      pixi.lock. `pipeline` = the validated `blat` env + MultiQC, in one pixi
+#      solve-group, so every package it shares with `blat` is the same build
+#      (tests/container_recipe_test.py).
 #   3. Record the activation (pixi shell-hook) and the locked tool versions,
 #      before step 4: shell-hook may re-sync the environment, which would bring
 #      the editable install back.
@@ -51,8 +54,8 @@ PY="${ENV_DIR}/bin/python"
 echo "[build_env] $(date '+%Y-%m-%d %H:%M:%S')"
 echo "[build_env] project_dir=${PROJECT_DIR} env_dir=${ENV_DIR:-<version only>} release_tag=${RELEASE_TAG:-<none>}"
 
-if [[ "${VERSION_ONLY}" -eq 0 && "${ENV_DIR}" != "${PROJECT_DIR}/.pixi/envs/blat" ]]; then
-  echo "ERROR: env_dir must be ${PROJECT_DIR}/.pixi/envs/blat (got ${ENV_DIR})" >&2
+if [[ "${VERSION_ONLY}" -eq 0 && "${ENV_DIR}" != "${PROJECT_DIR}/.pixi/envs/pipeline" ]]; then
+  echo "ERROR: env_dir must be ${PROJECT_DIR}/.pixi/envs/pipeline (got ${ENV_DIR})" >&2
   exit 1
 fi
 if [[ ! -d "${PROJECT_DIR}/.git" ]]; then
@@ -105,21 +108,21 @@ fi
 echo "[build_env] pixi=$(pixi --version)"
 
 # --- 2. locked environment ----------------------------------------------------
-pixi install --locked -e blat
+pixi install --locked -e pipeline
 
 # --- 3. activation + locked versions ------------------------------------------
 mkdir -p "${META_DIR}"
-pixi shell-hook -e blat --locked -s bash > "${META_DIR}/shell-hook.sh"
-pixi list -e blat --json --locked > "${META_DIR}/pixi-list-blat.json"
-"${PY}" - "${META_DIR}/pixi-list-blat.json" "${BASE_VERSION}" > "${META_DIR}/expected_versions.tsv" <<'EOF'
+pixi shell-hook -e pipeline --locked -s bash > "${META_DIR}/shell-hook.sh"
+pixi list -e pipeline --json --locked > "${META_DIR}/pixi-list-pipeline.json"
+"${PY}" - "${META_DIR}/pixi-list-pipeline.json" "${BASE_VERSION}" > "${META_DIR}/expected_versions.tsv" <<'EOF'
 import json
 import sys
 
 packages = json.load(open(sys.argv[1]))
 conda = {p["name"]: p["version"] for p in packages if p.get("kind") == "conda"}
-for tool in ("blat", "bwa", "bwa-mem2", "samtools", "bcftools", "minimap2", "seqtk", "bedtools", "bowtie2", "pysam", "python"):
+for tool in ("blat", "bwa", "bwa-mem2", "samtools", "bcftools", "minimap2", "seqtk", "bedtools", "bowtie2", "multiqc", "pysam", "python"):
     if tool not in conda:
-        sys.exit(f"ERROR: {tool} not in the locked blat environment")
+        sys.exit(f"ERROR: {tool} not in the locked pipeline environment")
     print(f"{tool}\t{conda[tool]}")
 print(f"relocate3_base\t{sys.argv[2]}")
 EOF

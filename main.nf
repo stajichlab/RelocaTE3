@@ -36,7 +36,7 @@ workflow {
     if (workflow.profile.tokenize(',').contains('pixi')) {
         def exe = file("${params.pixi_env}/bin/relocaTE3")
         if (!exe.exists()) {
-            error("-profile pixi: no relocaTE3 at ${exe} (--pixi_env ${params.pixi_env}). Run `pixi install -e blat` in the pipeline directory, or point --pixi_env at an environment that has it.")
+            error("-profile pixi: no relocaTE3 at ${exe} (--pixi_env ${params.pixi_env}). Run `pixi install -e pipeline` in the pipeline directory, or point --pixi_env at an environment that has it.")
         }
     }
 

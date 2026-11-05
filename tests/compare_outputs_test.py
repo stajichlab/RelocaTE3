@@ -3,7 +3,8 @@
 Text files byte for byte; BAMs by their records and their @SQ header lines
 (@PG lines legitimately differ). A BAM samtools cannot read is a failure, never
 "identical": before, two unreadable BAMs both gave empty `samtools view`
-output and compared equal. Uses the blat env's real samtools on tiny BAMs.
+output and compared equal. Uses the real samtools next to the test's Python
+(the blat or pipeline pixi env) on tiny BAMs.
 """
 
 from __future__ import annotations
@@ -11,16 +12,20 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "validation" / "blat_memory" / "compare_outputs.sh"
-PIXI_BIN = ROOT / ".pixi" / "envs" / "blat" / "bin"
+# The pixi env pytest runs in (CI: pipeline; locally often blat); both lock the
+# same samtools build (tests/container_recipe_test.py).
+PIXI_BIN = Path(sys.executable).parent
 
 pytestmark = pytest.mark.skipif(
-    not (PIXI_BIN / "samtools").exists(), reason="needs the blat env's samtools (pixi install -e blat)"
+    not (PIXI_BIN / "samtools").exists(),
+    reason="needs samtools next to the test's Python (pixi install -e blat or -e pipeline)",
 )
 
 RECORD = "r1\t0\tchr1\t5\t60\t4M\t*\t0\t0\tACGT\tIIII\n"

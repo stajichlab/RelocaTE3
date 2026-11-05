@@ -8,7 +8,10 @@
 #
 # Release check for one tag or commit, on a compute node.
 #
-#   A. Fresh clone at REF, `pixi install -e blat --locked`, full pytest suite.
+#   A. Fresh clone at REF, `pixi install -e blat --locked` and
+#      `pixi install -e pipeline --locked`; full pytest suite in `pipeline`
+#      (blat + MultiQC, the pixi profile's and the image's env), so the
+#      MultiQC tests run instead of being skipped.
 #   B. Build the sdist and wheel, install each into a clean venv outside the
 #      clone, check the version and entry point, then run the Chr3 acceptance
 #      tests and a default-aligner measurement against the installed wheel.
@@ -67,9 +70,12 @@ log "  commit          : $(git -C "$CLONE" rev-parse HEAD)"
 log "  describe        : $(git -C "$CLONE" describe --tags --always --dirty)"
 
 cd "$CLONE"
-log "A1 pixi install -e blat --locked"
+log "A1 pixi install -e blat --locked; pixi install -e pipeline --locked"
 pixi install -e blat --locked
+pixi install -e pipeline --locked
 ENV_BIN="$CLONE/.pixi/envs/blat/bin"
+[[ -x "$CLONE/.pixi/envs/pipeline/bin/multiqc" ]] || { log "FAIL: multiqc missing from the pipeline env"; exit 1; }
+log "  multiqc  : $("$CLONE/.pixi/envs/pipeline/bin/multiqc" --version 2>&1)"
 
 for tool in python blat bwa samtools seqtk bedtools minimap2 relocaTE3; do
   [[ -x "$ENV_BIN/$tool" ]] || { log "FAIL: $tool missing from the blat env"; exit 1; }
@@ -81,9 +87,9 @@ log "  bwa      : $("$ENV_BIN/bwa" 2>&1 | grep -m1 Version || true)"
 log "  blat     : $("$ENV_BIN/blat" 2>&1 | head -1 || true)"
 log "  seqtk    : $("$ENV_BIN/seqtk" 2>&1 | grep -m1 Version || true)"
 
-log "A2 full pytest suite (fresh clone, blat env)"
+log "A2 full pytest suite (fresh clone, pipeline env)"
 set +e
-pixi run -e blat --locked python -m pytest -ra -q -p no:cacheprovider \
+pixi run -e pipeline --locked python -m pytest -ra -q -p no:cacheprovider \
   --junitxml="$OUTDIR/pytest-fresh-clone.xml" tests
 A_RC=$?
 set -e

@@ -21,7 +21,9 @@
 #
 # Modes:
 #   pixi       (default) run-all from the blat env (PIXI_BIN, default
-#              .pixi/envs/blat/bin); the pipeline with -profile test,pixi.
+#              .pixi/envs/blat/bin); the pipeline with -profile test,pixi,
+#              i.e. from the pipeline env (blat env + MultiQC, pixi.toml), so
+#              a PASS also shows the two envs' tools behave the same.
 #   docker     run-all, the pipeline (-profile test,docker --container_tag TAG)
 #   apptainer  and the comparison all run in ghcr.io/stajichlab/relocate3:TAG
 #              (CONTAINER_REGISTRY overrides the repository), so both sides
@@ -63,7 +65,7 @@ OUT_ABS="$(realpath -m "${OUT}")"
 BLAT_BIN="${PIXI_BIN:-${REPO}/.pixi/envs/blat/bin}"
 THREADS="${SLURM_CPUS_PER_TASK:-4}"
 IMAGE="${CONTAINER_REGISTRY:-ghcr.io/stajichlab/relocate3}:${TAG}"
-IMAGE_ENV_BIN="/opt/relocate3/.pixi/envs/blat/bin"   # containers/Dockerfile
+IMAGE_ENV_BIN="/opt/relocate3/.pixi/envs/pipeline/bin"   # containers/Dockerfile ENV_DIR
 DATA="${REPO}/tests/data"
 R1="${DATA}/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500_1.fq.gz"
 R2="${DATA}/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500_2.fq.gz"

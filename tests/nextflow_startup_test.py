@@ -92,7 +92,7 @@ def test_test_profile_runs_from_any_directory(tmp_path):
     assert "profile: test,pixi" in record
     assert "container_engine: none" in record
     assert "container: none" in record
-    assert f"pixi_env: {ROOT}/.pixi/envs/blat" in record
+    assert f"pixi_env: {ROOT}/.pixi/envs/pipeline" in record
 
 
 def test_pixi_profile_needs_relocate3_in_pixi_env(tmp_path):

@@ -108,9 +108,21 @@ A123,reads/A123_R1.fq.gz,reads/A123_R2.fq.gz
 
 `--jobs` sets how many samples run at once (each still uses `--threads`).
 Batches are **resumable**: a sample that already has a results table is skipped
-unless `--force`. By default the batch stops at the first failing sample; pass
+unless `--force`; with `--genotype` (or `--genotype-bam`) it also needs a
+characterized table that is not older than its results table, so a sample
+whose genotyping did not finish is re-run. By default the batch stops at the first failing sample; pass
 `--keep-going` to run the rest and get a summary at the end (the exit code is
 non-zero either way if anything failed).
+
+Only when the batch genotypes (`--genotype` or `--genotype-bam`) does it then
+write `<outdir>/cohort/`, by running `relocaTE3 cohort` (see "Cohort outputs")
+on the characterized table of every sample that did not fail, including samples
+skipped as already complete. Without `--genotype` the cohort step is skipped and
+logged ("cohort skipped: run without --genotype"), even if characterized tables
+from an earlier run exist; an existing `<outdir>/cohort/` is then left as it
+was, with a warning that it is out of date. If the cohort step fails, the batch
+logs the error, still lists any failed samples, and exits non-zero. Sample names
+may not be `cohort` or contain `=`.
 
 ### Nextflow pipeline
 
@@ -127,7 +139,8 @@ parameters, and `--help <parameter>` describes one. Tools come from one of two
 places:
 
 - **A container (recommended).** `ghcr.io/stajichlab/relocate3` holds the exact
-  tool versions RelocaTE3 is validated with (from `pixi.lock`). Choose
+  tool versions RelocaTE3 is validated with, plus MultiQC (`pixi.lock`'s
+  `pipeline` environment). Choose
   `-profile apptainer`, `singularity` or `docker`.
   - `--container_tag` picks the image: a release version such as `0.3.0`,
     `dev` (latest `main`, the default) or `sha-<commit>`. `dev` and `pr-<n>`
@@ -136,8 +149,9 @@ places:
     image reference a run used.
   - Set `NXF_APPTAINER_CACHEDIR` (or `NXF_SINGULARITY_CACHEDIR`) to a
     directory with space, so the image (~340 MB) is downloaded once.
-- **`-profile pixi`.** Uses the `blat` pixi environment of a local clone. It
-  is meant for development.
+- **`-profile pixi`.** Uses the `pipeline` pixi environment of a local clone
+  (the `blat` environment plus MultiQC, with identical tool builds; the image
+  is built from it). It is meant for development.
 
 On UCR HPCC, add `-profile hpcc` to send each task to SLURM. The partition
 defaults to `intel`; change it with `--slurm_partition`. At most 50 jobs are
@@ -162,7 +176,7 @@ nextflow run stajichlab/RelocaTE3 -r main -profile hpcc,apptainer \
 From a clone, without containers:
 
 ```bash
-pixi install -e blat -e nf
+pixi install -e pipeline -e nf
 pixi run -e nf nextflow run . -profile test,pixi          # Chr3 test data, ~2 min (any launch dir)
 pixi run -e nf nextflow run . -profile pixi \
   --input samples.csv --genome reference.fa --te_library RiceTE.fa \
@@ -194,8 +208,17 @@ from, so use absolute paths.
 
 Outputs:
 - `results/<sample>/`: the same layout as `run-all`.
-- `results/pipeline_info/`: software versions, and Nextflow's report,
-  timeline, trace and DAG.
+- `results/cohort/`: the `relocaTE3 cohort` outputs over all characterized
+  samples (see "Cohort outputs"). They are written when at least one sample
+  was genotyped.
+- `results/multiqc/relocate3_report.html`: one summary report.
+  - Calls per sample and per genotype class.
+  - Per-sample counts: TE-containing reads, flanking reads, calls per output
+    tier, reference calls.
+  - Software versions.
+  - `--skip_multiqc` turns it off; `--multiqc_title` sets its title.
+- `results/pipeline_info/`: software versions, the software environment, and
+  Nextflow's report, timeline, trace and DAG.
 
 Settings use `run-all`'s names in snake case, with the same defaults:
 `--te_aligner`, `--genome_aligner`, `--mismatch`, `--size`, `--min_mapq`,
@@ -205,7 +228,6 @@ sample with a `genotype_bam` is always genotyped. `nextflow_schema.json` describ
 setting, and they can be supplied in one file with `-params-file params.yaml`.
 
 Coming next:
-- a cohort table and summary report;
 - spreading BLAT across cluster jobs.
 
 See `plans/2026-11-02-nextflow-pipeline-design.md`.
@@ -336,6 +358,42 @@ the weaker, indirect mate evidence separately as `TE_supporting_family_support`,
 `TE_family_concordance` describing whether the two evidence classes agree. The
 single primary family remains junction-driven rather than joining disagreeing
 assignments into a compound family name.
+
+### Cohort outputs
+
+`relocaTE3 cohort -i <table> [<table> ...] -o <dir>` combines per-sample
+`*.all_nonref_insert.characTErized.txt` tables. Give each as a path (the sample
+name is read from its `strain` column) or as `NAME=PATH` (needed for a sample
+with no calls, i.e. a header-only table). Input order does not matter.
+
+```
+cohort.characTErized.txt    one header, then every per-sample row unchanged, by sample then original order
+cohort.genotype_matrix.tsv  sites x samples: chromosome start end strand TE <sample...>
+cohort.summary_mqc.tsv      MultiQC custom-content table: calls per sample and per genotype class
+```
+
+The genotype matrix is a plain TSV with no comment lines:
+
+- One row per **exact** site `(chromosome, start, end, strand, TE)`, taken
+  from `chromosome.pos` (`Chr1:1132975..1132977`), `strand` and `TE`.
+- A cell is the sample's `status` there, or `.` when the sample has no call.
+- Nearby sites, or the same position on the other strand, are **not** merged;
+  that is left to a future VCF output.
+- Rows sort by chromosome in natural order (`Chr1 < Chr2 < Chr10`; names
+  without digits sort as text), then start, end, strand and TE.
+- The TSD is **not** part of the site key: two samples with different TSDs
+  at the same chromosome/start/end/strand/TE share a row. Each sample's TSD
+  stays in `cohort.characTErized.txt`.
+- One sample with two rows at the same site key is an error.
+
+An argument that is an existing file is always a plain path, so file names may
+contain `=`; otherwise it is split at the first `=` into `NAME=PATH`. The three
+files are written together: a failed run leaves the previous outputs unchanged.
+
+In the summary, the genotype class is the status before the first `/`
+(`homozygous`, `heterozygous`, `somatic_insertion`, `other`), and `excision`
+counts statuses that mention `excision`. So `homozygous/excision_no_footprint`
+counts once as homozygous and once as excision.
 
 ## Migrating from RelocaTE2
 

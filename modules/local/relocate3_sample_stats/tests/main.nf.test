@@ -1,0 +1,81 @@
+// RELOCATE3_SAMPLE_STATS: one <id>.stats_mqc.tsv per sample. The stub test
+// checks the declared output; the real test runs `relocaTE3 sample-stats`
+// (pixi profile) on staged files in the run-all layout, without the optional
+// reference table.
+
+nextflow_process {
+
+    name "RELOCATE3_SAMPLE_STATS"
+    script "../main.nf"
+    process "RELOCATE3_SAMPLE_STATS"
+    tag "modules"
+    tag "relocate3_sample_stats"
+    // pixi: the real test runs relocaTE3 from the pipeline env.
+    profile "pixi"
+
+    test("stub: emits <id>.stats_mqc.tsv") {
+        options "-stub"
+
+        when {
+            def d = new File("${outputDir}/inputs"); d.mkdirs()
+            ['s1.read_repeat_name.txt', 's1.left.flankingReads.fq', 'ALL.repeat.all_nonref_insert.raw.txt'].each { n -> new File(d, n).text = '' }
+            process {
+                """
+                def d = '${d.absolutePath}'
+                input[0] = [ [ id:'s1' ], file("\${d}/s1.read_repeat_name.txt"), [ file("\${d}/s1.left.flankingReads.fq") ],
+                             [ file("\${d}/ALL.repeat.all_nonref_insert.raw.txt") ], [], [] ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert process.out.stats.size() == 1
+            assert process.out.stats[0][0] == [ id: 's1' ]
+            assert new File(process.out.stats[0][1]).name == 's1.stats_mqc.tsv'
+            assert process.out.versions.size() == 1
+        }
+    }
+
+    test("counts the staged files; a missing optional table leaves its column out") {
+
+        when {
+            def d = new File("${outputDir}/inputs"); d.mkdirs()
+            def rows = { int k -> (1..k).collect { i -> "mPing\tTAA\ts1\tChr1\t${i}..${i + 2}\t+\n" }.join('') }
+            def stem = 'ALL.repeat.all_nonref_insert'
+            [
+                's1.read_repeat_name.txt'      : 'r1/1\tmPing\t+\n' * 5,
+                's1.left.flankingReads.fq'     : '@r\nACGT\n+\nIIII\n' * 3,
+                's1.right.flankingReads.fq'    : '@r\nACGT\n+\nIIII\n' * 2,
+                "${stem}.raw.txt"              : rows(6),
+                "${stem}.all.txt"              : rows(5),
+                "${stem}.gff"                  : rows(4),
+                "${stem}.high_conf.txt"        : rows(3),
+                "${stem}.txt"                  : rows(6),
+                "${stem}.characTErized.txt"    : 'strain\tTE\n' + 's1\tmPing\n' * 2,
+                "${stem}.characTErized.gff"    : '',
+            ].each { n, t -> new File(d, n.toString()).text = t }
+            process {
+                """
+                def d = '${d.absolutePath}'
+                def stem = "\${d}/ALL.repeat.all_nonref_insert"
+                input[0] = [ [ id:'s1' ], file("\${d}/s1.read_repeat_name.txt"),
+                             [ file("\${d}/s1.left.flankingReads.fq"), file("\${d}/s1.right.flankingReads.fq") ],
+                             [ 'raw.txt', 'all.txt', 'gff', 'high_conf.txt', 'txt' ].collect { s -> file("\${stem}.\${s}") },
+                             [ file("\${stem}.characTErized.txt"), file("\${stem}.characTErized.gff") ],
+                             [] ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def lines = new File(process.out.stats[0][1]).readLines().findAll { l -> !l.startsWith('#') }
+            assert lines == [
+                [ 'Sample', 'te_containing_reads', 'flanking_reads', 'nonref_raw', 'nonref_all', 'nonref_headline', 'nonref_high_conf', 'characterized' ].join('\t'),
+                [ 's1', '5', '5', '6', '5', '4', '3', '2' ].join('\t'),
+            ]
+            assert new File(process.out.versions[0]).text.contains('relocate3:')
+        }
+    }
+}

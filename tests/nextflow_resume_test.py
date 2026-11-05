@@ -93,3 +93,17 @@ def test_genotype_bam_changes_rerun_only_characterize(tmp_path):
     third = _run(tmp_path, with_bam, resume=True)
     assert {p: third[p] for p in UPSTREAM} == dict.fromkeys(UPSTREAM, "CACHED"), third
     assert third["RELOCATE3_CHARACTERIZE"] == "COMPLETED"
+
+
+def test_resume_with_nothing_changed_caches_multiqc(tmp_path):
+    """The report's inputs (summary files, versions file, comment) hold nothing
+    per-run (no run name or start time), so an unchanged -resume caches it."""
+    sheet = _sheet(tmp_path / "plain.csv", None)
+    first = _run(tmp_path, sheet, resume=False)
+    assert first["MULTIQC"] == "COMPLETED"
+    versions = tmp_path / "out" / "pipeline_info" / "software_versions.yml"
+    first_versions = versions.read_text()
+
+    second = _run(tmp_path, sheet, resume=True)
+    assert set(second.values()) == {"CACHED"}, second
+    assert versions.read_text() == first_versions

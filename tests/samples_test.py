@@ -149,3 +149,34 @@ def test_directory_without_fastqs_is_an_error(tmp_path: Path):
     (tmp_path / "notes.txt").write_text("hi")
     with pytest.raises(ValueError, match="no FASTQ"):
         discover_fastq_dir(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# names run-batch cannot use
+# ---------------------------------------------------------------------------
+# run-batch writes the cohort to <outdir>/cohort/, so a sample named 'cohort'
+# would share that directory. run-batch hands the cohort NAME=PATH, so '=' in
+# a name would be split at the wrong place.
+
+
+@pytest.mark.parametrize("name", ["cohort", "a=b"])
+def test_sheet_rejects_names_run_batch_cannot_use(tmp_path: Path, name: str):
+    r1 = _touch(tmp_path / "x_R1.fq")
+    sheet = tmp_path / "samples.csv"
+    sheet.write_text(f"sample_id,r1_fq\n{name},{r1}\n")
+    with pytest.raises(ValueError, match=f"sample name '{name}'"):
+        read_sample_sheet(sheet)
+
+
+@pytest.mark.parametrize("name", ["cohort", "a=b"])
+def test_fq_dir_rejects_names_run_batch_cannot_use(tmp_path: Path, name: str):
+    _touch(tmp_path / f"{name}_R1.fq")
+    _touch(tmp_path / f"{name}_R2.fq")
+    with pytest.raises(ValueError, match=f"sample name '{name}'"):
+        discover_fastq_dir(tmp_path)
+
+
+def test_names_that_only_contain_a_reserved_word_are_fine(tmp_path: Path):
+    _touch(tmp_path / "cohort1_R1.fq")
+    _touch(tmp_path / "cohort1_R2.fq")
+    assert [s.name for s in discover_fastq_dir(tmp_path)] == ["cohort1"]

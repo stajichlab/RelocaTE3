@@ -169,6 +169,24 @@
                 }
             }
         },
+        "report_options": {
+            "title": "Report options",
+            "type": "object",
+            "description": "The cohort tables and the MultiQC summary report written after all samples.",
+            "properties": {
+                "skip_multiqc": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Do not write the MultiQC report (<outdir>/multiqc/). The cohort tables (<outdir>/cohort/) are still written.",
+                    "fa_icon": "fas fa-forward"
+                },
+                "multiqc_title": {
+                    "type": "string",
+                    "description": "Title of the MultiQC report. Default: RelocaTE3 (assets/multiqc_config.yml).",
+                    "fa_icon": "fas fa-heading"
+                }
+            }
+        },
         "container_options": {
             "title": "Container options",
             "type": "object",
@@ -200,7 +218,7 @@
                 "pixi_env": {
                     "type": "string",
                     "format": "directory-path",
-                    "description": "Pixi environment providing relocaTE3 and the aligners (pixi profile). Default: <projectDir>/.pixi/envs/blat.",
+                    "description": "Pixi environment providing relocaTE3, the aligners and MultiQC (pixi profile). Default: <projectDir>/.pixi/envs/pipeline.",
                     "hidden": true
                 },
                 "test_data": {
@@ -235,6 +253,7 @@
         { "$ref": "#/$defs/input_output_options" },
         { "$ref": "#/$defs/calling_options" },
         { "$ref": "#/$defs/genotyping_options" },
+        { "$ref": "#/$defs/report_options" },
         { "$ref": "#/$defs/container_options" },
         { "$ref": "#/$defs/profile_options" },
         { "$ref": "#/$defs/generic_options" }
