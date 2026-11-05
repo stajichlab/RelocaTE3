@@ -337,6 +337,35 @@ the weaker, indirect mate evidence separately as `TE_supporting_family_support`,
 single primary family remains junction-driven rather than joining disagreeing
 assignments into a compound family name.
 
+### Cohort outputs
+
+`relocaTE3 cohort -i <table> [<table> ...] -o <dir>` combines per-sample
+`*.all_nonref_insert.characTErized.txt` tables. Give each as a path (the sample
+name is read from its `strain` column) or as `NAME=PATH` (needed for a sample
+with no calls, i.e. a header-only table). Input order does not matter.
+
+```
+cohort.characTErized.txt    one header, then every per-sample row unchanged, by sample then original order
+cohort.genotype_matrix.tsv  sites x samples: chromosome start end strand TE <sample...>
+cohort.summary_mqc.tsv      MultiQC custom-content table: calls per sample and per genotype class
+```
+
+The genotype matrix is a plain TSV with no comment lines:
+
+- One row per **exact** site `(chromosome, start, end, strand, TE)`, taken
+  from `chromosome.pos` (`Chr1:1132975..1132977`), `strand` and `TE`.
+- A cell is the sample's `status` there, or `.` when the sample has no call.
+- Nearby sites, or the same position on the other strand, are **not** merged;
+  that is left to a future VCF output.
+- Rows sort by chromosome in natural order (`Chr1 < Chr2 < Chr10`; names
+  without digits sort as text), then start, end, strand and TE.
+- A sample with two rows at the same site is an error.
+
+In the summary, the genotype class is the status before the first `/`
+(`homozygous`, `heterozygous`, `somatic_insertion`, `other`), and `excision`
+counts statuses that mention `excision`. So `homozygous/excision_no_footprint`
+counts once as homozygous and once as excision.
+
 ## Migrating from RelocaTE2
 
 | RelocaTE2 | RelocaTE3 |

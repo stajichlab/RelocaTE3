@@ -601,6 +601,32 @@ def _menu_run_batch(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return parser
 
 
+def _menu_cohort(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Arguments for the 'cohort' subcommand (combine per-sample tables)."""
+    parser.add_argument(
+        "-i",
+        "--input",
+        required=True,
+        nargs="+",
+        action="extend",
+        dest="inputs",
+        metavar="TABLE",
+        help="Per-sample *.all_nonref_insert.characTErized.txt tables, as PATH "
+        "(sample name read from the strain column) or NAME=PATH (required for a "
+        "header-only table). Repeatable; order does not matter",
+    )
+    parser.add_argument(
+        "-o",
+        "--outdir",
+        required=True,
+        help="Output directory for cohort.characTErized.txt, "
+        "cohort.genotype_matrix.tsv and cohort.summary_mqc.tsv",
+    )
+    _add_common_args(parser)
+    parser.set_defaults(func=cmd_cohort)
+    return parser
+
+
 def _menu_find_reference(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Arguments for the 'find-reference' subcommand (steps 0/6)."""
     parser.add_argument(
@@ -1250,6 +1276,18 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_cohort(args: argparse.Namespace) -> int:
+    """Combine per-sample characterized tables into cohort-level outputs.
+
+    See :mod:`RelocaTE3.cohort` for the exact file formats and rules.
+    """
+    from RelocaTE3.cohort import write_cohort
+
+    logger.info("cohort: %d input table(s) -> %s", len(args.inputs), args.outdir)
+    write_cohort(args.inputs, args.outdir)
+    return 0
+
+
 def _find_genome_bam(outdir: Path, sample: str) -> Path:
     """Locate the genome BAM written by align-genome.
 
@@ -1630,6 +1668,18 @@ def build_parser() -> argparse.ArgumentParser:
             help="Find non-reference TE insertions from genome-aligned flanking reads (step 5)",
             description="Cluster genome-aligned flanking reads into candidate non-reference insertion "
             "sites and write the all_nonref_insert table consumed by 'characterize'.",
+        )
+    )
+    _menu_cohort(
+        subparsers.add_parser(
+            "cohort",
+            formatter_class=CustomHelpFormatter,
+            help="Combine per-sample characterized tables into cohort outputs",
+            description="Combine per-sample characterTErized tables into a cohort "
+            "call table (rows unchanged, ordered by sample), a sites-by-samples "
+            "genotype matrix keyed by exact chromosome/start/end/strand/TE "
+            "('.' = no call; nearby sites are not merged) and a MultiQC "
+            "summary table. Output does not depend on input order.",
         )
     )
     _menu_characterize(
