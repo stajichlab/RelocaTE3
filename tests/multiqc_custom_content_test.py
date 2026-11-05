@@ -74,3 +74,46 @@ def test_multiqc_renders_the_cohort_summary_table(tmp_path):
     assert table["A"]["excision"] == 1
     assert table["B"]["total_calls"] == 1
     assert (out / "multiqc_report.html").is_file()
+
+
+def _sample_dir(root: Path, name: str, genotyped: bool) -> Path:
+    d = root / name
+    for sub in ("te_containing", "flanking", "results"):
+        (d / sub).mkdir(parents=True)
+    (d / "te_containing" / f"{name}.read_repeat_name.txt").write_text("r/1\tmPing\t+\n" * 3)
+    (d / "flanking" / f"{name}.left.flankingReads.fq").write_text("@r\nA\n+\nI\n" * 2)
+    stem = d / "results" / "ALL.repeat.all_nonref_insert"
+    for suffix in (".raw.txt", ".all.txt", ".gff", ".high_conf.txt"):
+        Path(f"{stem}{suffix}").write_text("row\n" * 4)
+    if genotyped:
+        Path(f"{stem}.characTErized.txt").write_text("strain\nx\n")
+    return d
+
+
+def test_multiqc_merges_per_sample_stats_into_one_table(tmp_path):
+    """One stats file per sample, same id: MultiQC shows one table, one row each.
+
+    Sample B was not genotyped, so its file has no `characterized` column.
+    """
+    mqc_in = tmp_path / "mqc_in"
+    for name, genotyped in (("A", True), ("B", False)):
+        d = _sample_dir(tmp_path / "samples", name, genotyped)
+        out = mqc_in / f"{name}.stats_mqc.tsv"
+        assert main(["sample-stats", "-d", str(d), "-n", name, "-o", str(out)]) == 0
+    out = tmp_path / "mqc_out"
+    env = {**os.environ, "PYTHONNOUSERSITE": "1"}
+    proc = subprocess.run(
+        [str(MULTIQC), "--no-ansi", "-o", str(out), str(mqc_in)],
+        capture_output=True, text=True, env=env, cwd=tmp_path,
+    )  # fmt: skip
+    log = proc.stdout + proc.stderr
+    assert proc.returncode == 0, log
+    data = json.loads((out / "multiqc_data" / "multiqc_data.json").read_text())
+    assert "relocate3_sample_stats_table" in data["report_plot_data"]
+    table = data["report_saved_raw_data"]["multiqc_relocate3_sample_stats_table"]
+    assert set(table) == {"A", "B"}
+    assert table["A"]["te_containing_reads"] == 3
+    assert table["A"]["flanking_reads"] == 2
+    assert table["A"]["characterized"] == 1
+    assert table["B"]["nonref_high_conf"] == 4
+    assert "characterized" not in table["B"]

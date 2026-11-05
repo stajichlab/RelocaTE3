@@ -627,6 +627,37 @@ def _menu_cohort(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return parser
 
 
+def _menu_sample_stats(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Arguments for the 'sample-stats' subcommand (per-sample report counts)."""
+    parser.add_argument(
+        "-d",
+        "--sample-dir",
+        required=True,
+        dest="sample_dir",
+        help="The sample's output directory, in run-all layout (te_containing/, "
+        "flanking/, results/)",
+    )
+    parser.add_argument("-n", "--name", required=True, help="Sample name")
+    parser.add_argument(
+        "-c", "--target", default="ALL", help="--target of the run (names the tables)"
+    )
+    parser.add_argument(
+        "--te-name",
+        default="repeat",
+        dest="te_name",
+        help="--te-name of the run (names the tables)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        help="Output file, conventionally <name>.stats_mqc.tsv",
+    )
+    _add_common_args(parser)
+    parser.set_defaults(func=cmd_sample_stats)
+    return parser
+
+
 def _menu_find_reference(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Arguments for the 'find-reference' subcommand (steps 0/6)."""
     parser.add_argument(
@@ -1294,6 +1325,20 @@ def cmd_cohort(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sample_stats(args: argparse.Namespace) -> int:
+    """Count one sample's reads and calls for the MultiQC report.
+
+    See :mod:`RelocaTE3.sample_stats` for the columns and the files counted.
+    """
+    from RelocaTE3.sample_stats import write_sample_stats
+
+    out = write_sample_stats(
+        args.sample_dir, args.name, args.output, target=args.target, te_name=args.te_name
+    )
+    logger.info("sample-stats: %s -> %s", args.name, out)
+    return 0
+
+
 def _batch_cohort(args: argparse.Namespace, root: Path, names: list[str]) -> None:
     """Write ``<root>/cohort/`` from the samples' characterized tables.
 
@@ -1728,6 +1773,17 @@ def build_parser() -> argparse.ArgumentParser:
             "genotype matrix keyed by exact chromosome/start/end/strand/TE "
             "('.' = no call; nearby sites are not merged) and a MultiQC "
             "summary table. Output does not depend on input order.",
+        )
+    )
+    _menu_sample_stats(
+        subparsers.add_parser(
+            "sample-stats",
+            formatter_class=CustomHelpFormatter,
+            help="Count one sample's reads and calls for the MultiQC report",
+            description="Count TE-containing reads, flanking reads, non-reference "
+            "calls per tier, characterized calls and reference calls from the files "
+            "a sample's run wrote (run-all layout), and write them as one MultiQC "
+            "custom-content table row. Counts lines only; changes no file.",
         )
     )
     _menu_characterize(
