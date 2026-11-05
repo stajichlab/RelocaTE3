@@ -27,7 +27,8 @@ Notes:
   (``insertions.write_tiers``), so it would repeat ``nonref_raw``.
 - ``read_repeat_name.txt`` has one line per TE-containing read record (a pair
   contributes one line per mate that hit the TE library).
-- Blank lines and GFF ``#`` comment lines are not counted.
+- Blank lines and GFF ``#`` comment lines are not counted; in a FASTQ only
+  trailing blank lines are ignored.
 - ``characterized`` and ``reference`` are optional: their files exist only
   with genotyping and with a RepeatMasker annotation. A missing optional file
   leaves its column out (MultiQC shows an empty cell), never a zero.
@@ -54,7 +55,7 @@ OPTIONAL = ("characterized", "reference")
 # Column -> (title, description) for the MultiQC table header.
 _HEADERS = {
     "te_containing_reads": ("TE reads", "Reads that hit the TE library (lines of read_repeat_name.txt)"),
-    "flanking_reads": ("Flanking reads", "Trimmed flanking reads aligned to the genome (FASTQ records, all mates)"),
+    "flanking_reads": ("Flanking reads", "Trimmed flanking reads given to the genome aligner (FASTQ records, all mates)"),
     "nonref_raw": ("Non-ref raw", "Non-reference calls, raw tier (every call)"),
     "nonref_all": ("Non-ref all", "Non-reference calls, all tier (minus one-sided calls at reference TE edges)"),
     "nonref_headline": ("Non-ref headline", "Non-reference calls, headline tier (RelocaTE2's set: minus singleton, insufficient_data and supporting_reads)"),
@@ -118,10 +119,13 @@ def _require(path: Path) -> Path:
 
 
 def _fastq_reads(path: Path) -> int:
-    n = 0
+    """FASTQ records in ``path``: lines / 4, ignoring trailing blank lines."""
+    n = blank_run = 0
     with open(path, "rb") as fh:
-        for n, _ in enumerate(fh, start=1):
-            pass
+        for line in fh:
+            n += 1
+            blank_run = blank_run + 1 if not line.strip() else 0
+    n -= blank_run  # a blank line inside a record is still counted (and caught)
     if n % 4:
         raise SampleStatsError(
             f"sample-stats: {path} has {n} lines, not a multiple of 4 (truncated FASTQ?)"

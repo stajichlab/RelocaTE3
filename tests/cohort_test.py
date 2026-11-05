@@ -392,3 +392,118 @@ def test_real_rice_cohort_matches_per_sample_files(tmp_path):
     summary = {r.split("\t")[0]: r.split("\t") for r in _data(out / "cohort.summary_mqc.tsv")[1:]}
     for s, lines in per_sample.items():
         assert int(summary[s][1]) == len(lines) - 1
+
+
+# ------------------------------------------------------- review fixes (M3)
+
+
+def test_help_says_tsd_is_not_part_of_the_site_key(capsys):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["cohort", "--help"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "TSD is not part of the site key" in out
+
+
+def test_samples_with_different_tsds_at_one_site_share_a_matrix_row(tmp_path):
+    a = _write(tmp_path / "a.txt", [_row("A", "Chr1", 1, 3)])
+    b = _write(tmp_path / "b.txt", [_row("B", "Chr1", 1, 3).replace("\tTAA\t", "\tTTA\t")])
+    rc, out = _run(tmp_path, [a, b])
+    assert rc == 0
+    matrix = _lines(out / "cohort.genotype_matrix.tsv")
+    assert matrix[1:] == ["Chr1\t1\t3\t+\tmPing\thomozygous\thomozygous"]
+    # the TSDs stay in the cohort table
+    table = _lines(out / "cohort.characTErized.txt")
+    assert "\tTAA\t" in table[1] and "\tTTA\t" in table[2]
+
+
+def test_name_equals_path_that_does_not_exist_names_both_readings(tmp_path):
+    spec = f"S={tmp_path / 'missing.txt'}"
+    with pytest.raises(CohortError) as err:
+        build_cohort([spec])
+    msg = str(err.value)
+    assert repr(spec) in msg or spec in msg
+    assert "NAME=PATH" in msg
+    assert "missing.txt" in msg
+    assert "no file" in msg and "named" in msg
+
+
+def test_existing_file_with_equals_in_its_name_is_a_plain_path(tmp_path):
+    p = _write(tmp_path / "x=y.txt", [_row("A", "Chr1", 1, 3)])
+    rc, out = _run(tmp_path, [p])
+    assert rc == 0
+    assert _lines(out / "cohort.genotype_matrix.tsv")[0].endswith("\tA")
+
+
+def _old_outputs(outdir: Path) -> dict[str, str]:
+    outdir.mkdir(parents=True, exist_ok=True)
+    old = {}
+    for name in ("cohort.characTErized.txt", "cohort.genotype_matrix.tsv", "cohort.summary_mqc.tsv"):
+        (outdir / name).write_text(f"old {name}\n")
+        old[name] = f"old {name}\n"
+    return old
+
+
+def test_rewrite_replaces_the_directory_and_leaves_no_temp_files(tmp_path):
+    outdir = tmp_path / "res" / "cohort"
+    _old_outputs(outdir)
+    a = _write(tmp_path / "a.txt", [_row("A", "Chr1", 1, 3)])
+    rc, _ = _run(tmp_path, [a], outdir)
+    assert rc == 0
+    assert _lines(outdir / "cohort.characTErized.txt") == _lines(a)
+    assert sorted(p.name for p in (tmp_path / "res").iterdir()) == ["cohort"]
+    assert sorted(p.name for p in outdir.iterdir()) == [
+        "cohort.characTErized.txt", "cohort.genotype_matrix.tsv", "cohort.summary_mqc.tsv",
+    ]  # fmt: skip
+
+
+def test_a_crash_while_writing_leaves_the_old_outputs_whole(tmp_path, monkeypatch):
+    """Never a mix of old and new files: all three are written before any is
+    visible under the output directory."""
+    from RelocaTE3 import cohort as cohort_mod
+
+    outdir = tmp_path / "res" / "cohort"
+    old = _old_outputs(outdir)
+    a = _write(tmp_path / "a.txt", [_row("A", "Chr1", 1, 3)])
+
+    real_open = open
+    writes = []
+
+    def failing_open(file, mode="r", *args, **kwargs):
+        if "w" in mode:
+            writes.append(file)
+            if len(writes) == 3:  # the last of the three files
+                raise OSError("disk full")
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(cohort_mod, "open", failing_open, raising=False)
+    with pytest.raises(OSError, match="disk full"):
+        cohort_mod.write_cohort([str(a)], outdir)
+    assert {p.name: p.read_text() for p in outdir.iterdir()} == old
+    assert sorted(p.name for p in (tmp_path / "res").iterdir()) == ["cohort"]
+
+
+def test_other_files_in_the_output_directory_are_kept(tmp_path):
+    """An outdir that also holds other files (the Nextflow task dir, '-o .')
+    is never swapped out; only the three cohort files are replaced."""
+    outdir = tmp_path / "shared"
+    _old_outputs(outdir)
+    (outdir / "notes.txt").write_text("mine\n")
+    a = _write(tmp_path / "a.txt", [_row("A", "Chr1", 1, 3)])
+    rc, _ = _run(tmp_path, [a], outdir)
+    assert rc == 0
+    assert (outdir / "notes.txt").read_text() == "mine\n"
+    assert _lines(outdir / "cohort.characTErized.txt") == _lines(a)
+    assert sorted(p.name for p in outdir.iterdir()) == [
+        "cohort.characTErized.txt", "cohort.genotype_matrix.tsv", "cohort.summary_mqc.tsv",
+        "notes.txt",
+    ]  # fmt: skip
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["a.txt", "shared"]
+
+
+def test_dot_outdir_writes_into_the_current_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".command.sh").write_text("x\n")
+    a = _write(tmp_path / "in" / "a.txt", [_row("A", "Chr1", 1, 3)])
+    assert main(["cohort", "-i", str(a), "-o", "."]) == 0
+    assert (tmp_path / ".command.sh").read_text() == "x\n"
+    assert (tmp_path / "cohort.genotype_matrix.tsv").is_file()

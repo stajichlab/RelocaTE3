@@ -225,3 +225,17 @@ def test_real_g1_counts_match_wc_l():
     assert stats["te_containing_reads"] == 60604
     assert (stats["nonref_raw"], stats["nonref_high_conf"], stats["characterized"]) == (623, 621, 623)
     assert stats["reference"] == 13
+
+
+def test_fastq_trailing_blank_lines_are_tolerated(tmp_path):
+    d = _sample(tmp_path)
+    (d / "flanking" / "S.left.flankingReads.fq").write_text(_fq(5) + "\n\n")
+    assert sample_stats(d, "S", target="ALL", te_name="repeat")["flanking_reads"] == 9
+
+
+def test_flanking_reads_description_says_given_to_the_aligner():
+    from RelocaTE3.sample_stats import _HEADERS
+
+    desc = _HEADERS["flanking_reads"][1]
+    assert "given to the genome aligner" in desc
+    assert "aligned to" not in desc

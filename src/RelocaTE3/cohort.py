@@ -15,6 +15,10 @@ that ``characterize`` writes (one per sample) and writes three files:
     and ``TE``. A cell is that sample's ``status`` at the site, or ``.`` when
     the sample has no call there. Nearby sites are NOT merged; deciding when
     two close sites are the same insertion is deferred to the VCF design.
+    The TSD is NOT part of the site key: two samples with different TSDs at
+    the same chromosome/start/end/strand/TE share a row (each sample's TSD
+    stays in ``cohort.characTErized.txt``). One sample with two rows at the
+    same site key is an error.
     Rows sort by chromosome in natural order (see :func:`natural_key`), then
     start and end numerically, then strand and TE as text.
 
@@ -30,11 +34,20 @@ that ``characterize`` writes (one per sample) and writes three files:
 
 Inputs are given as plain paths, where the sample name is the single value of
 the file's ``strain`` column, or as ``NAME=PATH``, where every ``strain``
-value must equal ``NAME``. A header-only file (a sample with no characterized
+value must equal ``NAME``. An argument that names an existing file is always a
+plain path (so file names may contain ``=``); otherwise it is split at the
+first ``=``. A header-only file (a sample with no characterized
 calls) must use ``NAME=PATH``: it then appears in the matrix as all ``.`` and
 in the summary with zero counts.
 
-All inputs are validated before anything is written. The command fails when
+All inputs are validated before anything is written, and the three files
+are written together: into a new directory that then replaces the output
+directory, or, when that directory also holds other files (Nextflow runs the
+command with ``-o .`` in its task directory), into a temporary directory inside
+it whose files are then renamed into place. Either way a failed run leaves the
+previous outputs as they were.
+
+ The command fails when
 headers differ, two inputs resolve to the same sample, a file mixes strains,
 coordinates cannot be parsed, or one sample has two rows with the same site
 key (never observed in real data; refusing beats silently picking one).
@@ -44,6 +57,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -138,6 +153,11 @@ def parse_input_spec(spec: str) -> tuple[str | None, Path]:
 def _read_table(spec: str) -> SampleTable:
     name, path = parse_input_spec(spec)
     if not path.is_file():
+        if name is not None:
+            raise CohortError(
+                f"characterized table not found: {spec!r} is not a file, and read "
+                f"as NAME=PATH (sample {name!r}) there is no file named {str(path)!r}"
+            )
         raise CohortError(f"characterized table not found: {path}")
     with open(path) as fh:
         lines = fh.read().splitlines()
@@ -269,35 +289,94 @@ def summary_lines(cohort: Cohort) -> list[str]:
     return lines
 
 
-def _write_atomic(path: Path, lines: list[str]) -> None:
-    """Write via a hidden temp file + rename, so readers never see a partial file."""
-    tmp = path.with_name(f".{path.name}.tmp")
+OUTPUT_NAMES = (COHORT_TABLE, GENOTYPE_MATRIX, SUMMARY_MQC)
+
+
+def _write_lines(path: Path, lines: list[str]) -> None:
+    with open(path, "w") as fh:
+        fh.write("".join(line + "\n" for line in lines))
+
+
+def _umask() -> int:
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+def _only_cohort_files(directory: Path) -> bool:
+    """True when ``directory`` holds nothing but cohort output files."""
+    return all(p.name in OUTPUT_NAMES and p.is_file() for p in directory.iterdir())
+
+
+def _swap_directory(target: Path, outputs: dict[str, list[str]]) -> None:
+    """Write every file into a sibling temp dir, then rename it to ``target``.
+
+    An existing ``target`` (cohort files only) is first renamed aside and
+    removed once the new directory is in place.
+    """
+    parent = target.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=f".{target.name}.tmp-", dir=parent))
     try:
-        with open(tmp, "w") as fh:
-            fh.write("".join(line + "\n" for line in lines))
-        os.replace(tmp, path)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
+        for name, lines in outputs.items():
+            _write_lines(stage / name, lines)
+        os.chmod(stage, 0o777 & ~_umask())  # mkdtemp makes it 0700
+        if target.exists():
+            old = Path(tempfile.mkdtemp(prefix=f".{target.name}.old-", dir=parent))
+            os.replace(target, old)  # onto an empty dir: allowed for directories
+            try:
+                os.replace(stage, target)
+            except BaseException:
+                os.replace(old, target)
+                raise
+            shutil.rmtree(old, ignore_errors=True)
+        else:
+            os.replace(stage, target)
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage, ignore_errors=True)
+
+
+def _replace_files(target: Path, outputs: dict[str, list[str]]) -> None:
+    """Write every file into a temp dir inside ``target``, then rename each
+    into place; other files in ``target`` are untouched."""
+    stage = Path(tempfile.mkdtemp(prefix=".cohort.tmp-", dir=target))
+    try:
+        for name, lines in outputs.items():
+            _write_lines(stage / name, lines)
+            os.chmod(stage / name, 0o666 & ~_umask())
+        for name in outputs:
+            os.replace(stage / name, target / name)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
 
 
 def write_cohort(specs: list[str], outdir: str | Path) -> dict[str, Path]:
-    """Validate ``specs`` then write the three cohort files into ``outdir``."""
+    """Validate ``specs`` then write the three cohort files into ``outdir``.
+
+    Nothing under ``outdir`` changes until all three files are written (see
+    the module docstring).
+    """
     cohort = build_cohort(specs)
     outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
+    target = outdir.resolve()
     outputs = {
         COHORT_TABLE: cohort_table_lines(cohort),
         GENOTYPE_MATRIX: genotype_matrix_lines(cohort),
         SUMMARY_MQC: summary_lines(cohort),
     }
-    paths = {}
-    for name, lines in outputs.items():
-        path = outdir / name
-        if path.exists():
-            logger.info("cohort: replacing existing %s", path)
-        _write_atomic(path, lines)
-        paths[name] = path
+    replacing = [n for n in OUTPUT_NAMES if (target / n).exists()]
+    if replacing:
+        logger.info("cohort: replacing existing %s in %s", ", ".join(replacing), outdir)
+    if not target.exists() or (
+        target.is_dir() and target != Path.cwd().resolve() and _only_cohort_files(target)
+    ):
+        _swap_directory(target, outputs)
+    elif target.is_dir():
+        _replace_files(target, outputs)
+    else:
+        raise CohortError(f"output path exists and is not a directory: {outdir}")
+    paths = {name: outdir / name for name in OUTPUT_NAMES}
     n_rows = sum(len(t.rows) for t in cohort.tables)
     logger.info(
         "cohort: %d sample(s), %d call(s), %d site(s) -> %s",

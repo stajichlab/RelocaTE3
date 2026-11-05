@@ -108,14 +108,21 @@ A123,reads/A123_R1.fq.gz,reads/A123_R2.fq.gz
 
 `--jobs` sets how many samples run at once (each still uses `--threads`).
 Batches are **resumable**: a sample that already has a results table is skipped
-unless `--force`. By default the batch stops at the first failing sample; pass
+unless `--force`; with `--genotype` (or `--genotype-bam`) it also needs a
+characterized table that is not older than its results table, so a sample
+whose genotyping did not finish is re-run. By default the batch stops at the first failing sample; pass
 `--keep-going` to run the rest and get a summary at the end (the exit code is
 non-zero either way if anything failed).
 
-With `--genotype`, the batch then writes `<outdir>/cohort/` by running
-`relocaTE3 cohort` (see "Cohort outputs") on the characterized table of every
-sample that did not fail, including samples skipped as already complete.
-Without characterized tables the cohort step is skipped and logged.
+Only when the batch genotypes (`--genotype` or `--genotype-bam`) does it then
+write `<outdir>/cohort/`, by running `relocaTE3 cohort` (see "Cohort outputs")
+on the characterized table of every sample that did not fail, including samples
+skipped as already complete. Without `--genotype` the cohort step is skipped and
+logged ("cohort skipped: run without --genotype"), even if characterized tables
+from an earlier run exist; an existing `<outdir>/cohort/` is then left as it
+was, with a warning that it is out of date. If the cohort step fails, the batch
+logs the error, still lists any failed samples, and exits non-zero. Sample names
+may not be `cohort` or contain `=`.
 
 ### Nextflow pipeline
 
@@ -374,7 +381,14 @@ The genotype matrix is a plain TSV with no comment lines:
   that is left to a future VCF output.
 - Rows sort by chromosome in natural order (`Chr1 < Chr2 < Chr10`; names
   without digits sort as text), then start, end, strand and TE.
-- A sample with two rows at the same site is an error.
+- The TSD is **not** part of the site key: two samples with different TSDs
+  at the same chromosome/start/end/strand/TE share a row. Each sample's TSD
+  stays in `cohort.characTErized.txt`.
+- One sample with two rows at the same site key is an error.
+
+An argument that is an existing file is always a plain path, so file names may
+contain `=`; otherwise it is split at the first `=` into `NAME=PATH`. The three
+files are written together: a failed run leaves the previous outputs unchanged.
 
 In the summary, the genotype class is the status before the first `/`
 (`homozygous`, `heterozygous`, `somatic_insertion`, `other`), and `excision`

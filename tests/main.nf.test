@@ -65,6 +65,34 @@ nextflow_pipeline {
         }
     }
 
+    // cohort/, multiqc/ and pipeline_info/ sit beside the sample directories
+    // under --outdir, so those names are reserved.
+    ['cohort', 'multiqc', 'pipeline_info'].each { reserved ->
+        test("rejects the reserved sample name '${reserved}' before any task runs") {
+            tag "validation"
+            options "-stub"
+
+            when {
+                def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+                def sheet = new File("${outputDir}/samplesheet_reserved.csv")
+                sheet.parentFile.mkdirs()
+                sheet.text = "sample,fastq_1,fastq_2\n${reserved},${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+                params {
+                    input  = sheet.absolutePath
+                    outdir = "${outputDir}/results"
+                }
+            }
+
+            then {
+                def log = (workflow.stdout + workflow.stderr).join("\n")
+                assert workflow.failed
+                assert log.contains("Sample name")
+                assert log.contains("reserved")
+                assert workflow.trace.tasks().size() == 0
+            }
+        }
+    }
+
     [te_name: 'a;b', target: 'Chr3;x'].each { param, bad ->
         test("rejects --${param} '${bad}' before any task runs") {
             tag "validation"
@@ -389,6 +417,19 @@ nextflow_pipeline {
             assert n('RELOCATE3_COHORT') == 1
             def characterized = workflow.trace.tasks().find { t -> t.name.startsWith('RELOCATE3:ONE_SAMPLE:RELOCATE3_CHARACTERIZE') }
             assert characterized.name.contains('(given)')
+            // The cohort's input is the given sample's table only.
+            def cohortRow = new File("${launchDir}/meta/trace.csv").readLines().drop(1)
+                .collect { line -> line.split('\t') }
+                .find { f -> f[3].tokenize(' ')[0].tokenize(':')[-1] == 'RELOCATE3_COHORT' }
+            def (cdir, cprefix) = cohortRow[1].tokenize('/')
+            def cwork = new File("${launchDir}/work/${cdir}").listFiles().find { d -> d.name.startsWith(cprefix) }
+            def staged = []
+            new File(cwork, 'tables').eachFileRecurse(groovy.io.FileType.ANY) { f -> if (!f.isDirectory()) staged << f }
+            assert staged.size() == 1
+            // (stub mode: .command.sh is the stub, which names its inputs)
+            def cmd = new File(cwork, '.command.sh').text
+            assert cmd.contains('given=tables/1/ALL.repeat.all_nonref_insert.characTErized.txt')
+            assert !cmd.contains('plain=')
             assert new File("${outputDir}/results/given/results/ALL.repeat.all_nonref_insert.characTErized.txt").exists()
             assert !new File("${outputDir}/results/plain/results/ALL.repeat.all_nonref_insert.characTErized.txt").exists()
         }
@@ -514,17 +555,21 @@ nextflow_pipeline {
         }
     }
 
-    // A real run with the test profile's settings (those of the parity gate):
-    // the cohort table is the one sample's characterized table, and the
-    // MultiQC report has the cohort, per-sample and software-version sections.
-    test("real run: cohort table equals the sample's characterized table; MultiQC report") {
+    // A real run with the test profile's settings (those of the parity gate),
+    // on the Chr3 reads under two sample names: the cohort table is both
+    // samples' characterized rows unchanged (by sample, then row order), the
+    // matrix has a column per sample, and the MultiQC report has the cohort,
+    // per-sample and software-version sections.
+    test("real run, two samples: cohort rows equal the per-sample tables; MultiQC report") {
         tag "report"
 
         when {
             def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
             def sheet = new File("${outputDir}/samplesheet_chr3.csv")
             sheet.parentFile.mkdirs()
-            sheet.text = "sample,fastq_1,fastq_2\nchr3,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+            sheet.text = "sample,fastq_1,fastq_2\n" +
+                "chr3b,${reads}_1.fq.gz,${reads}_2.fq.gz\n" +
+                "chr3a,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
             params {
                 input  = sheet.absolutePath
                 outdir = "${outputDir}/results"
@@ -534,15 +579,22 @@ nextflow_pipeline {
         then {
             assert workflow.success
             def out = new File("${outputDir}/results")
-            def sample = new File(out, 'chr3/results/ALL.repeat.all_nonref_insert.characTErized.txt').readLines()
+            def table = { String s -> new File(out, "${s}/results/ALL.repeat.all_nonref_insert.characTErized.txt").readLines() }
+            def a = table('chr3a')
+            def b = table('chr3b')
+            assert a.size() == 197 && b.size() == 197
+            assert a[0] == b[0]
             def cohort = new File(out, 'cohort/cohort.characTErized.txt').readLines()
-            assert cohort == sample
-            assert cohort.size() == 197
+            assert cohort == [a[0]] + a.drop(1) + b.drop(1)
+            assert cohort.drop(1).collect { l -> l.tokenize('\t')[0] }.unique() == ['chr3a', 'chr3b']
             def matrix = new File(out, 'cohort/cohort.genotype_matrix.tsv').readLines()
-            assert matrix[0] == 'chromosome\tstart\tend\tstrand\tTE\tchr3'
-            assert matrix.size() == sample.size()
+            assert matrix[0] == 'chromosome\tstart\tend\tstrand\tTE\tchr3a\tchr3b'
+            assert matrix.size() == a.size()
+            // the same reads give the same call at every site
+            assert matrix.drop(1).every { l -> def f = l.split('\t'); f[5] == f[6] && f[5] != '.' }
             def summary = new File(out, 'cohort/cohort.summary_mqc.tsv').readLines().findAll { l -> !l.startsWith('#') }
-            assert summary[1].startsWith("chr3\t${sample.size() - 1}\t")
+            assert summary[1].startsWith("chr3a\t${a.size() - 1}\t")
+            assert summary[2].startsWith("chr3b\t${b.size() - 1}\t")
 
             assert new File(out, 'multiqc/relocate3_report.html').size() > 0
             def data_dir = new File(out, 'multiqc/relocate3_report_data')
@@ -551,9 +603,10 @@ nextflow_pipeline {
             def data = new groovy.json.JsonSlurper().parseText(json)
             assert data.config_title == 'RelocaTE3'
             assert data.config_report_comment.contains('stajichlab/RelocaTE3 ')
-            def stats = data.report_saved_raw_data.multiqc_relocate3_sample_stats_table.chr3
-            assert stats.characterized == sample.size() - 1
-            assert stats.nonref_raw == new File(out, 'chr3/results/ALL.repeat.all_nonref_insert.raw.txt').readLines().size()
+            def stats = data.report_saved_raw_data.multiqc_relocate3_sample_stats_table
+            assert stats.keySet() == ['chr3a', 'chr3b'] as Set
+            assert stats.chr3a.characterized == a.size() - 1
+            assert stats.chr3a.nonref_raw == new File(out, 'chr3a/results/ALL.repeat.all_nonref_insert.raw.txt').readLines().size()
             def versions = new File(data_dir, 'multiqc_software_versions.txt').readLines()
             assert versions.any { l -> l.startsWith('RELOCATE3_TE_SEARCH\t') }
             assert versions.any { l -> l.startsWith('Workflow\t') }

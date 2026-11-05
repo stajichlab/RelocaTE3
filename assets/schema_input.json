@@ -10,7 +10,8 @@
             "sample": {
                 "type": "string",
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
-                "errorMessage": "Sample name must be provided, start with a letter or digit and contain only [A-Za-z0-9._-] (it becomes part of file names and commands)",
+                "not": { "enum": ["cohort", "multiqc", "pipeline_info"] },
+                "errorMessage": "Sample name must be provided, start with a letter or digit and contain only [A-Za-z0-9._-] (it becomes part of file names and commands), and must not be one of the reserved names cohort, multiqc, pipeline_info (output directories beside the samples')",
                 "meta": ["id"]
             },
             "fastq_1": {

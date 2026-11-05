@@ -60,6 +60,30 @@ class Sample:
         return bool(self.r2)
 
 
+# run-batch writes the cohort to <outdir>/cohort/, beside <outdir>/<sample>/.
+RESERVED_NAMES = frozenset({"cohort"})
+
+
+def _check_name(name: str, source: str | Path) -> str:
+    """Refuse sample names run-batch cannot use.
+
+    ``cohort`` would share ``<outdir>/cohort/`` with the cohort outputs, and
+    run-batch passes each sample to ``relocaTE3 cohort`` as ``NAME=PATH``, so a
+    name containing ``=`` would be split in the wrong place.
+    """
+    if name in RESERVED_NAMES:
+        raise ValueError(
+            f"{source}: sample name '{name}' is reserved (run-batch writes the "
+            f"cohort outputs to <outdir>/{name}/); rename the sample"
+        )
+    if "=" in name:
+        raise ValueError(
+            f"{source}: sample name '{name}' contains '=', which run-batch uses "
+            "to pass NAME=PATH to the cohort step; rename the sample"
+        )
+    return name
+
+
 def _strip_fastq_suffix(filename: str) -> str | None:
     """Return ``filename`` without its FASTQ extension, or None if not a FASTQ."""
     lowered = filename.lower()
@@ -133,6 +157,7 @@ def read_sample_sheet(path: str | Path) -> list[Sample]:
         name = row.get("name", "")
         if not name:
             continue
+        _check_name(name, f"sample sheet {path}")
         if name in seen:
             raise ValueError(f"sample sheet {path}: duplicate sample id '{name}'")
         seen.add(name)
@@ -211,6 +236,8 @@ def discover_fastq_dir(directory: str | Path) -> list[Sample]:
         samples.append(Sample(name=base, r1=mates["1"], r2=mates["2"]))
     samples.extend(Sample(name=base, r1=path) for base, path in singles.items())
 
+    for sample in samples:
+        _check_name(sample.name, f"--fq-dir {directory}")
     duplicates = {s.name for s in samples}
     if len(duplicates) != len(samples):
         raise ValueError(f"duplicate sample names discovered in {directory}")

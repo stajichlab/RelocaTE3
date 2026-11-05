@@ -11,6 +11,9 @@
 # RELOCATE3_SAMPLE_STATS, RELOCATE3_COHORT and MULTIQC processes. Then checks
 # that the cohort table holds every sample's characterized rows unchanged.
 #
+# Sample names are the pipeline's ([A-Za-z0-9._-], so never '='); they are
+# passed to `relocaTE3 cohort` as NAME=PATH.
+#
 # Usage, from the repository root:
 #   sbatch validation/real_rice/cohort_report.sh <pipeline_outdir> [outdir]
 #   (default outdir: results/nextflow-m3/real-rice-report)
@@ -47,8 +50,10 @@ cp "${OUT}/cohort/cohort.summary_mqc.tsv" "${OUT}/mqc_in/"
 
 # Check: cohort rows == concatenation of per-sample data rows, in sample order
 # (byte order of the sample name, as relocaTE3 cohort sorts; G_1 < G_104).
-expected=$(mktemp); trap 'rm -f "${expected}"' EXIT
-for pair in $(printf '%s\n' "${INPUTS[@]}" | LC_ALL=C sort -t= -k1,1); do tail -n +2 "${pair#*=}"; done > "${expected}"
+expected=$(mktemp -p "${OUT}" .expected.XXXXXX); trap 'rm -f "${expected}"' EXIT
+printf '%s\n' "${INPUTS[@]}" | LC_ALL=C sort -t= -k1,1 | while IFS= read -r pair; do
+  tail -n +2 "${pair#*=}"
+done > "${expected}"
 if cmp -s "${expected}" <(tail -n +2 "${OUT}/cohort/cohort.characTErized.txt"); then
   echo "cohort rows : $(wc -l < "${expected}") identical to the per-sample tables"
 else

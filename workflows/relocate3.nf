@@ -117,14 +117,16 @@ def workflowVersions() {
 
 /*
  * The MultiQC report comment: pipeline version and what ran the tasks
- * (pipeline_info/software_environment.txt has the full record).
+ * (pipeline_info/software_environment.txt has the full record). It is a
+ * MULTIQC input, so it holds nothing that changes from run to run (no run
+ * name or start time): an unchanged -resume then caches the report.
  */
 def reportComment() {
     def revision = workflow.commitId ? " (${workflow.revision ?: 'commit'} ${workflow.commitId.take(7)})" : ''
     def software = workflow.containerEngine
         ? "${workflow.containerEngine} image ${workflow.container}"
         : (workflow.profile.tokenize(',').contains('pixi') ? "pixi environment ${params.pixi_env}" : 'tools on the host PATH')
-    return "${workflow.manifest.name} ${workflow.manifest.version}${revision}; software: ${software}. Run ${workflow.runName}, ${workflow.start}."
+    return "${workflow.manifest.name} ${workflow.manifest.version}${revision}; software: ${software}."
 }
 
 /*

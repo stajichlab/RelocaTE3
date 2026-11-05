@@ -18,6 +18,19 @@
   - MultiQC 1.35 joins the image through a new pixi environment, `pipeline`
     (`blat` + MultiQC, solved together, so every tool build is identical). The
     pixi profile and the image now use `pipeline`.
+  - `run-batch` builds the cohort only when it genotypes (`--genotype` or
+    `--genotype-bam`); otherwise it logs "cohort skipped: run without
+    --genotype" and warns if an old `<outdir>/cohort/` is left in place.
+    With genotyping, a sample counts as done only when its characterized
+    table exists and is not older than its nonref table.
+  - `run-batch` now exits non-zero if the cohort step fails (the error and
+    any failed samples are logged).
+  - `run-batch` rejects the sample name `cohort` and names containing `=`; the
+    pipeline's sample sheet rejects `cohort`, `multiqc` and `pipeline_info`.
+  - `relocaTE3 cohort` writes its three files together (a failed run leaves the
+    previous outputs unchanged). The TSD is not part of the matrix site key.
+  - The MultiQC report comment no longer holds the run name and start time, so
+    an unchanged `-resume` caches the report.
   - Checked on the 10 real-rice samples: the cohort holds all 5,775 calls,
     identical to the per-sample tables. The matrix has 2,847 sites, 1,056 of
     them called in at least 2 samples (`validation/real_rice/cohort_report.sh`).

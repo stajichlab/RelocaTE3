@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -803,11 +804,11 @@ def test_run_batch_cohort_includes_samples_skipped_as_done(monkeypatch, tmp_path
     out = tmp_path / "out"
     _fake_sample_outputs(out / "S0", "S0")  # finished in an earlier run
 
-    assert _batch(tmp_path, out) == 0
+    assert _batch(tmp_path, out, "--genotype") == 0
     assert [s.split("=", 1)[0] for s in cohort_calls[-1].inputs] == ["S0", "S1", "S2"]
 
     # everything done: nothing to run, but the cohort is still (re)built
-    assert _batch(tmp_path, out) == 0
+    assert _batch(tmp_path, out, "--genotype") == 0
     assert len(cohort_calls) == 2
     assert [s.split("=", 1)[0] for s in cohort_calls[-1].inputs] == ["S0", "S1", "S2"]
 
@@ -823,7 +824,7 @@ def test_run_batch_keep_going_cohort_uses_only_succeeded_samples(monkeypatch, tm
 
     monkeypatch.setattr(cli, "cmd_run_all", flaky)
     monkeypatch.setattr(cli, "cmd_cohort", lambda a: (cohort_calls.append(a), 0)[1])
-    rc = _batch(tmp_path, tmp_path / "out", "--keep-going")
+    rc = _batch(tmp_path, tmp_path / "out", "--keep-going", "--genotype")
     assert rc != 0, "a failed sample still fails the batch"
     assert [s.split("=", 1)[0] for s in cohort_calls[0].inputs] == ["S0", "S2"]
 
@@ -837,7 +838,7 @@ def test_run_batch_without_keep_going_writes_no_cohort_after_failure(monkeypatch
 
     monkeypatch.setattr(cli, "cmd_run_all", flaky)
     monkeypatch.setattr(cli, "cmd_cohort", lambda a: (cohort_calls.append(a), 0)[1])
-    assert _batch(tmp_path, tmp_path / "out") != 0
+    assert _batch(tmp_path, tmp_path / "out", "--genotype") != 0
     assert cohort_calls == []
 
 
@@ -851,7 +852,7 @@ def test_run_batch_skips_cohort_without_characterized_tables(monkeypatch, tmp_pa
     monkeypatch.setattr(cli, "cmd_cohort", lambda a: (cohort_calls.append(a), 0)[1])
     out = tmp_path / "out"
     with caplog.at_level(logging.INFO):
-        assert _batch(tmp_path, out) == 0
+        assert _batch(tmp_path, out, "--genotype") == 0
     assert cohort_calls == []
     assert "cohort skipped" in caplog.text
     assert not (out / "cohort").exists()
@@ -866,7 +867,7 @@ def test_run_batch_cohort_uses_the_samples_that_were_characterized(monkeypatch, 
     )
     monkeypatch.setattr(cli, "cmd_cohort", lambda a: (cohort_calls.append(a), 0)[1])
     with caplog.at_level(logging.INFO):
-        assert _batch(tmp_path, tmp_path / "out") == 0
+        assert _batch(tmp_path, tmp_path / "out", "--genotype") == 0
     assert [s.split("=", 1)[0] for s in cohort_calls[0].inputs] == ["S0", "S2"]
     assert "S1" in caplog.text and "no characterized table" in caplog.text
 
@@ -879,7 +880,7 @@ def test_run_batch_writes_real_cohort_files(monkeypatch, tmp_path):
         lambda a: (_fake_sample_outputs(a.outdir, a.name, rows=0 if a.name == "S2" else 2), 0)[1],
     )
     out = tmp_path / "out"
-    assert _batch(tmp_path, out) == 0
+    assert _batch(tmp_path, out, "--genotype") == 0
     table = (out / "cohort" / "cohort.characTErized.txt").read_text().splitlines()
     assert table[0] == _CHAR_HEADER
     assert len(table) == 1 + 2 + 2
@@ -898,4 +899,123 @@ def test_run_batch_fails_when_the_cohort_fails(monkeypatch, tmp_path):
         return 0
 
     monkeypatch.setattr(cli, "cmd_run_all", run_all)
-    assert _batch(tmp_path, tmp_path / "out") != 0
+    assert _batch(tmp_path, tmp_path / "out", "--genotype") != 0
+
+
+def test_run_batch_without_genotype_builds_no_cohort_over_old_tables(monkeypatch, tmp_path, caplog):
+    """--force without --genotype re-runs the samples but leaves their old
+    characterized tables out of any cohort: they describe an earlier run."""
+    cohort_calls = []
+    monkeypatch.setattr(
+        cli,
+        "cmd_run_all",
+        lambda a: (_fake_sample_outputs(a.outdir, a.name, characterized=False), 0)[1],
+    )
+    monkeypatch.setattr(cli, "cmd_cohort", lambda a: (cohort_calls.append(a), 0)[1])
+    out = tmp_path / "out"
+    for name in ("S0", "S1", "S2"):
+        _fake_sample_outputs(out / name, name)  # genotyped in an earlier run
+    with caplog.at_level(logging.INFO):
+        assert _batch(tmp_path, out, "--force") == 0
+    assert cohort_calls == []
+    assert "cohort skipped: run without --genotype" in caplog.text
+    assert not (out / "cohort").exists()
+
+
+def test_run_batch_without_genotype_warns_about_an_old_cohort_dir(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(
+        cli,
+        "cmd_run_all",
+        lambda a: (_fake_sample_outputs(a.outdir, a.name, characterized=False), 0)[1],
+    )
+    out = tmp_path / "out"
+    old = out / "cohort" / "cohort.characTErized.txt"
+    old.parent.mkdir(parents=True)
+    old.write_text("old\n")
+    with caplog.at_level(logging.INFO):
+        assert _batch(tmp_path, out) == 0
+    assert old.read_text() == "old\n", "user data is never deleted"
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(str(out / "cohort") in r.getMessage() for r in warnings)
+
+
+def test_run_batch_genotype_bam_counts_as_genotyping(monkeypatch, tmp_path):
+    cohort_calls = []
+    monkeypatch.setattr(
+        cli, "cmd_run_all", lambda a: (_fake_sample_outputs(a.outdir, a.name), 0)[1]
+    )
+    monkeypatch.setattr(cli, "cmd_cohort", lambda a: (cohort_calls.append(a), 0)[1])
+    assert _batch(tmp_path, tmp_path / "out", "--genotype-bam", "x.bam") == 0
+    assert len(cohort_calls) == 1
+
+
+def _age(path, seconds):
+    st = path.stat()
+    os.utime(path, (st.st_atime - seconds, st.st_mtime - seconds))
+
+
+def test_run_batch_genotype_reruns_a_sample_whose_characterized_table_is_missing_or_stale(
+    monkeypatch, tmp_path
+):
+    """With --genotype a sample is done only when its characterized table exists
+    and is not older than its nonref table (a crashed batch can leave either)."""
+    calls = []
+
+    def run_all(a):
+        calls.append(a.name)
+        _fake_sample_outputs(a.outdir, a.name)
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_run_all", run_all)
+    monkeypatch.setattr(cli, "cmd_cohort", lambda a: 0)
+    out = tmp_path / "out"
+    _fake_sample_outputs(out / "S0", "S0", characterized=False)  # crashed before characterize
+    _fake_sample_outputs(out / "S1", "S1")  # characterized table from an older run
+    _age(_char(out, "S1"), 3600)
+    _fake_sample_outputs(out / "S2", "S2")  # complete
+    assert _batch(tmp_path, out, "--genotype") == 0
+    assert calls == ["S0", "S1"]
+
+    # Without --genotype the nonref table alone marks a sample done.
+    calls.clear()
+    _char(out, "S0").unlink()
+    assert _batch(tmp_path, out) == 0
+    assert calls == []
+
+
+def test_run_batch_cohort_failure_is_logged_with_the_failed_samples(monkeypatch, tmp_path, caplog):
+    """--keep-going: a failing cohort step is logged, the failed-sample summary
+    is still printed and the batch exits non-zero."""
+
+    def run_all(a):
+        if a.name == "S2":
+            raise RuntimeError("sample boom")
+        _fake_sample_outputs(a.outdir, a.name)
+        return 0
+
+    def cohort(a):
+        raise ValueError("cohort boom")
+
+    monkeypatch.setattr(cli, "cmd_run_all", run_all)
+    monkeypatch.setattr(cli, "cmd_cohort", cohort)
+    with caplog.at_level(logging.INFO):
+        rc = _batch(tmp_path, tmp_path / "out", "--genotype", "--keep-going")
+    assert rc != 0
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert any("cohort" in m and "cohort boom" in m for m in errors), errors
+    assert any("failed: S2" in m and "sample boom" in m for m in errors), errors
+
+
+def test_run_batch_cohort_failure_alone_exits_nonzero(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(
+        cli, "cmd_run_all", lambda a: (_fake_sample_outputs(a.outdir, a.name), 0)[1]
+    )
+    monkeypatch.setattr(cli, "cmd_cohort", lambda a: (_ for _ in ()).throw(ValueError("cohort boom")))
+    with caplog.at_level(logging.INFO):
+        assert cli.cmd_run_batch(
+            cli.build_parser().parse_args(
+                ["run-batch", "--samples", str(_sheet(tmp_path, n=2)), "-T", "te.fa",
+                 "-g", "ref.fa", "-o", str(tmp_path / "out"), "--genotype"]
+            )
+        ) != 0
+    assert "cohort boom" in caplog.text

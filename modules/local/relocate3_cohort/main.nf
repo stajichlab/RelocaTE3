@@ -50,7 +50,9 @@ process RELOCATE3_COHORT {
     """
 
     stub:
+    def stub_inputs = [ids, tables].transpose().collect { id, table -> "${id}=${table}" }.join(' ')
     """
+    # relocaTE3 cohort -i ${stub_inputs} -o .   (named here so tests can check the inputs)
     touch cohort.characTErized.txt cohort.genotype_matrix.tsv cohort.summary_mqc.tsv
 
     cat <<-END_VERSIONS > versions.yml
