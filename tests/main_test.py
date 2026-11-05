@@ -718,3 +718,184 @@ def test_run_batch_accepts_a_fastq_directory(monkeypatch, tmp_path):
 def test_run_batch_requires_exactly_one_input_source(tmp_path):
     rc = main(["run-batch", "-T", "te.fa", "-g", "ref.fa", "-o", str(tmp_path)])
     assert rc != 0, "neither --samples nor --fq-dir should be an error"
+
+
+# ---------------------------------------------------- run-batch -> cohort
+
+_CHAR_HEADER = (
+    "strain\tTE\tTSD\tchromosome.pos\tstrand\tavg_flankers\tspanners\tstatus\t"
+    "TE_family_support\tTE_family_confidence\tTE_family_status\t"
+    "TE_supporting_family_support\tTE_supporting_family_confidence\t"
+    "TE_supporting_family_status\tTE_family_concordance\t"
+    "TE_family_candidate_support\tTE_family_ambiguous_reads\tTE_family_resolution"
+)
+
+
+def _fake_sample_outputs(outdir, name, characterized=True, rows=1):
+    """What run-all leaves behind: the nonref table, optionally characterized."""
+    res = Path(outdir, "results")
+    res.mkdir(parents=True, exist_ok=True)
+    (res / "ALL.repeat.all_nonref_insert.txt").write_text("x\n")
+    if characterized:
+        body = "".join(
+            f"{name}\trepeat\tTAA\tChr1:{10 * i + 1}..{10 * i + 3}\t+\t10\t0\thomozygous\t"
+            "repeat=5\t1.000000\tunique\trepeat=2\t1.000000\tunique\tconcordant\t\t0\tselected_votes\n"
+            for i in range(rows)
+        )
+        (res / "ALL.repeat.all_nonref_insert.characTErized.txt").write_text(
+            _CHAR_HEADER + "\n" + body
+        )
+
+
+def _batch(tmp_path, out, *extra):
+    return main(
+        [
+            "run-batch",
+            "--samples",
+            str(_sheet(tmp_path, n=3)),
+            "-T",
+            "te.fa",
+            "-g",
+            "ref.fa",
+            "-o",
+            str(out),
+            *extra,
+        ]
+    )
+
+
+def _char(out, name):
+    return out / name / "results" / "ALL.repeat.all_nonref_insert.characTErized.txt"
+
+
+def test_run_batch_delegates_the_cohort_to_cmd_cohort(monkeypatch, tmp_path):
+    """run-batch builds the cohort through the same handler as `relocaTE3 cohort`."""
+    calls = []
+
+    def rec(tag):
+        def _inner(args):
+            calls.append((tag, args))
+            if tag == "run-all":
+                _fake_sample_outputs(args.outdir, args.name)
+            return 0
+
+        return _inner
+
+    monkeypatch.setattr(cli, "cmd_run_all", rec("run-all"))
+    monkeypatch.setattr(cli, "cmd_cohort", rec("cohort"))
+    out = tmp_path / "out"
+    assert _batch(tmp_path, out, "--genotype") == 0
+
+    assert [t for t, _ in calls] == ["run-all"] * 3 + ["cohort"]
+    cohort = calls[-1][1]
+    assert cohort.outdir == str(out / "cohort")
+    # NAME=PATH so a sample with zero calls still gets a matrix column
+    assert cohort.inputs == [f"S{i}={_char(out, f'S{i}')}" for i in range(3)]
+
+
+def test_run_batch_cohort_includes_samples_skipped_as_done(monkeypatch, tmp_path):
+    """Resuming must rebuild the cohort from every sample, not just the re-run ones."""
+    cohort_calls = []
+    monkeypatch.setattr(
+        cli, "cmd_run_all", lambda a: (_fake_sample_outputs(a.outdir, a.name), 0)[1]
+    )
+    monkeypatch.setattr(cli, "cmd_cohort", lambda a: (cohort_calls.append(a), 0)[1])
+    out = tmp_path / "out"
+    _fake_sample_outputs(out / "S0", "S0")  # finished in an earlier run
+
+    assert _batch(tmp_path, out) == 0
+    assert [s.split("=", 1)[0] for s in cohort_calls[-1].inputs] == ["S0", "S1", "S2"]
+
+    # everything done: nothing to run, but the cohort is still (re)built
+    assert _batch(tmp_path, out) == 0
+    assert len(cohort_calls) == 2
+    assert [s.split("=", 1)[0] for s in cohort_calls[-1].inputs] == ["S0", "S1", "S2"]
+
+
+def test_run_batch_keep_going_cohort_uses_only_succeeded_samples(monkeypatch, tmp_path):
+    cohort_calls = []
+
+    def flaky(args):
+        _fake_sample_outputs(args.outdir, args.name)  # S1 leaves a stale table
+        if args.name == "S1":
+            raise RuntimeError("boom")
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_run_all", flaky)
+    monkeypatch.setattr(cli, "cmd_cohort", lambda a: (cohort_calls.append(a), 0)[1])
+    rc = _batch(tmp_path, tmp_path / "out", "--keep-going")
+    assert rc != 0, "a failed sample still fails the batch"
+    assert [s.split("=", 1)[0] for s in cohort_calls[0].inputs] == ["S0", "S2"]
+
+
+def test_run_batch_without_keep_going_writes_no_cohort_after_failure(monkeypatch, tmp_path):
+    cohort_calls = []
+
+    def flaky(args):
+        _fake_sample_outputs(args.outdir, args.name)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cli, "cmd_run_all", flaky)
+    monkeypatch.setattr(cli, "cmd_cohort", lambda a: (cohort_calls.append(a), 0)[1])
+    assert _batch(tmp_path, tmp_path / "out") != 0
+    assert cohort_calls == []
+
+
+def test_run_batch_skips_cohort_without_characterized_tables(monkeypatch, tmp_path, caplog):
+    cohort_calls = []
+    monkeypatch.setattr(
+        cli,
+        "cmd_run_all",
+        lambda a: (_fake_sample_outputs(a.outdir, a.name, characterized=False), 0)[1],
+    )
+    monkeypatch.setattr(cli, "cmd_cohort", lambda a: (cohort_calls.append(a), 0)[1])
+    out = tmp_path / "out"
+    with caplog.at_level(logging.INFO):
+        assert _batch(tmp_path, out) == 0
+    assert cohort_calls == []
+    assert "cohort skipped" in caplog.text
+    assert not (out / "cohort").exists()
+
+
+def test_run_batch_cohort_uses_the_samples_that_were_characterized(monkeypatch, tmp_path, caplog):
+    cohort_calls = []
+    monkeypatch.setattr(
+        cli,
+        "cmd_run_all",
+        lambda a: (_fake_sample_outputs(a.outdir, a.name, characterized=a.name != "S1"), 0)[1],
+    )
+    monkeypatch.setattr(cli, "cmd_cohort", lambda a: (cohort_calls.append(a), 0)[1])
+    with caplog.at_level(logging.INFO):
+        assert _batch(tmp_path, tmp_path / "out") == 0
+    assert [s.split("=", 1)[0] for s in cohort_calls[0].inputs] == ["S0", "S2"]
+    assert "S1" in caplog.text and "no characterized table" in caplog.text
+
+
+def test_run_batch_writes_real_cohort_files(monkeypatch, tmp_path):
+    """End to end through the real cmd_cohort, including a zero-call sample."""
+    monkeypatch.setattr(
+        cli,
+        "cmd_run_all",
+        lambda a: (_fake_sample_outputs(a.outdir, a.name, rows=0 if a.name == "S2" else 2), 0)[1],
+    )
+    out = tmp_path / "out"
+    assert _batch(tmp_path, out) == 0
+    table = (out / "cohort" / "cohort.characTErized.txt").read_text().splitlines()
+    assert table[0] == _CHAR_HEADER
+    assert len(table) == 1 + 2 + 2
+    matrix = (out / "cohort" / "cohort.genotype_matrix.tsv").read_text().splitlines()
+    assert matrix[0].split("\t")[5:] == ["S0", "S1", "S2"]
+    assert matrix[1].split("\t")[5:] == ["homozygous", "homozygous", "."]
+    assert (out / "cohort" / "cohort.summary_mqc.tsv").is_file()
+
+
+def test_run_batch_fails_when_the_cohort_fails(monkeypatch, tmp_path):
+    def run_all(args):
+        _fake_sample_outputs(args.outdir, args.name)
+        if args.name == "S1":  # S1's table claims S0's sample name
+            p = Path(args.outdir, "results", "ALL.repeat.all_nonref_insert.characTErized.txt")
+            p.write_text(p.read_text().replace("S1\t", "S0\t"))
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_run_all", run_all)
+    assert _batch(tmp_path, tmp_path / "out") != 0

@@ -112,6 +112,11 @@ unless `--force`. By default the batch stops at the first failing sample; pass
 `--keep-going` to run the rest and get a summary at the end (the exit code is
 non-zero either way if anything failed).
 
+With `--genotype`, the batch then writes `<outdir>/cohort/` by running
+`relocaTE3 cohort` (see "Cohort outputs") on the characterized table of every
+sample that did not fail, including samples skipped as already complete.
+Without characterized tables the cohort step is skipped and logged.
+
 ### Nextflow pipeline
 
 The repository is also a Nextflow pipeline (nf-core layout). Each task runs one

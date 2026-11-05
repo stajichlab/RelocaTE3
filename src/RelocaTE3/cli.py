@@ -1234,6 +1234,7 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
 
     if not pending:
         logger.info("run-batch: nothing to do (use --force to re-run)")
+        _batch_cohort(args, root, [s.name for s in samples])
         return 0
 
     failures: list[tuple[str, str]] = []
@@ -1269,6 +1270,11 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
 
     done = len(pending) - len(failures)
     logger.info("run-batch: %d succeeded, %d failed", done, len(failures))
+    if not failures or args.keep_going:
+        # Every sample not failed in this run: re-run ones and ones skipped as
+        # already complete, so a resumed batch still gets the whole cohort.
+        failed = {name for name, _ in failures}
+        _batch_cohort(args, root, [s.name for s in samples if s.name not in failed])
     if failures:
         for name, err in failures:
             logger.error("  failed: %s (%s)", name, err)
@@ -1286,6 +1292,46 @@ def cmd_cohort(args: argparse.Namespace) -> int:
     logger.info("cohort: %d input table(s) -> %s", len(args.inputs), args.outdir)
     write_cohort(args.inputs, args.outdir)
     return 0
+
+
+def _batch_cohort(args: argparse.Namespace, root: Path, names: list[str]) -> None:
+    """Write ``<root>/cohort/`` from the samples' characterized tables.
+
+    Delegates to :func:`cmd_cohort`, so run-batch and ``relocaTE3 cohort``
+    produce identical files. Inputs are passed as ``NAME=PATH`` so a sample
+    with no characterized calls still gets its own matrix column. Samples
+    without a table (not genotyped) are left out; with none, it is skipped.
+    """
+    tables, missing = [], []
+    for name in names:
+        table = (
+            root
+            / name
+            / "results"
+            / f"{args.target}.{args.te_name}.all_nonref_insert.characTErized.txt"
+        )
+        if table.is_file():
+            tables.append(f"{name}={table}")
+        else:
+            missing.append(name)
+    if not tables:
+        logger.info(
+            "run-batch: cohort skipped: no characterized tables "
+            "(genotyping was not run; use --genotype)"
+        )
+        return
+    if missing:
+        logger.warning(
+            "run-batch: no characterized table for %s; left out of the cohort",
+            ", ".join(missing),
+        )
+    rc = cmd_cohort(
+        argparse.Namespace(
+            inputs=tables, outdir=str(root / "cohort"), verbose=args.verbose
+        )
+    )
+    if rc != 0:
+        raise RuntimeError(f"run-batch: cohort failed with exit code {rc}")
 
 
 def _find_genome_bam(outdir: Path, sample: str) -> Path:
@@ -1618,7 +1664,9 @@ def build_parser() -> argparse.ArgumentParser:
             description="Run the full pipeline for every sample in a CSV/TSV sample "
             "sheet or a directory of paired FASTQs, one 'run-all' per sample into "
             "<outdir>/<sample>. Resumable: samples with a results table are skipped "
-            "unless --force.",
+            "unless --force. When samples were genotyped, also writes "
+            "<outdir>/cohort/ via 'relocaTE3 cohort' from every sample that did not "
+            "fail, including ones skipped as complete.",
         )
     )
     _menu_find_reference(
