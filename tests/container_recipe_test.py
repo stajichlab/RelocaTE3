@@ -4,7 +4,9 @@ The image is built only by CI (no Docker on the cluster), so these static checks
 guard the recipe's load-bearing lines between CI runs:
 
 - the build context excludes local environments and run/test output;
-- the environment comes from ``pixi.lock`` unchanged (``--locked``);
+- the environment comes from ``pixi.lock`` unchanged (``--locked``): the
+  ``pipeline`` env, which is the validated ``blat`` env plus MultiQC, solved in
+  one solve-group so every package the two share is the identical build;
 - the pixi base image is pinned, never ``latest``;
 - the conda environment sits at the same absolute path in both stages (conda
   prefixes are not relocatable);
@@ -66,19 +68,20 @@ def test_pixi_base_image_is_pinned():
 
 def test_environment_is_installed_locked_and_non_editable():
     script = BUILD_ENV.read_text()
-    assert re.search(r"pixi install --locked -e blat\b", script)
+    assert re.search(r"pixi install --locked -e pipeline\b", script)
     assert "--frozen" not in script
     # Replace the editable install with a normal one.
     assert re.search(r"pip uninstall -y RelocaTE3", script)
     assert re.search(r"pip install --no-deps\b", script)
-    assert "pixi shell-hook -e blat" in script
-    assert "pixi list -e blat --json --locked" in script
+    assert "pixi shell-hook -e pipeline" in script
+    assert "pixi list -e pipeline --json --locked" in script
+    assert "-e blat" not in script
 
 
 def test_env_copied_to_the_same_path_in_both_stages():
     args = _dockerfile_args()
     env_dir = args["ENV_DIR"]
-    assert env_dir.startswith("/") and env_dir.endswith("/.pixi/envs/blat")
+    assert env_dir.startswith("/") and env_dir.endswith("/.pixi/envs/pipeline")
     build, *_, runtime = _stages()
     # A global ARG is only visible in a stage that re-declares it.
     assert re.search(r"^ARG ENV_DIR\s*$", build, re.M)
@@ -176,9 +179,12 @@ def test_image_checks_every_locked_tool():
         assert tool in checked, f"{tool} not checked by check_image.sh"
     # Every expected tool (except the Python packages) is run by check_image.sh.
     assert set(expected) - {"pysam", "python"} == set(checked)
-    locked = _locked_conda_versions("blat")
+    for tool in ("multiqc",):
+        assert tool in expected, f"{tool} not in build_env.sh's expected tools"
+        assert tool in checked, f"{tool} not checked by check_image.sh"
+    locked = _locked_conda_versions("pipeline")
     for tool in checked:
-        assert tool in locked, f"{tool} is checked but not locked in the blat env"
+        assert tool in locked, f"{tool} is checked but not locked in the pipeline env"
 
 
 def test_release_tag_reaches_build_env():
@@ -195,3 +201,53 @@ def test_runtime_ignores_host_user_site_packages():
     *_, runtime = _stages()
     assert re.search(r"^ENV PYTHONNOUSERSITE=1\s*$", runtime, re.M)
     assert "PYTHONNOUSERSITE=1" in DRY_RUN.read_text()
+
+
+# ------------------------------------------- pipeline env = blat env + MultiQC
+
+PIXI_TOML = ROOT / "pixi.toml"
+PARITY = ROOT / "tests" / "nextflow" / "parity_chr3.sh"
+
+
+def _locked_packages(env: str, platform: str = "linux-64") -> set[str]:
+    """Every package URL (conda and PyPI) pixi.lock lists for ``env``."""
+    lines = PIXI_LOCK.read_text().splitlines()
+    start = lines.index(f"  {env}:")
+    urls: set[str] = set()
+    in_platform = False
+    for line in lines[start + 1 :]:
+        if re.match(r"^ {0,2}\S", line):
+            break
+        if re.match(r"^      \S+:$", line):
+            in_platform = line.strip() == f"{platform}:"
+            continue
+        m = re.match(r"^      - (?:conda|pypi): (\S+)$", line)
+        if in_platform and m:
+            urls.add(m.group(1))
+    return urls
+
+
+def test_pipeline_env_is_blat_plus_report_in_one_solve_group():
+    import tomllib
+
+    envs = tomllib.loads(PIXI_TOML.read_text())["environments"]
+    blat, pipeline = envs["blat"], envs["pipeline"]
+    assert pipeline["features"] == ["blat", "report"]
+    # One solve-group: the shared packages are solved once, so they cannot
+    # drift apart (a separate solve moved python, pysam, bowtie2, libgcc...).
+    assert blat["solve-group"] == pipeline["solve-group"]
+    assert not pipeline.get("no-default-feature", False)
+
+
+def test_pipeline_env_contains_the_blat_env_exactly():
+    blat, pipeline = _locked_packages("blat"), _locked_packages("pipeline")
+    assert blat, "no linux-64 packages for the blat env in pixi.lock"
+    missing = sorted(blat - pipeline)
+    assert not missing, f"blat-env packages not identical in the pipeline env: {missing}"
+    added = {u.rsplit("/", 1)[-1] for u in pipeline - blat}
+    assert any(name.startswith("multiqc-") for name in added)
+
+
+def test_parity_script_uses_the_image_env_path():
+    env_dir = _dockerfile_args()["ENV_DIR"]
+    assert f'IMAGE_ENV_BIN="{env_dir}/bin"' in PARITY.read_text()

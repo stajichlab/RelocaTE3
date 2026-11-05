@@ -59,6 +59,17 @@ blat = "*"
 # (tests/container_recipe_test.py checks the lock).
 bcftools = "1.24.*"
 
+# MultiQC, for the pipeline's summary report (Nextflow M3). It renders the
+# cohort/sample "_mqc" custom-content files only and never touches calls. A
+# feature, not its own environment, so the container keeps ONE environment:
+# `pipeline` = core + blat + report. It must not move any tool version of the
+# validated `blat` env (tests/container_recipe_test.py compares the lock).
+[feature.report]
+platforms = ["linux-64"]
+
+[feature.report.dependencies]
+multiqc = ">=1.35,<2"
+
 # Nextflow and nf-test, for the pipeline (main.nf). A standalone environment:
 # it must not co-solve with blat (bioconda blat pins zlib 1.2.11). Pipeline
 # tasks get their tools from the `blat` env (profile `pixi`) or the container.
@@ -75,7 +86,9 @@ nf-test = ">=0.9"
 # `default` keeps the historical contents (core + plotting), so `pixi run test`
 # and `pixi run validate-rice` are unchanged.
 default = { features = ["plot"] }
-blat = { features = ["blat"] }
+blat = { features = ["blat"], solve-group = "blat" }
+# The container image and the pixi profile's task environment: blat + MultiQC.
+pipeline = { features = ["blat", "report"], solve-group = "blat" }
 nf = { features = ["nextflow"], no-default-feature = true }
 
 [tasks]

@@ -1,5 +1,6 @@
-# RelocaTE3 runtime image: pixi.lock's `blat` environment (the validated tool
-# versions) plus a non-editable install of RelocaTE3. Built only by CI.
+# RelocaTE3 runtime image: pixi.lock's `pipeline` environment (the validated
+# `blat` environment's tools, identical builds, plus MultiQC for the summary
+# report) and a non-editable install of RelocaTE3. Built only by CI.
 #
 #   docker build -f containers/Dockerfile -t relocate3 .
 #   docker run --rm relocate3 bash /opt/relocate3/check_image.sh
@@ -22,7 +23,7 @@ ARG RUNTIME_IMAGE=ubuntu:24.04
 # Conda prefixes are not relocatable: the env must live at this same absolute
 # path in both stages. pixi installs to <project>/.pixi/envs/<env>.
 ARG PROJECT_DIR=/opt/relocate3
-ARG ENV_DIR=/opt/relocate3/.pixi/envs/blat
+ARG ENV_DIR=/opt/relocate3/.pixi/envs/pipeline
 
 FROM ${PIXI_IMAGE} AS build
 ARG PROJECT_DIR
@@ -32,7 +33,7 @@ ARG ENV_DIR
 ARG RELEASE_TAG=
 # The pixi image ships only pixi + ca-certificates. Build-stage only: git, for
 # versioningit's "git" method (`git describe`). No compiler: every package in
-# pixi.lock's blat env is a binary (conda or wheel).
+# pixi.lock's pipeline env is a binary (conda or wheel).
 # Keep in sync with containers/dry_run_recipe.sh (tests/container_recipe_test.py).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
@@ -46,7 +47,7 @@ FROM ${RUNTIME_IMAGE} AS runtime
 ARG PROJECT_DIR
 ARG ENV_DIR
 LABEL org.opencontainers.image.source="https://github.com/stajichlab/RelocaTE3"
-LABEL org.opencontainers.image.description="RelocaTE3 with the pixi.lock blat environment"
+LABEL org.opencontainers.image.description="RelocaTE3 with the pixi.lock pipeline environment (blat env + MultiQC)"
 LABEL org.opencontainers.image.licenses="MIT"
 # procps provides `ps`, which Nextflow's task metrics (.command.run) need.
 RUN apt-get update \
@@ -58,7 +59,7 @@ COPY --from=build ${ENV_DIR} ${ENV_DIR}
 COPY --from=build ${PROJECT_DIR}/meta ${PROJECT_DIR}/meta
 COPY --from=build ${PROJECT_DIR}/containers/check_image.sh ${PROJECT_DIR}/check_image.sh
 # No ENTRYPOINT: Nextflow runs `bash .command.run` and Apptainer ignores it.
-# The blat env has no activate.d scripts, so PATH + CONDA_PREFIX is the whole
+# The pipeline env has no activate.d scripts, so PATH + CONDA_PREFIX is the whole
 # activation (see meta/shell-hook.sh).
 ENV PATH="${ENV_DIR}/bin:$PATH"
 ENV CONDA_PREFIX=${ENV_DIR}

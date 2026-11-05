@@ -200,7 +200,7 @@
                 "pixi_env": {
                     "type": "string",
                     "format": "directory-path",
-                    "description": "Pixi environment providing relocaTE3 and the aligners (pixi profile). Default: <projectDir>/.pixi/envs/blat.",
+                    "description": "Pixi environment providing relocaTE3, the aligners and MultiQC (pixi profile). Default: <projectDir>/.pixi/envs/pipeline.",
                     "hidden": true
                 },
                 "test_data": {

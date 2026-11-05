@@ -221,7 +221,7 @@ def test_ci_setup_pixi_locked_and_pinned():
     step = _steps(job)[_step_index(_steps(job), "prefix-dev/setup-pixi@")]
     assert f"pixi-version: v{PIXI_VERSION}" in step
     assert "locked: true" in step
-    assert re.search(r"environments:\s*blat nf\b", step)
+    assert re.search(r"environments:\s*pipeline nf\b", step)
 
 
 def test_ci_pixi_matches_container_build():
@@ -232,6 +232,6 @@ def test_ci_pixi_matches_container_build():
 def test_ci_runs_all_suites():
     job = _job(_read(CI), "tests")
     assert re.search(r"-m pytest tests\b", job)
-    assert ".pixi/envs/blat/bin" in job  # the real tools on PATH
+    assert ".pixi/envs/pipeline/bin" in job  # the real tools (and multiqc) on PATH
     assert "pixi run -e nf nf-test test" in job
     assert "pixi run -e nf nextflow lint ." in job

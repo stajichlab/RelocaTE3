@@ -132,7 +132,8 @@ parameters, and `--help <parameter>` describes one. Tools come from one of two
 places:
 
 - **A container (recommended).** `ghcr.io/stajichlab/relocate3` holds the exact
-  tool versions RelocaTE3 is validated with (from `pixi.lock`). Choose
+  tool versions RelocaTE3 is validated with, plus MultiQC (`pixi.lock`'s
+  `pipeline` environment). Choose
   `-profile apptainer`, `singularity` or `docker`.
   - `--container_tag` picks the image: a release version such as `0.3.0`,
     `dev` (latest `main`, the default) or `sha-<commit>`. `dev` and `pr-<n>`
@@ -141,8 +142,9 @@ places:
     image reference a run used.
   - Set `NXF_APPTAINER_CACHEDIR` (or `NXF_SINGULARITY_CACHEDIR`) to a
     directory with space, so the image (~340 MB) is downloaded once.
-- **`-profile pixi`.** Uses the `blat` pixi environment of a local clone. It
-  is meant for development.
+- **`-profile pixi`.** Uses the `pipeline` pixi environment of a local clone
+  (the `blat` environment plus MultiQC, with identical tool builds; the image
+  is built from it). It is meant for development.
 
 On UCR HPCC, add `-profile hpcc` to send each task to SLURM. The partition
 defaults to `intel`; change it with `--slurm_partition`. At most 50 jobs are
@@ -167,7 +169,7 @@ nextflow run stajichlab/RelocaTE3 -r main -profile hpcc,apptainer \
 From a clone, without containers:
 
 ```bash
-pixi install -e blat -e nf
+pixi install -e pipeline -e nf
 pixi run -e nf nextflow run . -profile test,pixi          # Chr3 test data, ~2 min (any launch dir)
 pixi run -e nf nextflow run . -profile pixi \
   --input samples.csv --genome reference.fa --te_library RiceTE.fa \
