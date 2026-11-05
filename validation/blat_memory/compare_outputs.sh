@@ -7,9 +7,13 @@
 #SBATCH -o logs/blat_memory/compare_outputs.%j.log
 #
 # Compare every output file of two RelocaTE3 output directories.
-# Text files: byte-for-byte. BAMs: record-for-record (`samtools view`), since
-# @PG header lines legitimately differ. Indexes (.bai/.fai), the measurement
-# files written by the memcheck scripts, and symlinked inputs are skipped.
+# Text files: byte-for-byte. BAMs: record-for-record (`samtools view`) and their
+# @SQ header lines (`samtools view -H`), since @PG lines legitimately differ.
+# A BAM samtools cannot read (either side) is UNREADABLE, a failure: its empty
+# output must never compare equal. Each stream is checksummed (sha256) with
+# pipefail, so nothing is held in memory or on disk.
+# Indexes (.bai/.fai), the measurement files written by the memcheck scripts,
+# and symlinked inputs are skipped.
 #
 # Usage: compare_outputs.sh <DIR_A> <DIR_B>   (or sbatch for large outputs)
 set -euo pipefail
@@ -24,13 +28,34 @@ list_files() {
   (cd "$1" && find . -type f ! -name '*.bai' ! -name '*.fai' ! -name 'time.txt' \
      ! -name 'tree_rss*' ! -name '.complete' | sort)
 }
+# sha256 of a BAM's records (`bam_sum <bam>`) or @SQ lines (`bam_sum <bam> -H`);
+# non-zero when samtools fails (pipefail). awk, unlike grep, exits 0 on no match.
+bam_sum() {
+  local out
+  if [[ "${2:-}" == -H ]]; then
+    out="$(samtools view -H "$1" | awk '/^@SQ/' | sha256sum)" || return 1
+  else
+    out="$(samtools view "$1" | sha256sum)" || return 1
+  fi
+  echo "${out%% *}"
+}
 same=0; differ=0
 while read -r f; do
   if [[ ! -f "${B}/${f}" ]]; then echo "MISSING in B: ${f}"; differ=$((differ + 1)); continue; fi
   case "${f}" in
     *.bam)
-      if cmp -s <(samtools view "${A}/${f}") <(samtools view "${B}/${f}"); then
-        same=$((same + 1)); else echo "DIFF (records) ${f}"; differ=$((differ + 1)); fi ;;
+      unreadable=""
+      ra="$(bam_sum "${A}/${f}")" && ha="$(bam_sum "${A}/${f}" -H)" || unreadable+=" A"
+      rb="$(bam_sum "${B}/${f}")" && hb="$(bam_sum "${B}/${f}" -H)" || unreadable+=" B"
+      if [[ -n "${unreadable}" ]]; then
+        echo "UNREADABLE (samtools view failed in${unreadable}) ${f}"; differ=$((differ + 1))
+      elif [[ "${ha}" != "${hb}" ]]; then
+        echo "DIFF (@SQ header) ${f}"; differ=$((differ + 1))
+      elif [[ "${ra}" != "${rb}" ]]; then
+        echo "DIFF (records) ${f}"; differ=$((differ + 1))
+      else
+        same=$((same + 1))
+      fi ;;
     *)
       if cmp -s "${A}/${f}" "${B}/${f}"; then
         same=$((same + 1)); else echo "DIFF ${f}"; differ=$((differ + 1)); fi ;;

@@ -117,6 +117,14 @@ def test_container_builds_pr_head_commit():
     assert "DOCKER_METADATA_PR_HEAD_SHA: true" in job
 
 
+def test_image_checkout_does_not_persist_the_token():
+    # The Dockerfile copies .git into the build stage; a persisted token
+    # (http.extraheader in .git/config) would go with it.
+    steps = _steps(_job(_read(CONTAINER), "image"))
+    checkout = steps[_step_index(steps, "actions/checkout@")]
+    assert "persist-credentials: false" in checkout
+
+
 def test_container_build_inputs():
     steps = _steps(_job(_read(CONTAINER), "image"))
     builds = [s for s in steps if "docker/build-push-action@" in s]
@@ -151,6 +159,34 @@ def test_container_checks_image_before_push():
     assert "docker run --rm" in steps[check]
 
 
+RELEASE_REF = "startsWith(github.ref, 'refs/tags/v')"
+
+
+def test_container_builds_pass_the_release_tag():
+    # build_env.sh builds exactly the tag being released (RELEASE_TAG), even
+    # with an rc and a final tag on one commit. Both builds get the same
+    # build-arg, so the push build reuses the tested build's cache.
+    steps = _steps(_job(_read(CONTAINER), "image"))
+    builds = [s for s in steps if "docker/build-push-action@" in s]
+    arg = f"RELEASE_TAG=${{{{ {RELEASE_REF} && github.ref_name || '' }}}}"
+    for b in builds:
+        assert re.search(r"build-args:\s*\|?\s*\n?\s*" + re.escape(arg), b), b
+
+
+def test_container_release_check_runs_on_tags_before_push():
+    steps = _steps(_job(_read(CONTAINER), "image"))
+    check = _step_index(steps, "bash /opt/relocate3/check_image.sh")
+    release = _step_index(steps, "containers/check_release.sh")
+    login = _step_index(steps, "docker/login-action@")
+    push = _step_index(steps, "push: true")
+    assert check < release < login < push
+    step = steps[release]
+    assert f"if: {RELEASE_REF}" in step
+    assert 'docker run --rm "${TEST_TAG}" relocaTE3 --version' in step
+    assert '"${GITHUB_REF_NAME#v}"' in step
+    assert "nextflow.config" in step
+
+
 def test_container_push_and_login_skip_forks():
     steps = _steps(_job(_read(CONTAINER), "image"))
     for needle in ("docker/login-action@", "push: true"):
@@ -168,6 +204,13 @@ def test_pipeline_container_job_runs_after_image():
     # Task 3 adds the docker profile, container_tag and the parity mode.
     assert re.search(r"-profile test,docker\b.*--container_tag", job)
     assert "tests/nextflow/parity_chr3.sh docker" in job
+
+
+def test_pipeline_container_job_checks_the_recorded_image():
+    # pipeline_info/software_environment.txt names the image the run used.
+    job = _job(_read(CONTAINER), "pipeline-container")
+    assert "pipeline_info/software_environment.txt" in job
+    assert 'container: ${IMAGE}:${TAG}' in job
 
 
 # ------------------------------------------------------------------- ci.yml

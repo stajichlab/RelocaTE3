@@ -115,8 +115,83 @@ def _apt_packages(text: str) -> list[str]:
 def test_dry_run_installs_the_same_apt_packages_as_the_dockerfile():
     build, *_, runtime = _stages()
     dry = DRY_RUN.read_text()
-    # build stage: git (versioningit) + a C/C++ toolchain: pixi.lock's blat env
-    # carries pybedtools as a PyPI sdist, compiled during `pixi install`.
-    assert _apt_packages(build) == [["git", "build-essential"]]
+    # build stage: git only (versioningit). No compiler: nothing in pixi.lock's
+    # blat env is built from an sdist (pybedtools, the one that was, is gone).
+    assert _apt_packages(build) == [["git"]]
     assert _apt_packages(runtime) == [["procps"]]
     assert _apt_packages(dry) == _apt_packages(build) + _apt_packages(runtime)
+
+
+# ------------------------------------------------- tools in the locked env
+
+
+PIXI_LOCK = ROOT / "pixi.lock"
+
+
+def _locked_conda_versions(env: str, platform: str = "linux-64") -> dict[str, str]:
+    """{package: version} of the conda packages pixi.lock pins for ``env``."""
+    lines = PIXI_LOCK.read_text().splitlines()
+    start = lines.index(f"  {env}:")
+    versions: dict[str, str] = {}
+    in_platform = False
+    for line in lines[start + 1 :]:
+        if re.match(r"^ {0,2}\S", line):
+            break
+        if re.match(r"^      \S+:$", line):
+            in_platform = line.strip() == f"{platform}:"
+            continue
+        m = re.match(r"^      - conda: \S+/([^/]+)-([^-/]+)-[^-/]+\.(?:conda|tar\.bz2)$", line)
+        if in_platform and m:
+            versions[m.group(1)] = m.group(2)
+    return versions
+
+
+def _build_env_tools() -> list[str]:
+    m = re.search(r"for tool in \(([^)]*)\):", BUILD_ENV.read_text())
+    assert m, "no expected-tools tuple in build_env.sh"
+    return re.findall(r'"([\w-]+)"', m.group(1))
+
+
+def _check_image_tools() -> list[str]:
+    m = re.search(r"^for tool in ([\w -]+); do$", CHECK_IMAGE.read_text(), re.M)
+    assert m, "no tool loop in check_image.sh"
+    return m.group(1).split()
+
+
+def test_blat_env_locks_bcftools_in_the_samtools_series():
+    # Excision mode (characterize -x, pipeline --excision) shells out to
+    # bcftools; it must be in the environment the image is built from.
+    locked = _locked_conda_versions("blat")
+    assert "samtools" in locked
+    assert "bcftools" in locked, "bcftools missing from pixi.lock's blat env"
+    series = lambda v: v.split(".")[:2]  # noqa: E731
+    assert series(locked["bcftools"]) == series(locked["samtools"]) == series(locked["htslib"])
+
+
+def test_image_checks_every_locked_tool():
+    expected = _build_env_tools()
+    checked = _check_image_tools()
+    for tool in ("bcftools", "bwa-mem2"):
+        assert tool in expected, f"{tool} not in build_env.sh's expected tools"
+        assert tool in checked, f"{tool} not checked by check_image.sh"
+    # Every expected tool (except the Python packages) is run by check_image.sh.
+    assert set(expected) - {"pysam", "python"} == set(checked)
+    locked = _locked_conda_versions("blat")
+    for tool in checked:
+        assert tool in locked, f"{tool} is checked but not locked in the blat env"
+
+
+def test_release_tag_reaches_build_env():
+    # Empty except on v* tag builds (.github/workflows/container.yml).
+    build, *_ = _stages()
+    assert re.search(r"^ARG RELEASE_TAG=\s*$", build, re.M)
+    assert re.search(r'^RUN RELEASE_TAG="\$\{RELEASE_TAG\}" bash /usr/local/bin/build_env.sh ', build, re.M)
+    assert '--env "RELEASE_TAG=${RELEASE_TAG:-}"' in DRY_RUN.read_text()
+
+
+def test_runtime_ignores_host_user_site_packages():
+    # Apptainer binds $HOME; without this, ~/.local/lib/python3.12 packages
+    # would shadow the locked environment's.
+    *_, runtime = _stages()
+    assert re.search(r"^ENV PYTHONNOUSERSITE=1\s*$", runtime, re.M)
+    assert "PYTHONNOUSERSITE=1" in DRY_RUN.read_text()

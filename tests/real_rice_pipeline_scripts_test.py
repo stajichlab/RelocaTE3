@@ -18,6 +18,7 @@ import csv
 import io
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -150,27 +151,164 @@ def test_existing_sheet_is_kept_when_identical_and_refused_when_different(tmp_pa
     assert out.read_text() == first
 
 
-def test_params_come_from_the_config_run_relocate3_reads(tmp_path):
+# ------------------------------------------- run_relocate3.sh <-> pipeline
+
+RUN_RELOCATE3 = HARNESS / "run_relocate3.sh"
+# run-all options run_relocate3.sh passes that are not pipeline params: per
+# sample (sample sheet columns), per run (--outdir) or task resources.
+NOT_PARAMS = {"left", "right", "name", "outdir", "threads", "genotype_bam"}
+# run-all argparse dest -> pipeline param (tests/nextflow_schema_test.py's
+# RUN_ALL_DEST, inverted, plus the inputs and --genotype).
+DEST_TO_PARAM = {
+    "te_aligner": "te_aligner", "genome_aligner": "genome_aligner",
+    "mismatch_allowance": "mismatch", "minimum_match_length": "min_match",
+    "minimum_trimmed_length": "min_trimmed", "insert_size": "size",
+    "min_mapq": "min_mapq", "tsd": "tsd", "require_both_junctions": "require_both_junctions",
+    "target": "target", "te_name": "te_name", "repeatmasker": "repeatmasker",
+    "te_opts": "te_opts", "genome_opts": "genome_opts", "distance": "distance",
+    "excision": "excision", "bcftools": "bcftools",
+    "te_library": "te_library", "genome_fasta": "genome", "genotype": "genotype",
+}
+
+
+def _run_all_dest(option: str) -> str:
+    from RelocaTE3.cli import build_parser
+
+    parser = build_parser()
+    sub = next(a for a in parser._actions if a.__class__.__name__ == "_SubParsersAction")
+    for action in sub.choices["run-all"]._actions:
+        if option in action.option_strings:
+            return action.dest
+    raise AssertionError(f"run_relocate3.sh passes {option}, which run-all does not have")
+
+
+def _run_all_call(script: str) -> list[tuple[str, str | None]]:
+    """(option, value word) for every option of the ``relocaTE3 run-all`` call."""
+    lines = script.splitlines()
+    i = next(n for n, l in enumerate(lines) if l.strip().startswith("relocaTE3 run-all"))
+    words = []
+    for line in lines[i:]:
+        words += shlex.split(line.strip().rstrip("\\"))
+        if not line.rstrip().endswith("\\"):
+            break
+    expanded = []
+    for w in words[2:]:
+        m = re.fullmatch(r"\$\{(\w+)\[@\]\}", w)
+        if m:  # an array of options, e.g. GENOTYPE_ARGS=(--genotype ...)
+            decl = re.search(rf"^\s*{m.group(1)}=\((.+)\)\s*$", script, re.M)
+            assert decl, f"no assignment of {m.group(1)} with options"
+            expanded += shlex.split(decl.group(1))
+        else:
+            expanded.append(w)
+    pairs: list[tuple[str, str | None]] = []
+    for n, w in enumerate(expanded):
+        if w.startswith("-"):
+            nxt = expanded[n + 1] if n + 1 < len(expanded) else None
+            pairs.append((w, nxt if nxt is not None and not nxt.startswith("-") else None))
+    return pairs
+
+
+def _config_source(script: str, word: str | None, option: str) -> tuple[str, str]:
+    """The [section] key a value word comes from, via read_cfg's CFG array."""
+    if word is None:
+        # A switch: set when its guard variable is "1" (GENOTYPE_ARGS under
+        # DO_CHARACTERIZE).
+        m = re.search(r'if \[\[ "\$(\w+)" == "1" \]\]; then\n(?:.*\n){0,4}?\s*\w+=\(' + re.escape(option) + r"\b", script)
+        assert m, f"{option}: no guard variable found"
+        var = m.group(1)
+    else:
+        m = re.fullmatch(r"\$\{?(\w+)\}?", word)
+        assert m, f"{option} {word}: not a plain variable"
+        var = m.group(1)
+    idx = re.search(rf'^{var}="\$\{{CFG\[(\d+)\]\}}"$', script, re.M)
+    assert idx, f"{option}: {var} is not read from the config (CFG array)"
+    body = script[script.index("read_cfg() {"):]
+    prints = re.findall(r"^print\((.*)\)$", body, re.M)
+    expr = prints[int(idx.group(1))]
+    keys = re.findall(r"\['(\w+)'\]|\.get\('(\w+)'", expr)
+    keys = [a or b for a, b in keys]
+    assert len(keys) == 2, f"{option}: cannot read config key from {expr}"
+    return keys[0], keys[1]
+
+
+def _distinct_config(tmp_path: Path, root: Path) -> Path:
+    """config.example.toml with a distinct value for every [relocate3] number,
+    so a param mapped from the wrong key cannot match by accident."""
+    text = EXAMPLE_CONFIG.read_text().replace('repository_root = "../.."', f'repository_root = "{ROOT}"')
+    out, section, n = [], None, 0
+    for line in text.splitlines():
+        s = re.match(r"^\[(\w+)\]", line)
+        if s:
+            section = s.group(1)
+        m = re.match(r"^(\w+)(\s*=\s*)(\d+)(.*)$", line)
+        if section == "relocate3" and m and m.group(1) != "threads":
+            n += 1
+            line = f"{m.group(1)}{m.group(2)}{700 + n}{m.group(4)}"
+        out.append(line)
+    cfg = tmp_path / "config.toml"
+    cfg.write_text("\n".join(out) + "\n")
+    return cfg
+
+
+def _drift(tmp_path: Path, script_path: Path) -> list[str]:
+    """Settings run_relocate3.sh passes to run-all that --print-params does not
+    map to the matching pipeline param with the value of the same config key,
+    and printed params run_relocate3.sh does not pass."""
+    sys.path.insert(0, str(HARNESS))
+    from _config import load_config
+
     root = _fake_root(tmp_path)
-    proc = _sheet(root, "--print-params")
+    cfg_path = _distinct_config(tmp_path, root)
+    proc = _sheet(root, "--print-params", config=cfg_path)
     assert proc.returncode == 0, proc.stderr
-    params = dict(line.split("\t", 1) for line in proc.stdout.splitlines())
-    assert params == {
-        "te_aligner": "blat",
-        "genome_aligner": "bwaaln",
-        "mismatch": "2",
-        "min_match": "10",
-        "min_trimmed": "10",
-        "min_mapq": "0",
-        "size": "250",
-        "te_name": "mping",
-        "target": "ALL",
-        "tsd": "UNK",
-        "genotype": "true",
-        "genome": str(root / "ref_genome" / "MSU_r7.fa"),
-        "te_library": str(ROOT / "tests" / "data" / "TE_lib" / "mping.fa"),
-        "repeatmasker": str(root / "repeatmasker" / "MSU_r7.fa.out"),
-    }
+    printed = dict(line.split("\t", 1) for line in proc.stdout.splitlines())
+    os.environ["RELOCATE3_VALIDATION_ROOT"] = str(root)
+    try:
+        cfg = load_config(cfg_path)
+    finally:
+        del os.environ["RELOCATE3_VALIDATION_ROOT"]
+
+    script = script_path.read_text()
+    problems, mapped = [], set()
+    for option, word in _run_all_call(script):
+        dest = _run_all_dest(option)
+        if dest in NOT_PARAMS:
+            continue
+        param = DEST_TO_PARAM.get(dest)
+        if param is None:
+            problems.append(f"{option}: no pipeline param for run-all dest {dest}")
+            continue
+        mapped.add(param)
+        section, key = _config_source(script, word, option)
+        want = cfg[section][key]
+        if isinstance(want, bool):
+            want = "true" if want else "false"
+        elif section == "paths":
+            want = os.path.normpath(Path(cfg["_config_dir"]) / want)
+        if param not in printed:
+            problems.append(f"{option} ([{section}] {key}): --print-params has no {param}")
+        elif printed[param] != str(want):
+            problems.append(f"{option} ([{section}] {key} = {want}): --print-params {param} = {printed[param]}")
+    for param in sorted(set(printed) - mapped):
+        problems.append(f"--print-params {param}: run_relocate3.sh does not pass it")
+    return problems
+
+
+def test_every_run_all_setting_of_run_relocate3_is_a_pipeline_param(tmp_path):
+    assert _drift(tmp_path, RUN_RELOCATE3) == []
+
+
+def test_drift_guard_catches_a_new_run_all_flag(tmp_path):
+    # The guard itself: a flag added to run_relocate3.sh but not to
+    # make_samplesheet.py must be reported.
+    copy = tmp_path / "run_relocate3.sh"
+    copy.write_text(RUN_RELOCATE3.read_text().replace(
+        '    --min-mapq "$MIN_MAPQ" \\\n',
+        '    --min-mapq "$MIN_MAPQ" \\\n    --distance "$MISMATCH" \\\n',
+    ))
+    assert "--distance" in copy.read_text()
+    problems = _drift(tmp_path, copy)
+    assert any(p.startswith("--distance") for p in problems), problems
 
 
 def test_print_samples(tmp_path):
@@ -216,7 +354,7 @@ def _flag(words: list[str], flag: str) -> str:
 def test_dry_run_prints_the_pipeline_command_with_the_config_settings(tmp_path):
     root = _fake_root(tmp_path)
     out = tmp_path / "nf_out"
-    proc = _run_pipeline(root, "pr-7", str(out))
+    proc = _run_pipeline(root, "sha-abc1237", str(out))
     assert proc.returncode == 0, proc.stderr
     words = _nf_line(proc)
     assert words[:8] == ["pixi", "run", "--manifest-path", str(ROOT / "pixi.toml"),
@@ -224,7 +362,7 @@ def test_dry_run_prints_the_pipeline_command_with_the_config_settings(tmp_path):
     assert words[8:10] == ["run", str(ROOT)]
     expected = {
         "-profile": "hpcc,apptainer",
-        "--container_tag": "pr-7",
+        "--container_tag": "sha-abc1237",
         "--input": str(out / "samplesheet.csv"),
         "--outdir": str(out),
         "-work-dir": str(tmp_path / "nf_out.nextflow" / "work"),
@@ -264,7 +402,7 @@ def test_dry_run_default_outdir_is_per_tag(tmp_path):
 
 def test_dry_run_prints_date_and_parameters(tmp_path):
     root = _fake_root(tmp_path)
-    proc = _run_pipeline(root, "pr-7", str(tmp_path / "o"))
+    proc = _run_pipeline(root, "sha-abc1237", str(tmp_path / "o"))
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.startswith("date")
     for key in ("container tag", "outdir", "work dir", "config", "apptainer cache", "size", "te_name"):
@@ -274,12 +412,12 @@ def test_dry_run_prints_date_and_parameters(tmp_path):
 def test_dry_run_checks_the_inputs(tmp_path):
     root = _fake_root(tmp_path)
     (root / "aln_input" / "S_1" / "S_1.sorted.markdup.cram.crai").unlink()
-    proc = _run_pipeline(root, "pr-7", str(tmp_path / "o"))
+    proc = _run_pipeline(root, "sha-abc1237", str(tmp_path / "o"))
     assert proc.returncode != 0
     assert "S_1.sorted.markdup.cram.crai" in proc.stderr
 
 
-@pytest.mark.parametrize("args", [(), ("a b",), ("pr-7", "out", "extra"), ("-x",)])
+@pytest.mark.parametrize("args", [(), ("a b",), ("sha-abc1237", "out", "extra"), ("-x",)])
 def test_bad_arguments_fail_with_usage(tmp_path, args):
     root = _fake_root(tmp_path)
     proc = _run_pipeline(root, *args)
@@ -297,10 +435,102 @@ def test_outdir_from_another_container_tag_is_refused(tmp_path):
     root = _fake_root(tmp_path)
     out = tmp_path / "o"
     out.mkdir()
-    (out / "container_tag.txt").write_text("pr-6\n")
-    proc = _run_pipeline(root, "pr-7", str(out))
+    (out / "container_tag.txt").write_text("sha-abc1236\n")
+    proc = _run_pipeline(root, "sha-abc1237", str(out))
     assert proc.returncode != 0
-    assert "pr-6" in proc.stderr
+    assert "sha-abc1236" in proc.stderr
+
+
+@pytest.mark.parametrize("tag", ["dev", "pr-7", "pr-123"])
+def test_mutable_tags_are_refused(tmp_path, tag):
+    # CI re-pushes dev and pr-<n>: a rerun (-resume) could silently use another image.
+    root = _fake_root(tmp_path)
+    proc = _run_pipeline(root, tag, str(tmp_path / "o"))
+    assert proc.returncode != 0
+    assert "ALLOW_MUTABLE_TAG=1" in proc.stderr and "sha-" in proc.stderr
+    assert "nextflow run" not in proc.stdout
+    assert not (tmp_path / "o").exists()
+
+
+def test_mutable_tag_allowed_with_override(tmp_path):
+    root = _fake_root(tmp_path)
+    proc = _run_pipeline(root, "dev", str(tmp_path / "o"), ALLOW_MUTABLE_TAG="1")
+    assert proc.returncode == 0, proc.stderr
+    assert _flag(_nf_line(proc), "--container_tag") == "dev"
+    assert "mutable" in proc.stdout
+
+
+@pytest.mark.parametrize("tag", ["sha-abc1234", "0.3.0", "0.2.0rc2", "develop"])
+def test_immutable_tags_need_no_override(tmp_path, tag):
+    proc = _run_pipeline(_fake_root(tmp_path), tag, str(tmp_path / "o"))
+    assert proc.returncode == 0, proc.stderr
+
+
+def _stub_tools(tmp_path: Path, nextflow_rc: int = 0) -> Path:
+    """pixi (the nextflow launch) and apptainer stubs; apptainer inspect
+    prints OCI labels."""
+    bindir = tmp_path / "stubbin"
+    bindir.mkdir()
+    (bindir / "pixi").write_text(f"#!/usr/bin/env bash\necho \"pixi $*\" >> {tmp_path}/pixi.calls\nexit {nextflow_rc}\n")
+    (bindir / "apptainer").write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1" in\n'
+        "  --version) echo 'apptainer version 1.5.3' ;;\n"
+        "  inspect) echo 'org.opencontainers.image.created: 2026-11-04T00:00:00Z'\n"
+        "           echo 'org.opencontainers.image.revision: 0123456789abcdef0123456789abcdef01234567'\n"
+        "           echo 'org.opencontainers.image.version: sha-0123456' ;;\n"
+        "esac\n"
+    )
+    for f in bindir.iterdir():
+        f.chmod(0o755)
+    return bindir
+
+
+def _real_run(tmp_path: Path, tag: str, sif: bool = True, nextflow_rc: int = 0):
+    root = _fake_root(tmp_path)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    if sif:
+        (cache / f"ghcr.io-stajichlab-relocate3-{tag}.img").write_bytes(b"SIF")
+    bindir = _stub_tools(tmp_path, nextflow_rc)
+    out = tmp_path / "o"
+    proc = _run_pipeline(root, tag, str(out), dry=False, NXF_APPTAINER_CACHEDIR=str(cache),
+                         PATH=f"{bindir}:{os.environ['PATH']}")
+    return proc, out
+
+
+def test_run_records_the_image_it_used(tmp_path):
+    proc, out = _real_run(tmp_path, "sha-0123456")
+    assert proc.returncode == 0, proc.stderr
+    record = (out / "container_image.txt").read_text()
+    assert "tag: sha-0123456" in record
+    assert "image: ghcr.io/stajichlab/relocate3:sha-0123456" in record
+    assert "org.opencontainers.image.revision: 0123456789abcdef0123456789abcdef01234567" in record
+    # sha256 of the cached SIF bytes (b"SIF").
+    import hashlib
+    assert f"sif_sha256: {hashlib.sha256(b'SIF').hexdigest()}" in record
+
+
+def test_each_run_appends_a_record(tmp_path):
+    proc, out = _real_run(tmp_path, "sha-0123456")
+    assert proc.returncode == 0, proc.stderr
+    bindir = tmp_path / "stubbin"
+    proc = _run_pipeline(tmp_path / "real_rice", "sha-0123456", str(out), dry=False,
+                         NXF_APPTAINER_CACHEDIR=str(tmp_path / "cache"), PATH=f"{bindir}:{os.environ['PATH']}")
+    assert proc.returncode == 0, proc.stderr
+    assert (out / "container_image.txt").read_text().count("tag: sha-0123456") == 2
+
+
+def test_failed_run_still_records_the_image_and_fails(tmp_path):
+    proc, out = _real_run(tmp_path, "sha-0123456", nextflow_rc=3)
+    assert proc.returncode == 3
+    assert "org.opencontainers.image.revision" in (out / "container_image.txt").read_text()
+
+
+def test_missing_sif_is_recorded(tmp_path):
+    proc, out = _real_run(tmp_path, "sha-0123456", sif=False)
+    assert proc.returncode == 0, proc.stderr
+    assert "sif: not found" in (out / "container_image.txt").read_text()
 
 
 # ---------------------------------------------------------------- compare script
@@ -319,10 +549,15 @@ def _tree(base: Path, samples=SAMPLES) -> Path:
 
 
 def _compare(nf: Path, rc2: Path, tmp_path: Path) -> subprocess.CompletedProcess:
-    # samtools stub: `samtools view X` prints X (fake BAMs are text).
+    # samtools stub: `samtools view X` prints X (fake BAMs are text);
+    # `samtools view -H X` prints X's @ lines (none).
     stub = tmp_path / "bin"
     stub.mkdir(exist_ok=True)
-    (stub / "samtools").write_text('#!/usr/bin/env bash\n[[ "$1" == view ]] && cat "$2"\n')
+    (stub / "samtools").write_text(
+        '#!/usr/bin/env bash\n'
+        'if [[ "$1" == view && "$2" == -H ]]; then grep "^@" "$3" || true\n'
+        'elif [[ "$1" == view ]]; then cat "$2"; else exit 1; fi\n'
+    )
     (stub / "samtools").chmod(0o755)
     env = {k: v for k, v in os.environ.items() if k != "SLURM_JOB_ID"}
     env["PIXI_BIN"] = str(stub)

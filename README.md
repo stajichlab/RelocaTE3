@@ -4,7 +4,7 @@ RelocaTE3 identifies transposable element (TE) insertion polymorphisms from
 short-read resequencing data, at single-base resolution, by comparison to a
 reference genome. It is a modern, pure-Python reimplementation of
 [RelocaTE2](https://github.com/JinfengChen/RelocaTE2) built on `samtools`
-(plus `pysam`/`biopython`), with no Perl. By default it uses the same
+(plus `pysam`), with no Perl. By default it uses the same
 aligner pair as RelocaTE2, `blat` for TE search and `bwa aln` for genome
 placement, but the aligner for each stage is selectable: `minimap2`, `bwa`,
 `bwa-mem2`, `bwa aln`, `bowtie2`, or `blat` (see "Choosing an aligner").
@@ -45,7 +45,8 @@ far fewer insertions (see "Choosing an aligner").
 
 Or with pip, into an environment that already provides the external tools
 (`blat`, `bwa`, `samtools`, `bedtools`, and optionally `seqtk`, which speeds up
-the BLAT stage; `bcftools` is needed only for excision mode, `characterize -x`):
+the BLAT stage; `bcftools` is needed only for excision mode, `characterize -x`;
+the pixi environments and the container include it):
 
 ```bash
 pip install .        # or: pip install -e . for development
@@ -111,7 +112,7 @@ unless `--force`. By default the batch stops at the first failing sample; pass
 `--keep-going` to run the rest and get a summary at the end (the exit code is
 non-zero either way if anything failed).
 
-### Nextflow pipeline (in development)
+### Nextflow pipeline
 
 The repository is also a Nextflow pipeline (nf-core layout). Each task runs one
 `relocaTE3` subcommand with the settings `run-all` uses, so every sample's
@@ -121,17 +122,59 @@ merged from several lanes has no `run-all` equivalent).
 in parallel, the genome is indexed once, and the genotyping alignment runs
 alongside the TE search.
 
-Milestone 1 runs with the tools from the `blat` pixi environment and needs
-Nextflow ≥ 26.04 (the `nf` pixi environment has it). `nextflow run . --help`
-lists the parameters; `--help <parameter>` describes one.
+The pipeline needs Nextflow ≥ 26.04. `nextflow run . --help` lists the
+parameters, and `--help <parameter>` describes one. Tools come from one of two
+places:
+
+- **A container (recommended).** `ghcr.io/stajichlab/relocate3` holds the exact
+  tool versions RelocaTE3 is validated with (from `pixi.lock`). Choose
+  `-profile apptainer`, `singularity` or `docker`.
+  - `--container_tag` picks the image: a release version such as `0.3.0`,
+    `dev` (latest `main`, the default) or `sha-<commit>`. `dev` and `pr-<n>`
+    move with every push; pin a version or `sha-<commit>` for results you keep
+    (and for `-resume`). `pipeline_info/software_environment.txt` records the
+    image reference a run used.
+  - Set `NXF_APPTAINER_CACHEDIR` (or `NXF_SINGULARITY_CACHEDIR`) to a
+    directory with space, so the image (~340 MB) is downloaded once.
+- **`-profile pixi`.** Uses the `blat` pixi environment of a local clone. It
+  is meant for development.
+
+On UCR HPCC, add `-profile hpcc` to send each task to SLURM. The partition
+defaults to `intel`; change it with `--slurm_partition`. At most 50 jobs are
+queued at a time. Profiles apply in command-line order, so with `test` the
+later one sets the task resource caps: `-profile test,hpcc,apptainer` keeps
+hpcc's (64 CPUs, 430 GB), `-profile hpcc,test,apptainer` caps tasks at the test
+profile's 4 CPUs and 8 GB. Run Nextflow itself from a small sbatch job, never on the
+login node:
+
+```bash
+#!/usr/bin/bash -l
+#SBATCH -p intel -c 2 --mem=8G --time=3-00:00:00 -o logs/relocate3_nf.%j.log
+set -euo pipefail
+module load nextflow/26.04.6 apptainer/1.5.3
+export NXF_APPTAINER_CACHEDIR=/bigdata/<lab>/<user>/apptainer-cache
+nextflow run stajichlab/RelocaTE3 -r main -profile hpcc,apptainer \
+  --input samples.csv --genome reference.fa --te_library mping.fa \
+  --repeatmasker reference.fa.RepeatMasker.out --te_name mping \
+  --outdir results -resume
+```
+
+From a clone, without containers:
 
 ```bash
 pixi install -e blat -e nf
-pixi run -e nf nextflow run . -profile test,pixi          # Chr3 test data, ~2 min
+pixi run -e nf nextflow run . -profile test,pixi          # Chr3 test data, ~2 min (any launch dir)
 pixi run -e nf nextflow run . -profile pixi \
   --input samples.csv --genome reference.fa --te_library RiceTE.fa \
   --repeatmasker reference.fa.RepeatMasker.out --te_name mping --outdir results
 ```
+
+Validated so far:
+- Chr3 test data: identical to `run-all` with pixi, Docker and Apptainer
+  (`tests/nextflow/parity_chr3.sh`).
+- 10 real rice samples (`-profile hpcc,apptainer`): all identical to the
+  v0.2.0rc2 `run-all` results. The run took 25 minutes end to end, and no task
+  used more than 0.7 GB (`validation/real_rice/run_pipeline.sh`).
 
 The sample sheet is CSV, one row per sequencing lane. Rows with the same
 `sample` are merged in sheet order. `fastq_2` is optional (single-end).
@@ -162,8 +205,6 @@ sample with a `genotype_bam` is always genotyped. `nextflow_schema.json` describ
 setting, and they can be supplied in one file with `-params-file params.yaml`.
 
 Coming next:
-- container profiles (`apptainer`, `docker`, `singularity`) and a UCR HPCC
-  SLURM profile;
 - a cohort table and summary report;
 - spreading BLAT across cluster jobs.
 

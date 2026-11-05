@@ -26,8 +26,11 @@ permissions:
   contents: read
   packages: write
 
-# A newer push to the same PR cancels the older run, so an older build can't
-# overwrite pr-<n> after a newer one. main and tags always run to completion.
+# One run per ref at a time. On a PR a newer push cancels the running build.
+# On main and tags a running build is not cancelled, but GitHub keeps only the
+# newest PENDING run per group: a queued older run is cancelled when a newer
+# one arrives. Either way runs on a ref never overlap, so `dev` and `pr-<n>`
+# end at the newest commit that finished (sha-<short> tags are per commit).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -52,11 +55,14 @@ jobs:
       # commit. ci.yml still tests the merge commit.
       # fetch-depth 0: all history and tags (`git describe --tags` must find a
       # tag, or the build fails).
+      # persist-credentials false: the Dockerfile copies .git into the build
+      # stage, and a persisted token lives in .git/config.
       - name: Checkout
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Image metadata
         id: meta
@@ -95,11 +101,24 @@ jobs:
           context: .
           file: containers/Dockerfile
           platforms: linux/amd64
+          # v* tags: build_env.sh builds exactly this tag (an rc and a final
+          # tag may share a commit). Same value in the push build below.
+          build-args: |
+            RELEASE_TAG=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           load: true
           tags: ${{ env.TEST_TAG }}
 
       - name: Check the image
         run: docker run --rm "${TEST_TAG}" bash /opt/relocate3/check_image.sh
+
+      # Release tags only, before anything is pushed: the tag, the image's
+      # relocaTE3 --version, manifest.version and the default
+      # params.container_tag must be one version (v0.3.0 -> 0.3.0).
+      - name: Check release versions
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          image_version="$(docker run --rm "${TEST_TAG}" relocaTE3 --version)"
+          bash containers/check_release.sh "${GITHUB_REF_NAME#v}" "${image_version}" nextflow.config
 
       - name: Log in to ghcr.io
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -116,6 +135,8 @@ jobs:
           context: .
           file: containers/Dockerfile
           platforms: linux/amd64
+          build-args: |
+            RELEASE_TAG=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -161,6 +182,9 @@ jobs:
         run: |
           pixi run -e nf nextflow run . -profile test,docker --container_tag "${TAG}" \
             --outdir results/ci/nextflow_test -work-dir results/ci/work
+          record=results/ci/nextflow_test/pipeline_info/software_environment.txt
+          cat "${record}"
+          grep -qxF "container: ${IMAGE}:${TAG}" "${record}"
 
       - name: Chr3 parity (run-all vs pipeline, both in the image)
         run: bash tests/nextflow/parity_chr3.sh docker "${TAG}"

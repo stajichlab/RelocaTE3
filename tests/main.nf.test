@@ -1,9 +1,9 @@
 // Pipeline-level tests for main.nf (parameter and sample-sheet validation).
 //
 // nf-test runs Nextflow from .nf-test/tests/<hash>/, and nf-schema resolves
-// relative paths in a sample sheet against the launch directory, so the
-// repo-root-relative tests/data/samplesheet_chr3.csv cannot be used here.
-// Each test writes its own copy of that sheet with absolute read paths.
+// relative paths in a sample sheet against the launch directory. Each test
+// writes its own sheet with absolute read paths (the test profile's
+// tests/data/samplesheet_chr3.csv uses ${params.test_data}, conf/test.config).
 
 nextflow_pipeline {
 

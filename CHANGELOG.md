@@ -18,6 +18,20 @@
   - A sample with a `genotype_bam` is genotyped even with `--genotype false`,
     as `run-all` does with `--genotype-bam`.
   - New `--bcftools` setting (as `run-all --bcftools`).
+- Nextflow pipeline, milestone 2:
+  - Container image `ghcr.io/stajichlab/relocate3`, built by GitHub Actions
+    from `pixi.lock` (`containers/Dockerfile`). Tags:
+    - the version on release tags;
+    - `dev` for `main`;
+    - `pr-<n>` and `sha-<commit>`.
+  - Profiles `apptainer`, `singularity` and `docker` (`--container_tag`), and
+    `hpcc` for UCR SLURM (`--slurm_partition`).
+  - CI runs pytest, nf-test, `nextflow lint` and the Chr3 parity check inside
+    the image on every pull request.
+  - Validation:
+    - Chr3 parity passes with pixi, Docker and Apptainer.
+    - The 10 real-rice samples run through `-profile hpcc,apptainer` are
+      identical to v0.2.0rc2.
 - `relocaTE3 align-reads`: the genotyping alignment as its own step. `run-all`
   uses it.
 - New pixi environment `nf` (Nextflow ≥ 26.04, nf-test).
@@ -27,6 +41,19 @@
 - `index-genome --genome-aligner` (default `bwaaln`) also builds that aligner's
   genome index. `run-all` now always runs `index-genome`, which skips indexes
   already present.
+- `bcftools` (needed by excision mode, `characterize -x` / `--excision`) is now
+  in the pixi environments and the container image. Before, excision output
+  was silently empty there.
+- `biopython` and `pybedtools` are no longer dependencies (nothing used them).
+  Build requirements are `setuptools>=61,<85` and `versioningit>=3,<4`.
+- Pipeline `-profile test` now runs from any directory, also as
+  `nextflow run stajichlab/RelocaTE3 -profile test,<engine>`.
+- Pipeline `-profile pixi` stops at start if `--pixi_env` has no `relocaTE3`.
+- Pipeline runs write `pipeline_info/software_environment.txt` (container
+  image or pixi environment).
+- `validation/real_rice/run_pipeline.sh` refuses the mutable image tags `dev`
+  and `pr-<n>` unless `ALLOW_MUTABLE_TAG=1`, and records the image each run
+  used in `OUTDIR/container_image.txt`.
 
 ## 0.2.0 — unreleased (release candidates `v0.2.0rc1` 2026-10-21, `v0.2.0rc2` 2026-10-29)
 

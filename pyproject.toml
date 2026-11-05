@@ -1,5 +1,7 @@
 [build-system]
-requires = ["setuptools>=61.0", "pytest>=6.0", "versioningit"]
+# Only what builds the wheel. Bounds include the versions the image build gets
+# from PyPI (setuptools 84.x, versioningit 3.x, 2026-11); widen deliberately.
+requires = ["setuptools>=61,<85", "versioningit>=3,<4"]
 build-backend = "setuptools.build_meta"
 
 [project]

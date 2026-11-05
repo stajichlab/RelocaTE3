@@ -74,3 +74,36 @@ def test_help_for_one_parameter(tmp_path):
     assert "--te_aligner" in log
     # Only that parameter: no parameter groups.
     assert "Calling options" not in log
+
+
+# ------------------------------------------- test profile, pixi_env, record
+
+
+def test_test_profile_runs_from_any_directory(tmp_path):
+    # `nextflow run stajichlab/RelocaTE3 -profile test,...` launches outside the
+    # repository; the test sheet's reads must not depend on the launch dir.
+    out = tmp_path / "results"
+    proc = _run(tmp_path, "-profile", "test,pixi", "-stub", "--outdir", str(out))
+    log = proc.stdout + proc.stderr
+    assert proc.returncode == 0, log
+    assert (out / "chr3" / "results").is_dir()
+    # The run records its software environment (pipeline_info).
+    record = (out / "pipeline_info" / "software_environment.txt").read_text()
+    assert "profile: test,pixi" in record
+    assert "container_engine: none" in record
+    assert "container: none" in record
+    assert f"pixi_env: {ROOT}/.pixi/envs/blat" in record
+
+
+def test_pixi_profile_needs_relocate3_in_pixi_env(tmp_path):
+    proc = _run(tmp_path, "-profile", "test,pixi", "-preview", "--outdir", str(tmp_path / "r"),
+                "--pixi_env", str(tmp_path / "no_env"))
+    log = proc.stdout + proc.stderr
+    assert proc.returncode != 0
+    assert "pixi_env" in log and str(tmp_path / "no_env" / "bin" / "relocaTE3") in log
+
+
+def test_container_profiles_ignore_pixi_env(tmp_path):
+    proc = _run(tmp_path, "-profile", "test,apptainer", "-preview", "--outdir", str(tmp_path / "r"),
+                "--pixi_env", str(tmp_path / "no_env"))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
