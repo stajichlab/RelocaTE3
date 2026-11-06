@@ -25,7 +25,7 @@
 
 process RELOCATE3_TE_MERGE_TRIM {
     tag "${meta.id}"
-    label 'process_medium'
+    label 'process_merge_trim'
 
     input:
     tuple val(meta), path(reads_1), path(reads_2), path(manifest), path(chunk_bams, arity: '1..*')
