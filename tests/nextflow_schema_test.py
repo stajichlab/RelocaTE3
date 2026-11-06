@@ -261,3 +261,31 @@ def test_blat_scatter_params_have_their_own_schema_group():
     group = schema["$defs"]["scatter_options"]
     assert set(group["properties"]) == {"blat_scatter", "blat_chunks_per_task", "blat_chunk_reads"}
     assert {"$ref": "#/$defs/scatter_options"} in schema["allOf"]
+
+
+def _main_nf_typed_params() -> dict[str, tuple[str, object]]:
+    """main.nf's typed ``params {}`` block: name -> (type, default)."""
+    body = _config_block((ROOT / "main.nf").read_text(), "params")
+    typed = {}
+    for line in body.splitlines():
+        line = re.sub(r"(^|\s)//.*$", "", line).strip()
+        if not line:
+            continue
+        m = re.fullmatch(r"(\w+)\s*:\s*(\w+)\s*=\s*(.+)", line)
+        assert m, f"unsupported line in main.nf params block: {line}"
+        typed[m.group(1)] = (m.group(2), _literal(m.group(3)))
+    return typed
+
+
+def test_every_boolean_param_is_typed_in_main_nf():
+    """Nextflow >= 26.04 (strict parser) passes an untyped `--genotype false`
+    as the String "false", which is true in Groovy. Only a param typed Boolean
+    in main.nf's params block arrives as a Boolean. `help` is boolean or a
+    parameter name, so it stays untyped (main.nf handles both)."""
+    booleans = {name for name, prop in _schema_properties().items()
+                if prop.get("type") == "boolean"}
+    typed = _main_nf_typed_params()
+    config = _config_params()
+    assert booleans == {name for name, (kind, _) in typed.items() if kind == "Boolean"}
+    for name in booleans:
+        assert typed[name][1] == config[name], name

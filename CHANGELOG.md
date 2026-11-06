@@ -108,6 +108,20 @@
   and `pr-<n>` unless `ALLOW_MUTABLE_TAG=1`, and records the image each run
   used in `OUTDIR/container_image.txt`.
 
+### Fixed
+
+- Pipeline: boolean pipeline settings given as `false` on the command line
+  were treated as true. Nextflow >= 26.04 (the pipeline needs it) passes an
+  untyped `--genotype false` as the text "false", which counts as true. So
+  `--require_both_junctions false` still passed `--require-both-junctions`
+  (different calls), `--excision false` turned excision on, and
+  `--genotype false`, `--skip_multiqc false`, `--blat_scatter false` and
+  `--help false` had no effect. Affected every pipeline version so far
+  (M1 onward); `relocaTE3` itself and settings given in a config file,
+  `-params-file` or a profile were not affected. The five settings are now
+  typed `Boolean` in `main.nf`'s `params {}` block; values other than
+  true/false (any case) stop the run.
+
 ## 0.2.0 — unreleased (release candidates `v0.2.0rc1` 2026-10-21, `v0.2.0rc2` 2026-10-29)
 
 First release aimed at replacing RelocaTE2 for paired-end short-read data.
