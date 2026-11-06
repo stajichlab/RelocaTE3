@@ -4,6 +4,28 @@
 
 ### Added
 
+- Nextflow pipeline, milestone 4: the BLAT TE search spread over jobs.
+  - New subcommands, which together give exactly `relocaTE3 run`'s outputs
+    with BLAT:
+    - `relocaTE3 te-split`: chunk FASTAs of `--chunk-reads` reads (default
+      200,000, as `run`) and a `manifest.tsv`;
+    - `relocaTE3 te-search-chunk`: BLAT any subset of the chunks (mates from
+      the manifest);
+    - `relocaTE3 te-merge-trim`: merge every chunk BAM in manifest order and
+      trim. It refuses missing, extra or repeated chunk BAMs.
+  - `relocaTE3 run` runs the same three steps in one process; its outputs are
+    unchanged.
+  - The pipeline uses them by default with `--te_aligner blat`:
+    - `RELOCATE3_TE_SPLIT`;
+    - `RELOCATE3_TE_SEARCH_CHUNK`, one task per `--blat_chunks_per_task`
+      chunks (default 8);
+    - `RELOCATE3_TE_MERGE_TRIM`, once per sample.
+    The published files are identical. `--blat_scatter false` restores the
+    single `RELOCATE3_TE_SEARCH` task.
+  - `tests/nextflow/parity_chr3.sh` accepts extra pipeline params
+    (`NXF_EXTRA_PARAMS`). CI runs the Chr3 parity gate in the image both with
+    the defaults and with small chunks (forced scatter).
+
 - Nextflow pipeline, milestone 3:
   - New `relocaTE3 cohort` writes:
     - `cohort.characTErized.txt`: every sample's characterized rows, unchanged;
