@@ -250,6 +250,12 @@ file, so `results/<sample>/` is unchanged. The chunk files are not published.
   without a scheduler, or a cluster that limits the number of jobs.
 - Other TE aligners (`--te_aligner minimap2`, `bwaaln`, ...) always run one
   `RELOCATE3_TE_SEARCH` task.
+- Disk: the chunk files stay in the Nextflow work directory until it is
+  cleaned (`nextflow clean`, or delete `-work-dir` after the run). For one
+  30x rice sample (374 chunks) that is about 15 GB of chunk FASTAs plus about
+  6 GB of chunk BAMs, and while `RELOCATE3_TE_SPLIT` runs it also briefly
+  holds one whole read side as FASTA. Leave room for this per sample in
+  flight.
 
 See `plans/2026-11-02-nextflow-pipeline-design.md`.
 

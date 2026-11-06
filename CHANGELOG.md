@@ -114,9 +114,10 @@
   were treated as true. Nextflow >= 26.04 (the pipeline needs it) passes an
   untyped `--genotype false` as the text "false", which counts as true. So
   `--require_both_junctions false` still passed `--require-both-junctions`
-  (different calls), `--excision false` turned excision on, and
-  `--genotype false`, `--skip_multiqc false`, `--blat_scatter false` and
-  `--help false` had no effect. Affected every pipeline version so far
+  (different calls), `--excision false` turned excision on,
+  `--skip_multiqc false` skipped MultiQC and the sample stats,
+  `--help false` printed the help and exited, and `--genotype false` and
+  `--blat_scatter false` had no effect. Affected every pipeline version so far
   (M1 onward); `relocaTE3` itself and settings given in a config file,
   `-params-file` or a profile were not affected. The five settings are now
   typed `Boolean` in `main.nf`'s `params {}` block; values other than
