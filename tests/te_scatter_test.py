@@ -255,8 +255,10 @@ def test_sides_from_manifest_refuses_inconsistent_chunks(tmp_path, case, message
         bams.append(tmp_path / "elsewhere" / bams[0].name)
     elif case == "gap":
         rows[1] = te_scatter.ManifestRow("left", 2, rows[1].chunk, 10, "1", "R1.fq.gz")
-    elif case == "duplicate_row":
-        rows.append(rows[1])
+    elif case == "duplicate_row":  # a second chunk at index 1
+        rows.append(
+            te_scatter.ManifestRow("left", 1, "chunk.S.left.00009.fa", 10, "1", "R1.fq.gz")
+        )
     elif case == "unknown_side":
         rows = _rows("right", 1, None)
         bams = _bams(tmp_path, rows)
@@ -435,3 +437,19 @@ def test_split_fallback_gives_the_same_outputs_with_commented_read_names(
     assert python_heads == [">read_500_1/1", ">read_500_1/2"]
     assert_same_outputs(python_out, seqtk_out)
     assert any((seqtk_out / "flanking").iterdir())
+
+
+def test_read_manifest_refuses_a_repeated_chunk_name(tmp_path):
+    rows = _rows("left", 2, "1")
+    rows[1] = te_scatter.ManifestRow("left", 1, rows[0].chunk, 10, "1", "R1.fq.gz")
+    path = te_scatter.write_manifest(tmp_path / "manifest.tsv", rows)
+    with pytest.raises(ValueError, match=r"line 3.*chunk\.S\.left\.00000\.fa.*more than once"):
+        te_scatter.read_manifest(path)
+
+
+def test_sides_from_manifest_refuses_a_repeated_chunk_name(tmp_path):
+    """Two rows naming one chunk would merge its BAM twice and pass the count check."""
+    rows = _rows("left", 1, "1") + _rows("right", 1, "2", "R2.fq.gz")
+    rows[1] = te_scatter.ManifestRow("right", 0, rows[0].chunk, 10, "2", "R2.fq.gz")
+    with pytest.raises(ValueError, match=r"chunk\.S\.left\.00000\.fa.*more than once"):
+        te_scatter.sides_from_manifest(rows, _bams(tmp_path, rows[:1]), ["R1.fq", "R2.fq"])

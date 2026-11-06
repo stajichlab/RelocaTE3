@@ -87,7 +87,8 @@ def read_manifest(path) -> list[ManifestRow]:
     """Parse a manifest TSV written by :func:`write_manifest`.
 
     Raises:
-        ValueError: on a wrong header or a malformed line.
+        ValueError: on a wrong header, a malformed line or a chunk file name
+            given on more than one line.
     """
     path = Path(path)
     lines = path.read_text().splitlines()
@@ -97,6 +98,7 @@ def read_manifest(path) -> list[ManifestRow]:
             f"{chr(9).join(MANIFEST_COLUMNS)!r}"
         )
     rows = []
+    seen: dict[str, int] = {}
     for number, line in enumerate(lines[1:], start=2):
         if not line:
             continue
@@ -115,6 +117,11 @@ def read_manifest(path) -> list[ManifestRow]:
             )
             if row.index < 0 or row.n_reads < 0 or not chunk:
                 raise ValueError("negative index/n_reads or empty chunk name")
+            if chunk in seen:
+                raise ValueError(
+                    f"chunk {chunk} named more than once (first on line {seen[chunk]})"
+                )
+            seen[chunk] = number
         except ValueError as err:
             raise ValueError(f"{path} line {number}: {err}") from None
         rows.append(row)
@@ -134,7 +141,8 @@ def sides_from_manifest(rows, chunk_bams, read_files) -> list[TESide]:
         :class:`TESide` per read file, chunks in index order.
 
     Raises:
-        ValueError: on a manifest side without a read file, chunk indices that
+        ValueError: on a manifest side without a read file, a chunk named
+            twice, chunk indices that
             are not exactly ``0..k-1`` per side, a wrong mate, or chunk BAMs
             that are missing, not in the manifest, or given more than once.
     """
@@ -143,6 +151,13 @@ def sides_from_manifest(rows, chunk_bams, read_files) -> list[TESide]:
         raise ValueError(f"expected one or two read files, got {len(read_files)}")
     paired = len(read_files) == 2
     directions = SIDES[: len(read_files)]
+
+    chunk_names = Counter(row.chunk for row in rows)
+    repeated_chunks = sorted(n for n, c in chunk_names.items() if c > 1)
+    if repeated_chunks:
+        raise ValueError(
+            f"chunk(s) {', '.join(repeated_chunks)} named more than once in the manifest"
+        )
 
     by_side: dict[str, list[ManifestRow]] = {d: [] for d in directions}
     for row in rows:
