@@ -1,0 +1,41 @@
+// RELOCATE3_TE_MERGE_TRIM (relocaTE3 te-merge-trim): stub run, declared outputs
+// only; the same outputs as RELOCATE3_TE_SEARCH.
+
+nextflow_process {
+
+    name "RELOCATE3_TE_MERGE_TRIM"
+    script "../main.nf"
+    process "RELOCATE3_TE_MERGE_TRIM"
+    tag "modules"
+    tag "relocate3_te_merge_trim"
+
+    test("stub: emits the TE BAMs, te_containing/, flanking/ and te_portions/") {
+        options "-stub"
+
+        when {
+            process {
+                """
+                def r = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+                def dir = new File("${outputDir}/inputs"); dir.mkdirs()
+                def manifest = new File(dir, 'manifest.tsv'); manifest.text = ''
+                def bams = ['chunk.chr3.left.00000.bam', 'chunk.chr3.right.00000.bam'].collect { n -> def f = new File(dir, n); f.text = ''; file(f.absolutePath) }
+                input[0] = [ [ id:'chr3' ], file(r + '_1.fq.gz'), file(r + '_2.fq.gz'), file(manifest.absolutePath), bams ]
+                input[1] = file("${baseDir}/tests/data/TE_lib/RiceTE.fa")
+                """
+            }
+        }
+
+        then {
+            def names = { ch -> ch[0][1].collect { p -> new File(p).name }.sort() }
+            assert process.success
+            assert names(process.out.te_bams) == [ 'chr3.left.bam', 'chr3.right.bam' ]
+            assert process.out.te_bams[0][2].collect { p -> new File(p).name }.sort() == [ 'chr3.left.bam.bai', 'chr3.right.bam.bai' ]
+            assert names(process.out.te_containing) == [ 'chr3.left.ContainingReads.fq', 'chr3.read_repeat_name.txt', 'chr3.right.ContainingReads.fq', 'chr3.te_hit_names.txt' ]
+            assert process.out.te_containing[0][1].every { p -> new File(p).parentFile.name == 'te_containing' }
+            assert names(process.out.flanking) == [ 'chr3.left.flankingReads.fq', 'chr3.right.flankingReads.fq' ]
+            assert names(process.out.te_portions) == [ 'chr3.five_prime.fa', 'chr3.three_prime.fa' ]
+            assert new File(process.out.read_repeat[0][1]).name == 'chr3.read_repeat_name.txt'
+            assert process.out.versions.size() == 1
+        }
+    }
+}

@@ -2,6 +2,9 @@
  * ONE_SAMPLE: the per-sample steps of `relocaTE3 run-all`, one task each.
  *
  *   TE_SEARCH -> ALIGN_GENOME -> FIND_INSERTIONS -> CHARACTERIZE   (genotype, or genotype_bam given)
+ *   (TE_SEARCH: with te_aligner blat and blat_scatter, TE_SEARCH_SCATTER
+ *    instead, TE_SPLIT -> TE_SEARCH_CHUNK x n -> TE_MERGE_TRIM, with the same
+ *    outputs; otherwise one RELOCATE3_TE_SEARCH task)
  *                             \-> FIND_REFERENCE                   (repeatmasker)
  *   ALIGN_READS (genotype, sample without genotype_bam), in parallel with TE_SEARCH
  *   SAMPLE_STATS  (unless skip_multiqc) counts reads and calls for the report
@@ -23,6 +26,7 @@
  */
 
 include { RELOCATE3_TE_SEARCH       } from '../../modules/local/relocate3_te_search/main'
+include { TE_SEARCH_SCATTER         } from './te_search_scatter'
 include { RELOCATE3_ALIGN_GENOME    } from '../../modules/local/relocate3_align_genome/main'
 include { RELOCATE3_ALIGN_READS     } from '../../modules/local/relocate3_align_reads/main'
 include { RELOCATE3_FIND_INSERTIONS } from '../../modules/local/relocate3_find_insertions/main'
@@ -41,15 +45,31 @@ workflow ONE_SAMPLE {
     main:
     ch_versions = channel.empty()
 
-    // run-all steps 2-3: TE-library search and trimming
-    RELOCATE3_TE_SEARCH(reads, te_library)
-    ch_versions = ch_versions.mix(RELOCATE3_TE_SEARCH.out.versions)
+    // run-all steps 2-3: TE-library search and trimming. Both branches give
+    // the same channels: [ meta, [ te_containing ] ], [ meta, [ flanking ] ],
+    // [ meta, read_repeat ].
+    ch_te_containing = channel.empty()
+    ch_flanking = channel.empty()
+    ch_read_repeat = channel.empty()
+    if (params.te_aligner == 'blat' && params.blat_scatter) {
+        TE_SEARCH_SCATTER(reads, te_library)
+        ch_versions = ch_versions.mix(TE_SEARCH_SCATTER.out.versions)
+        ch_te_containing = TE_SEARCH_SCATTER.out.te_containing
+        ch_flanking = TE_SEARCH_SCATTER.out.flanking
+        ch_read_repeat = TE_SEARCH_SCATTER.out.read_repeat
+    } else {
+        RELOCATE3_TE_SEARCH(reads, te_library)
+        ch_versions = ch_versions.mix(RELOCATE3_TE_SEARCH.out.versions)
+        ch_te_containing = RELOCATE3_TE_SEARCH.out.te_containing
+        ch_flanking = RELOCATE3_TE_SEARCH.out.flanking
+        ch_read_repeat = RELOCATE3_TE_SEARCH.out.read_repeat
+    }
 
     // run-all step 4: [ meta, R1, R2, [ te_containing ], [ flanking ] ]
     RELOCATE3_ALIGN_GENOME(
         reads
-            .join(RELOCATE3_TE_SEARCH.out.te_containing)
-            .join(RELOCATE3_TE_SEARCH.out.flanking),
+            .join(ch_te_containing)
+            .join(ch_flanking),
         genome_with_index
     )
     ch_versions = ch_versions.mix(RELOCATE3_ALIGN_GENOME.out.versions)
@@ -59,7 +79,7 @@ workflow ONE_SAMPLE {
     ch_fullreads = RELOCATE3_ALIGN_GENOME.out.fullreads
         .map { meta, bam, bai -> [ meta, [ bam, bai ] ] }
     ch_find_insertions = RELOCATE3_ALIGN_GENOME.out.bam
-        .join(RELOCATE3_TE_SEARCH.out.read_repeat)
+        .join(ch_read_repeat)
         .join(ch_fullreads, remainder: true)
         .map { meta, bam, bai, read_repeat, fullreads -> [ meta, bam, bai, read_repeat, fullreads ?: [] ] }
     RELOCATE3_FIND_INSERTIONS(ch_find_insertions, repeatmasker)
@@ -69,7 +89,7 @@ workflow ONE_SAMPLE {
     ch_reference = channel.empty()
     if (params.repeatmasker) {
         RELOCATE3_FIND_REFERENCE(
-            RELOCATE3_ALIGN_GENOME.out.bam.join(RELOCATE3_TE_SEARCH.out.read_repeat),
+            RELOCATE3_ALIGN_GENOME.out.bam.join(ch_read_repeat),
             repeatmasker
         )
         ch_versions = ch_versions.mix(RELOCATE3_FIND_REFERENCE.out.versions)
@@ -106,8 +126,8 @@ workflow ONE_SAMPLE {
     ch_stats = channel.empty()
     if (!params.skip_multiqc) {
         RELOCATE3_SAMPLE_STATS(
-            RELOCATE3_TE_SEARCH.out.read_repeat
-                .join(RELOCATE3_TE_SEARCH.out.flanking)
+            ch_read_repeat
+                .join(ch_flanking)
                 .join(RELOCATE3_FIND_INSERTIONS.out.results)
                 .join(RELOCATE3_CHARACTERIZE.out.results, remainder: true)
                 .join(ch_reference, remainder: true)

@@ -1,0 +1,54 @@
+// RELOCATE3_TE_SPLIT (relocaTE3 te-split): stub run, declared outputs only.
+
+nextflow_process {
+
+    name "RELOCATE3_TE_SPLIT"
+    script "../main.nf"
+    process "RELOCATE3_TE_SPLIT"
+    tag "modules"
+    tag "relocate3_te_split"
+
+    test("stub: emits the manifest and the chunk FASTAs of both sides") {
+        options "-stub"
+
+        when {
+            process {
+                """
+                def r = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+                input[0] = [ [ id:'chr3' ], file(r + '_1.fq.gz'), file(r + '_2.fq.gz') ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def manifest = new File(process.out.manifest[0][1])
+            assert manifest.name == 'manifest.tsv'
+            assert manifest.parentFile.name == 'chr3.te_chunks'
+            def chunks = process.out.chunks[0][1].collect { p -> new File(p).name }.sort()
+            assert chunks == (0..2).collect { i -> "chunk.chr3.left.0000${i}.fa" } + (0..2).collect { i -> "chunk.chr3.right.0000${i}.fa" }
+            // one manifest row per chunk, after the header
+            assert manifest.readLines().drop(1).collect { l -> l.split('\t')[2] }.sort() == chunks
+            assert process.out.versions.size() == 1
+        }
+    }
+
+    test("stub, single-end: left chunks only") {
+        options "-stub"
+
+        when {
+            process {
+                """
+                def r = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+                input[0] = [ [ id:'se' ], file(r + '_1.fq.gz'), [] ]
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            def chunks = process.out.chunks[0][1].collect { p -> new File(p).name }.sort()
+            assert chunks == (0..2).collect { i -> "chunk.se.left.0000${i}.fa" }
+        }
+    }
+}

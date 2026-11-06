@@ -150,3 +150,76 @@ def test_module_keeps_temporary_files_in_the_task_directory(step):
 # Value-level checks (each flag carries its own param, quoting survives the
 # shell) need the rendered .command.sh of a real run: see the nf-test
 # "every setting reaches its flag in the right task" in tests/main.nf.test.
+
+
+# ------------------------------------------------------------ BLAT scatter
+#
+# With te_aligner blat and blat_scatter (the default), run-all's "run" step
+# runs as three modules, one subcommand each. Every argument run-all gives
+# "run" must reach each scatter subcommand that accepts it (same dest), and
+# together they must take all of them except --te-aligner (scatter is the
+# BLAT path only).
+
+SCATTER_MODULE = {
+    "te-split": "relocate3_te_split",
+    "te-search-chunk": "relocate3_te_search_chunk",
+    "te-merge-trim": "relocate3_te_merge_trim",
+}
+
+#: run's arguments no scatter subcommand takes, and why.
+SCATTER_SKIPS = {"te_aligner"}  # always blat on this path
+
+
+def _scatter_expected(sub: str) -> list[tuple[str, tuple[str, ...]]]:
+    """``[(dest, option strings)]`` of the run-all "run" step that ``sub`` accepts."""
+    by_dest = {a.dest: a for a in _subparser(sub)._actions}
+    out = []
+    for dest, value in _run_all_steps()["run"].items():
+        action = by_dest.get(dest)
+        if action is None or _passed_as_false(action, value):
+            continue
+        assert action.option_strings, f"{sub} {dest} is positional"
+        out.append((dest, tuple(action.option_strings)))
+    return out
+
+
+def test_scatter_subcommands_take_every_run_argument():
+    taken = {dest for sub in SCATTER_MODULE for dest, _ in _scatter_expected(sub)}
+    assert set(_run_all_steps()["run"]) - taken == SCATTER_SKIPS
+
+
+@pytest.mark.parametrize("sub", sorted(SCATTER_MODULE))
+def test_scatter_module_runs_its_subcommand(sub):
+    script = _script_block(SCATTER_MODULE[sub])
+    assert re.search(rf"\brelocaTE3\s+{re.escape(sub)}(?![\w-])", script), sub
+
+
+@pytest.mark.parametrize("sub", sorted(SCATTER_MODULE))
+def test_scatter_module_passes_every_run_all_argument(sub):
+    script = _script_block(SCATTER_MODULE[sub])
+    missing = [
+        f"{dest} ({'/'.join(opts)})"
+        for dest, opts in _scatter_expected(sub)
+        if not any(_has_option(script, o) for o in opts)
+    ]
+    assert not missing, f"{SCATTER_MODULE[sub]} does not pass: {', '.join(missing)}"
+
+
+def test_te_split_passes_the_chunk_size():
+    assert _has_option(_script_block("relocate3_te_split"), "--chunk-reads")
+    assert "params.blat_chunk_reads" in _script_block("relocate3_te_split")
+
+
+@pytest.mark.parametrize("sub", ["te-search-chunk", "te-merge-trim"])
+def test_scatter_module_passes_the_manifest(sub):
+    assert _has_option(_script_block(SCATTER_MODULE[sub]), "--manifest")
+
+
+@pytest.mark.parametrize("sub", sorted(SCATTER_MODULE))
+def test_scatter_module_keeps_temporary_files_in_the_task_directory(sub):
+    script = _script_block(SCATTER_MODULE[sub])
+    lines = [ln.strip() for ln in script.splitlines()]
+    assert 'export TMPDIR="\\${PWD}"' in lines, SCATTER_MODULE[sub]
+    assert lines.index('export TMPDIR="\\${PWD}"') < next(
+        i for i, ln in enumerate(lines) if ln.startswith("relocaTE3 ")
+    )

@@ -145,6 +145,34 @@
                 }
             }
         },
+        "scatter_options": {
+            "title": "BLAT scatter options",
+            "type": "object",
+            "description": "How the BLAT TE search (te_aligner blat) is spread over tasks. Outputs are identical with any of these settings.",
+            "help_text": "With blat_scatter, each sample's reads are split into chunk FASTAs (RELOCATE3_TE_SPLIT), the chunks are searched blat_chunks_per_task at a time (RELOCATE3_TE_SEARCH_CHUNK), and one task merges and trims them (RELOCATE3_TE_MERGE_TRIM), writing the files of the single RELOCATE3_TE_SEARCH task. Other TE aligners always run RELOCATE3_TE_SEARCH.",
+            "properties": {
+                "blat_scatter": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Spread the BLAT TE search over many tasks. false: one RELOCATE3_TE_SEARCH task per sample, as relocaTE3 run.",
+                    "fa_icon": "fas fa-sitemap"
+                },
+                "blat_chunks_per_task": {
+                    "type": "integer",
+                    "default": 8,
+                    "minimum": 1,
+                    "description": "Chunk FASTAs (of blat_chunk_reads reads) searched per RELOCATE3_TE_SEARCH_CHUNK task, 4 at once.",
+                    "fa_icon": "fas fa-layer-group"
+                },
+                "blat_chunk_reads": {
+                    "type": "integer",
+                    "default": 200000,
+                    "minimum": 1,
+                    "description": "Reads per chunk FASTA (RelocaTE2's 200,000). Smaller chunks are for tests.",
+                    "hidden": true
+                }
+            }
+        },
         "genotyping_options": {
             "title": "Genotyping options",
             "type": "object",
@@ -252,6 +280,7 @@
     "allOf": [
         { "$ref": "#/$defs/input_output_options" },
         { "$ref": "#/$defs/calling_options" },
+        { "$ref": "#/$defs/scatter_options" },
         { "$ref": "#/$defs/genotyping_options" },
         { "$ref": "#/$defs/report_options" },
         { "$ref": "#/$defs/container_options" },
