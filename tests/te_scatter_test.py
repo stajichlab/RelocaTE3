@@ -16,6 +16,7 @@ the merge step can refuse a missing, extra or duplicated chunk.
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from RelocaTE3.aligners import (
     TESide,
     search_te_chunk,
     split_te_query,
+    te_sam_header,
 )
 from RelocaTE3.librelocate import RelocaTE, merge_trim
 from RelocaTE3.ReadLibrary import ReadLibrary
@@ -268,3 +270,113 @@ def test_sides_from_manifest_refuses_inconsistent_chunks(tmp_path, case, message
 def test_chunk_bam_name():
     assert te_scatter.chunk_bam_name("chunk.S.left.00003.fa") == "chunk.S.left.00003.bam"
     assert te_scatter.chunk_bam_name("dir/chunk.S.left.00003.fa") == "chunk.S.left.00003.bam"
+
+
+# ---------------------------------------------------------------------------
+# the TE library's @SQ dictionary, shared by every chunk job
+# ---------------------------------------------------------------------------
+
+
+def _samtools_fai(tmp_path: Path) -> str:
+    """RiceTE.fa's .fai as samtools builds it in one go."""
+    fai = tmp_path / "reference.fai"
+    pysam.faidx(str(RICETE), "--fai-idx", str(fai))
+    return fai.read_text()
+
+
+def _full_header(tmp_path: Path) -> str:
+    """te_sam_header of RiceTE.fa: one @SQ per .fai line, in file order."""
+    return "@HD\tVN:1.6\tSO:unsorted\n" + "".join(
+        f"@SQ\tSN:{line.split(chr(9))[0]}\tLN:{line.split(chr(9))[1]}\n"
+        for line in _samtools_fai(tmp_path).splitlines()
+    )
+
+
+def _library_copy(tmp_path: Path) -> Path:
+    lib = tmp_path / "lib" / "RiceTE.fa"  # a fresh dir: no .fai yet
+    lib.parent.mkdir()
+    shutil.copy(RICETE, lib)
+    return lib
+
+
+def test_te_sam_header_writes_the_fai_by_rename(tmp_path, monkeypatch):
+    """Chunk jobs sharing a library must never see a half-written .fai.
+
+    htslib writes ``<library>.fai`` in place when it is missing, so a second
+    job opening the library meanwhile reads a truncated index and its chunk
+    BAM gets a short @SQ list. The index has to appear whole: written under a
+    temporary name in the same directory, then renamed.
+    """
+    lib = _library_copy(tmp_path)
+    renames = []
+    real_replace = os.replace
+
+    def spy(src, dst):
+        renames.append((Path(src), Path(dst)))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr("RelocaTE3.aligners.os.replace", spy)
+    assert te_sam_header(lib) == _full_header(tmp_path)
+    assert [(s.parent, d) for s, d in renames] == [(lib.parent, Path(f"{lib}.fai"))]
+    assert sorted(p.name for p in lib.parent.iterdir()) == ["RiceTE.fa", "RiceTE.fa.fai"]
+
+
+def test_te_sam_header_rebuilds_a_truncated_fai(tmp_path):
+    """A .fai cut short (e.g. by an earlier racing writer) is rebuilt, not trusted."""
+    lib = _library_copy(tmp_path)
+    full = _samtools_fai(tmp_path)
+    Path(f"{lib}.fai").write_text("".join(full.splitlines(keepends=True)[:2]))
+    assert te_sam_header(lib) == _full_header(tmp_path)
+    assert Path(f"{lib}.fai").read_text() == full
+
+
+def test_te_sam_header_keeps_a_complete_fai(tmp_path, monkeypatch):
+    lib = _library_copy(tmp_path)
+    shutil.copy(f"{RICETE}.fai", f"{lib}.fai")
+    monkeypatch.setattr(
+        "RelocaTE3.aligners.os.replace",
+        lambda *a: pytest.fail("a complete .fai must not be rewritten"),
+    )
+    assert te_sam_header(lib) == _full_header(tmp_path)
+
+
+def _header_in_subprocess(lib: str) -> str:
+    return te_sam_header(lib)
+
+
+def test_concurrent_te_sam_header_calls_agree(tmp_path):
+    """Best effort: many processes on a library without .fai all see every TE."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    lib = _library_copy(tmp_path)
+    with ProcessPoolExecutor(max_workers=8) as pool:
+        headers = list(pool.map(_header_in_subprocess, [str(lib)] * 16))
+    assert set(headers) == {_full_header(tmp_path)}
+    assert sorted(p.name for p in lib.parent.iterdir()) == ["RiceTE.fa", "RiceTE.fa.fai"]
+
+
+def test_merge_trim_refuses_a_chunk_with_another_sq_list(tmp_path):
+    """samtools merge would silently union the dictionaries; refuse instead."""
+    header = pysam.AlignmentHeader.from_text(_full_header(tmp_path))
+    good = tmp_path / "chunk.S.left.00000.bam"
+    bad = tmp_path / "chunk.S.left.00001.bam"
+    with pysam.AlignmentFile(str(good), "wb", header=header):
+        pass
+    short = "".join(_full_header(tmp_path).splitlines(keepends=True)[:3])  # @HD + 2 @SQ
+    with pysam.AlignmentFile(str(bad), "wb", header=pysam.AlignmentHeader.from_text(short)):
+        pass
+    side = TESide("left", R1, (TEChunk(good, 0), TEChunk(bad, 0)))
+    with pytest.raises(ValueError, match=r"chunk\.S\.left\.00001\.bam.*@SQ"):
+        merge_trim("S", [side], tmp_path / "out", RICETE)
+    assert not (tmp_path / "out" / "S.left.bam").exists()
+
+
+def test_te_sam_header_fai_honours_the_umask(tmp_path):
+    """Built like htslib's own index: readable by the group/others the umask allows."""
+    lib = _library_copy(tmp_path)
+    old = os.umask(0o022)
+    try:
+        te_sam_header(lib)
+    finally:
+        os.umask(old)
+    assert Path(f"{lib}.fai").stat().st_mode & 0o777 == 0o644

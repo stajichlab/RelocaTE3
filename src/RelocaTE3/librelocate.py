@@ -120,9 +120,15 @@ def merge_trim(
 
     Raises:
         ValueError: if a side's read file does not hold exactly the reads its
-            chunks cover (Σ ``n_reads``).
+            chunks cover (Σ ``n_reads``), or a chunk BAM's ``@SQ`` list is not
+            the TE library's.
     """
-    from RelocaTE3.aligners import _merge_sorted_bams, _tmp, te_sam_header
+    from RelocaTE3.aligners import (
+        _merge_sorted_bams,
+        _tmp,
+        check_chunk_headers,
+        te_sam_header,
+    )
 
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -130,6 +136,7 @@ def merge_trim(
     if not 1 <= len(sides) <= 2:
         raise ValueError(f"expected one or two read sides, got {len(sides)}")
     sam_header = te_sam_header(te_library)
+    check_chunk_headers([chunk.bam for side in sides for chunk in side.chunks], sam_header)
     with _tmp(tmpdir) as td:
         for side in sides:
             _merge_sorted_bams(

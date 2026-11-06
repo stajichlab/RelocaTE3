@@ -1940,7 +1940,8 @@ def build_parser() -> argparse.ArgumentParser:
             "--chunk FASTA against the TE library with RelocaTE2's options (plus "
             "--te-opts) into <outdir>/<chunk>.bam (+ .bai), sorted, read names "
             "carrying the mate from the manifest. Run it on any subsets of the "
-            "chunks, in any number of jobs.",
+            "chunks, in any number of jobs, all on one shared TE library (its .fai "
+            "index is created atomically if missing).",
         )
     )
     _menu_te_merge_trim(
@@ -1949,7 +1950,8 @@ def build_parser() -> argparse.ArgumentParser:
             formatter_class=CustomHelpFormatter,
             help="BLAT TE search across jobs, 3/3: merge chunk BAMs and trim",
             description="Step 3 of the BLAT TE search spread over jobs. Checks the "
-            "chunk BAMs against the manifest (none missing, extra or repeated), "
+            "chunk BAMs against the manifest (none missing, extra or repeated) and "
+            "the TE library (same @SQ list), "
             "merges each side in chunk order and trims, writing exactly what 'run' "
             "writes: <name>.{left,right}.bam(.bai), te_containing/, flanking/ and "
             "te_portions/. The chunk BAMs are left in place.",

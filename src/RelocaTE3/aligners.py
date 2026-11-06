@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
@@ -163,16 +164,104 @@ def _merge_sorted_bams(bams, out_bam, sam_header: str, threads: int, tmpdir) -> 
     return out_bam
 
 
+def _fai_is_complete(fasta: Path, fai: Path) -> bool:
+    """Whether ``fai`` is a whole ``samtools faidx`` index of ``fasta``.
+
+    Every line must have the five integer-valued columns, and the last record
+    must end where the FASTA does (only whitespace after it): an index cut
+    short at a line boundary lacks the last records, so ``>`` follows.
+    """
+    try:
+        text = fai.read_text()
+    except OSError:
+        return False
+    if not text.endswith("\n"):
+        return False
+    try:
+        for line in text.splitlines():
+            name, length, offset, line_bases, line_width = line.split("\t")
+            length, offset = int(length), int(offset)
+            line_bases, line_width = int(line_bases), int(line_width)
+    except ValueError:
+        return False
+    full_lines, rest = divmod(length, line_bases) if line_bases else (0, 0)
+    end = offset + full_lines * line_width + rest
+    with open(fasta, "rb") as fh:
+        fh.seek(end)
+        while block := fh.read(1 << 16):
+            if block.strip():
+                return False
+    return fasta.stat().st_size >= end
+
+
+def ensure_fasta_index(fasta) -> Path:
+    """Make sure ``<fasta>.fai`` exists and is complete; return its path.
+
+    htslib (``pysam.FastaFile``) writes a missing ``.fai`` in place, so a job
+    opening the library while another is still writing it reads a truncated
+    index -- with several ``te-search-chunk`` jobs on one shared TE library
+    that gives chunk BAMs a short ``@SQ`` list. Here the index is built under
+    a temporary name in the same directory and renamed into place, so readers
+    see either no index or a whole one; concurrent builders each rename an
+    identical file. A complete existing index is left alone; an incomplete
+    one is rebuilt.
+    """
+    fasta = Path(fasta)
+    fai = Path(f"{fasta}.fai")
+    if _fai_is_complete(fasta, fai):
+        return fai
+    # a name no other builder uses; samtools creates it (so the umask applies,
+    # as for an index htslib writes itself)
+    tmp = str(fai.with_name(f".{fai.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"))
+    try:
+        pysam.faidx(str(fasta), "--fai-idx", tmp)
+        os.replace(tmp, fai)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+    return fai
+
+
 def te_sam_header(te_library) -> str:
     """SAM header (``@HD`` + one ``@SQ`` per TE) for BLAT hits on ``te_library``.
 
     It depends only on the library, so every chunk search (in any process)
     and the merge of an empty side compute the same header independently.
+    The library's ``.fai`` is created atomically (:func:`ensure_fasta_index`)
+    so concurrent calls never read a partial index.
     """
+    ensure_fasta_index(te_library)
     with pysam.FastaFile(str(te_library)) as fa:
         return "@HD\tVN:1.6\tSO:unsorted\n" + "".join(
             f"@SQ\tSN:{r}\tLN:{fa.get_reference_length(r)}\n" for r in fa.references
         )
+
+
+def sq_lines(sam_header: str) -> list[str]:
+    """The ``@SQ`` lines of a SAM header text, in order."""
+    return [line for line in sam_header.splitlines() if line.startswith("@SQ")]
+
+
+def check_chunk_headers(bams, sam_header: str) -> None:
+    """Refuse chunk BAMs whose ``@SQ`` list is not ``sam_header``'s.
+
+    ``samtools merge`` silently unions differing dictionaries, so a chunk
+    searched against another (or a half-indexed) TE library would otherwise
+    slip into the side BAM.
+
+    Raises:
+        ValueError: naming the first chunk BAM whose ``@SQ`` lines differ.
+    """
+    want = sq_lines(sam_header)
+    for bam in bams:
+        with pysam.AlignmentFile(str(bam), "rb") as fh:
+            got = sq_lines(str(fh.header))
+        if got != want:
+            raise ValueError(
+                f"chunk BAM {bam} has {len(got)} @SQ line(s) that do not match the "
+                f"TE library's {len(want)}; it was searched against another TE "
+                "library (or a partly written .fai of this one). Re-run "
+                "te-search-chunk for it with the same --te-library"
+            )
 
 
 _CHUNK_INDEX_DIGITS = 5  # split -a 5: chunk.<stem>.00000.fa ... 99999
