@@ -284,7 +284,11 @@ def split_te_query(
     hours for one 30x side before BLAT even starts. ``seqtk seq -A -l 0`` emits
     exactly two lines per record and preserves the ``/1``, ``/2`` mate suffix,
     so plain ``split -l`` cuts on record boundaries. Falls back to a pure-Python
-    conversion (same chunk files) when seqtk is absent.
+    conversion when seqtk is absent. The two write the same records in the
+    same chunks, but not always byte-identical files: seqtk keeps a FASTQ
+    name's comment (``>name comment``), the fallback writes ``>name`` only.
+    The search outputs do not differ, since BLAT and everything after it key
+    on the first word of the name.
 
     Args:
         read_file: FASTQ or FASTA input, optionally gzipped.

@@ -380,3 +380,58 @@ def test_te_sam_header_fai_honours_the_umask(tmp_path):
     finally:
         os.umask(old)
     assert Path(f"{lib}.fai").stat().st_mode & 0o777 == 0o644
+
+
+def _commented(src: Path, dst: Path, n: int, mate: str) -> Path:
+    """The first ``n`` records of ``src`` with an Illumina-style comment on each name."""
+    import gzip
+
+    with gzip.open(src, "rt") as fh:
+        lines = [next(fh) for _ in range(4 * n)]
+    for i in range(0, len(lines), 4):
+        lines[i] = f"{lines[i].rstrip()} {mate}:N:0:ACGTAC\n"
+    dst.write_text("".join(lines))
+    return dst
+
+
+@needs_blat
+def test_split_fallback_gives_the_same_outputs_with_commented_read_names(
+    tmp_path, monkeypatch
+):
+    """seqtk keeps ``>name comment``, the Python fallback writes ``>name``.
+
+    The chunk FASTAs therefore differ, but everything downstream keys on the
+    first word of the name, so the chunk BAMs and the trim outputs agree.
+    """
+    reads = [
+        _commented(R1, tmp_path / "R1.fq", 20_000, "1"),
+        _commented(R2, tmp_path / "R2.fq", 20_000, "2"),
+    ]
+
+    def run(work: Path) -> tuple[list[str], Path]:
+        sides, first_lines = [], []
+        for index, (direction, fq) in enumerate(zip(("left", "right"), reads)):
+            chunks = split_te_query(fq, work / "split", f"S.{direction}", chunk_reads=7_000)
+            first_lines.append(Path(chunks[0][0]).read_text().split("\n", 1)[0])
+            parts = [
+                search_te_chunk(
+                    RICETE, fa, work / "bams" / f"{Path(fa).stem}.bam", mate=str(index + 1)
+                )
+                for fa, _ in chunks
+            ]
+            sides.append(TESide(direction, fq, tuple(parts)))
+        merge_trim("S", sides, work / "out", RICETE)
+        return first_lines, work / "out"
+
+    seqtk_heads, seqtk_out = run(tmp_path / "seqtk")
+    which = shutil.which
+    monkeypatch.setattr(
+        "RelocaTE3.aligners.shutil.which",
+        lambda tool: None if tool == "seqtk" else which(tool),
+    )
+    python_heads, python_out = run(tmp_path / "python")
+
+    assert seqtk_heads == [">read_500_1/1 1:N:0:ACGTAC", ">read_500_1/2 2:N:0:ACGTAC"]
+    assert python_heads == [">read_500_1/1", ">read_500_1/2"]
+    assert_same_outputs(python_out, seqtk_out)
+    assert any((seqtk_out / "flanking").iterdir())
