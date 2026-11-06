@@ -25,6 +25,11 @@
   - `tests/nextflow/parity_chr3.sh` accepts extra pipeline params
     (`NXF_EXTRA_PARAMS`). CI runs the Chr3 parity gate in the image both with
     the defaults and with small chunks (forced scatter).
+  - Measured on the riceTElib 30x simulated sample:
+    - the TE search took **1 h 21 min** across 47 chunk jobs, against
+      13 h 13 min as one job;
+    - TE-search outputs are identical to the pre-M4 single-job `run`;
+    - chunk jobs peaked at 0.36 GB of memory.
 
 - Nextflow pipeline, milestone 3:
   - New `relocaTE3 cohort` writes:
