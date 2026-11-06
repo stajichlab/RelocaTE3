@@ -653,17 +653,23 @@ nextflow_pipeline {
             assert n('RELOCATE3_TE_MERGE_TRIM') == 2
             // staged file names per task: [ process, sample ] -> [ names ]
             def staged = [:].withDefault { [] }
+            def chunkTags = []
             new File("${launchDir}/meta/trace.csv").readLines().drop(1).each { line ->
                 def f = line.split('\t')
                 def proc = f[3].tokenize(' ')[0].tokenize(':')[-1]
                 def tag = f[3] =~ /\((.+)\)/
                 if (!tag.find()) return
-                def sample = tag.group(1)
+                // chunk tasks are tagged <sample>:<first chunk>, so traces tell them apart
+                def sample = tag.group(1).tokenize(':')[0]
+                if (proc == 'RELOCATE3_TE_SEARCH_CHUNK') chunkTags << tag.group(1)
                 def (dir, prefix) = f[1].tokenize('/')
                 def work = new File("${launchDir}/work/${dir}").listFiles().find { d -> d.name.startsWith(prefix) }
                 staged[[proc, sample]] << work.list().findAll { x -> x.startsWith('chunk.') || x == 'manifest.tsv' }.sort()
             }
             def chunk = { String s, String side, int i -> "chunk.${s}.${side}.0000${i}" }
+            assert chunkTags as Set == [
+                "pe:${chunk('pe', 'left', 0)}", "pe:${chunk('pe', 'right', 1)}", "se:${chunk('se', 'left', 0)}",
+            ].collect { t -> t.toString() } as Set
             assert staged[['RELOCATE3_TE_SEARCH_CHUNK', 'pe']].collect { l -> l.findAll { x -> x.endsWith('.fa') } } as Set == [
                 [ chunk('pe', 'left', 0), chunk('pe', 'left', 1), chunk('pe', 'left', 2), chunk('pe', 'right', 0) ].collect { c -> c + '.fa' },
                 [ chunk('pe', 'right', 1), chunk('pe', 'right', 2) ].collect { c -> c + '.fa' },

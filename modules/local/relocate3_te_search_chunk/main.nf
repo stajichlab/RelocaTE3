@@ -19,7 +19,8 @@
  */
 
 process RELOCATE3_TE_SEARCH_CHUNK {
-    tag "${meta.id}"
+    // sample + first chunk, so the trace tells a sample's chunk tasks apart
+    tag "${meta.id}:${chunks[0].baseName}"
     label 'process_blat_chunk'
 
     input:
