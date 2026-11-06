@@ -19,10 +19,12 @@ SCRIPT = ROOT / "tests" / "nextflow" / "parity_chr3.sh"
 IMAGE = "ghcr.io/stajichlab/relocate3"
 
 
-def _run(*args: str, dry: bool = True) -> subprocess.CompletedProcess:
-    env = {k: v for k, v in os.environ.items() if k != "DRY_RUN"}
+def _run(*args: str, dry: bool = True, extra: str | None = None) -> subprocess.CompletedProcess:
+    env = {k: v for k, v in os.environ.items() if k not in ("DRY_RUN", "NXF_EXTRA_PARAMS")}
     if dry:
         env["DRY_RUN"] = "1"
+    if extra is not None:
+        env["NXF_EXTRA_PARAMS"] = extra
     return subprocess.run(
         ["bash", str(SCRIPT), *args], cwd=ROOT, env=env, capture_output=True, text=True
     )
@@ -100,3 +102,52 @@ def test_existing_outdir_is_refused(tmp_path):
     proc = _run("pixi", str(tmp_path))
     assert proc.returncode != 0
     assert "refusing to overwrite" in proc.stderr
+
+
+# ------------------------------------------------- NXF_EXTRA_PARAMS (M4)
+
+FORCED_SCATTER = "--blat_chunk_reads 5000 --blat_chunks_per_task 3"
+
+
+def test_help_documents_extra_params():
+    proc = _run("--help", dry=False)
+    assert "NXF_EXTRA_PARAMS" in proc.stdout
+
+
+@pytest.mark.parametrize("mode", [("pixi",), ("docker", "dev")])
+def test_extra_params_reach_the_pipeline_only(mode, tmp_path):
+    proc = _run(*mode, str(tmp_path / "out"), extra=f"  {FORCED_SCATTER} ")
+    assert proc.returncode == 0, proc.stderr
+    nf = _lines(proc, "nextflow run")
+    assert len(nf) == 1
+    assert nf[0].split(" > ")[0].endswith(FORCED_SCATTER)
+    assert "blat_chunk" not in _lines(proc, "relocaTE3 run-all")[0]
+    assert _lines(proc, "extra     :")[0].split(":", 1)[1].strip() == FORCED_SCATTER
+
+
+def test_no_extra_params_by_default(tmp_path):
+    proc = _run("pixi", str(tmp_path / "out"))
+    assert proc.returncode == 0, proc.stderr
+    nf = _lines(proc, "nextflow run")[0].split(" > ")[0]
+    assert nf.endswith(f"-work-dir {tmp_path / 'out'}/work")
+    assert _lines(proc, "extra     :")[0].split(":", 1)[1].strip() == "(none)"
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "--blat_chunk_reads",                    # no value
+        "--blat_chunk_reads 5000 3",             # value without a flag
+        "-profile docker",                       # a Nextflow option, not a param
+        "--blat_chunk_reads $(touch PWNED)",     # shell syntax
+        "--blat_chunk_reads 5000;id",
+        "--outdir elsewhere",                    # set by the script
+        "--container_tag other",
+        "--blat_scatter --x",                    # a value may not start with '-'
+    ],
+)
+def test_bad_extra_params_are_refused(extra, tmp_path):
+    proc = _run("pixi", str(tmp_path / "out"), extra=extra)
+    assert proc.returncode == 2
+    assert "NXF_EXTRA_PARAMS" in proc.stderr
+    assert not (ROOT / "PWNED").exists()
