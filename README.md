@@ -227,8 +227,35 @@ Settings use `run-all`'s names in snake case, with the same defaults:
 sample with a `genotype_bam` is always genotyped. `nextflow_schema.json` describes every
 setting, and they can be supplied in one file with `-params-file params.yaml`.
 
-Coming next:
-- spreading BLAT across cluster jobs.
+**BLAT scatter.** With `--te_aligner blat` (the default), the TE search of
+one sample is spread over many tasks. On a cluster it no longer runs as one
+long job (13 h for one 30x rice sample).
+1. `RELOCATE3_TE_SPLIT` cuts each read side into chunks of 200,000 reads
+   (`relocaTE3 te-split`). These are the same chunks `relocaTE3 run` makes
+   internally.
+2. `RELOCATE3_TE_SEARCH_CHUNK` searches the chunks in groups of
+   `--blat_chunks_per_task` (default 8), 4 at a time per task
+   (`relocaTE3 te-search-chunk`).
+3. `RELOCATE3_TE_MERGE_TRIM` merges each side's chunk results in order and
+   trims them, once per sample (`relocaTE3 te-merge-trim`).
+
+The outputs are identical to the single `RELOCATE3_TE_SEARCH` task's, file for
+file, so `results/<sample>/` is unchanged. The chunk files are not published.
+`tests/nextflow/parity_chr3.sh` checks this with small chunks (see its header).
+
+- `--blat_chunks_per_task N`: more chunks per task means fewer, longer jobs.
+  It changes nothing in the results.
+- `--blat_scatter false`: one `RELOCATE3_TE_SEARCH` task per sample, as before.
+  Use it where many small jobs cost more than they save: a single machine
+  without a scheduler, or a cluster that limits the number of jobs.
+- Other TE aligners (`--te_aligner minimap2`, `bwaaln`, ...) always run one
+  `RELOCATE3_TE_SEARCH` task.
+- Disk: the chunk files stay in the Nextflow work directory until it is
+  cleaned (`nextflow clean`, or delete `-work-dir` after the run). For one
+  30x rice sample (374 chunks) that is about 15 GB of chunk FASTAs plus about
+  6 GB of chunk BAMs, and while `RELOCATE3_TE_SPLIT` runs it also briefly
+  holds one whole read side as FASTA. Leave room for this per sample in
+  flight.
 
 See `plans/2026-11-02-nextflow-pipeline-design.md`.
 
@@ -284,6 +311,9 @@ relocaTE3 characterize \
 | `map` | 2 | Align reads to the TE library (produces per-side BAMs) |
 | `trim` | 3 | Trim the TE portion from TE-library BAMs, emit flanking reads |
 | `run` | 2-3 | **Map + trim** in one step (TE-read identification + flank generation) — not the full pipeline |
+| `te-split` | 2 | BLAT TE search spread over jobs, step 1: cut the reads into chunk FASTAs plus `manifest.tsv` |
+| `te-search-chunk` | 2 | Step 2: BLAT chunk FASTAs against the TE library (one BAM per chunk; any number of jobs) |
+| `te-merge-trim` | 2-3 | Step 3: merge every chunk BAM and trim; writes exactly `run`'s files |
 | `annotate-ref` | 0 | Annotate where reference TE copies *are* (minimap2 → `existingTE.bed`), to filter novel calls |
 | `find-reference` | 0/6 | Call reference TEs that are **also present in this sample** → `all_ref_insert.{gff,txt}` |
 | `align-genome` | 4 | Re-align flanking reads to the genome |

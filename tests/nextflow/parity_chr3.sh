@@ -32,6 +32,14 @@
 # OUTDIR default: results/nextflow-parity/<date>_<jobid or pid>; an existing
 # OUTDIR is refused. Nextflow comes from the pixi `nf` env in every mode.
 #
+# NXF_EXTRA_PARAMS="--param value ..." adds pipeline params to the nextflow
+# run only (run-all is unchanged), for params that must not change the
+# outputs. Forced BLAT scatter (many chunks and chunk tasks on Chr3):
+#   NXF_EXTRA_PARAMS="--blat_chunk_reads 5000 --blat_chunks_per_task 3" \
+#     sbatch tests/nextflow/parity_chr3.sh
+# Only --name value pairs of [A-Za-z0-9_.,:+-] words; params the script sets
+# (outdir, container_tag, container_registry) and Nextflow options are refused.
+#
 # DRY_RUN=1 checks the arguments and prints the commands without running them
 # (tests/nextflow_parity_script_test.py).
 set -euo pipefail
@@ -58,6 +66,24 @@ if [[ -n "${TAG}" && ! "${TAG}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
   die_usage "invalid image tag '${TAG}'"
 fi
 
+# NXF_EXTRA_PARAMS -> EXTRA_PARAMS: --name value pairs, each word checked, so
+# nothing reaches the command line but plain words.
+EXTRA_PARAMS=()
+read -r -a EXTRA_WORDS <<< "${NXF_EXTRA_PARAMS:-}"
+for (( i = 0; i < ${#EXTRA_WORDS[@]}; i += 2 )); do
+  name="${EXTRA_WORDS[i]}"
+  value="${EXTRA_WORDS[i + 1]:-}"
+  [[ "${name}" =~ ^--[a-z][a-z0-9_]*$ ]] \
+    || die_usage "NXF_EXTRA_PARAMS: '${name}' is not a --param name"
+  [[ -n "${value}" && "${value}" =~ ^[A-Za-z0-9_.,:+][A-Za-z0-9_.,:+-]*$ ]] \
+    || die_usage "NXF_EXTRA_PARAMS: ${name} needs a plain value, got '${value}'"
+  case "${name}" in
+    --outdir|--container_tag|--container_registry)
+      die_usage "NXF_EXTRA_PARAMS: ${name} is set by this script" ;;
+  esac
+  EXTRA_PARAMS+=("${name}" "${value}")
+done
+
 DRY_RUN="${DRY_RUN:-0}"
 REPO="$(pwd)"
 OUT="${1:-results/nextflow-parity/$(date +%Y%m%d-%H%M%S)_${SLURM_JOB_ID:-$$}}"
@@ -79,6 +105,7 @@ echo "mode      : ${MODE}"
 [[ "${MODE}" == pixi ]] && echo "blat env  : ${BLAT_BIN}" || echo "image     : ${IMAGE}"
 echo "outdir    : ${OUT}"
 echo "threads   : ${THREADS}"
+echo "extra     : ${EXTRA_PARAMS[*]:-(none)}"
 [[ "${DRY_RUN}" == 1 ]] && echo "dry run   : commands are printed, not run"
 
 for f in "${R1}" "${R2}" "${TE}" "${GENOME}" "${RM}" main.nf; do
@@ -163,7 +190,14 @@ NF_PROFILE=(-profile "test,${MODE}")
 [[ "${MODE}" == pixi ]] || NF_PROFILE+=(--container_tag "${TAG}")
 [[ -z "${CONTAINER_REGISTRY:-}" ]] || NF_PROFILE+=(--container_registry "${CONTAINER_REGISTRY}")
 run_log "${OUT}/nextflow.log" pixi run -e nf nextflow run . "${NF_PROFILE[@]}" \
-  --outdir "${OUT}/nf" -work-dir "${OUT}/work"
+  --outdir "${OUT}/nf" -work-dir "${OUT}/work" ${EXTRA_PARAMS[@]+"${EXTRA_PARAMS[@]}"}
+if [[ "${DRY_RUN}" != 1 ]]; then
+  # How the TE search ran: one TE_SEARCH task, or TE_SPLIT + n chunk tasks + merge.
+  TRACE="${OUT}/nf/pipeline_info/execution_trace.txt"
+  for p in RELOCATE3_TE_SEARCH RELOCATE3_TE_SPLIT RELOCATE3_TE_SEARCH_CHUNK RELOCATE3_TE_MERGE_TRIM; do
+    echo "tasks     : ${p} $(awk -F'\t' -v p="${p}" '{ split($4, w, " "); n = split(w[1], q, ":"); if (q[n] == p) c++ } END { print c + 0 }' "${TRACE}")"
+  done
+fi
 
 # 3. Compare. In container mode samtools (compare_outputs.sh) is the image's.
 echo "== compare"

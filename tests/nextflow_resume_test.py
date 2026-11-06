@@ -30,14 +30,25 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _run(launch: Path, sheet: Path, resume: bool) -> dict[str, str]:
+def _run(launch: Path, sheet: Path, resume: bool, *extra: str) -> dict[str, str]:
     """Run the stub pipeline from ``launch``; return {simple process name: status}."""
+    statuses = _run_all_tasks(launch, sheet, resume, *extra)
+    status = {}
+    for simple, values in statuses.items():
+        assert len(values) == 1, f"{simple} ran {len(values)} times (one sample expected)"
+        status[simple] = values[0]
+    return status
+
+
+def _run_all_tasks(launch: Path, sheet: Path, resume: bool, *extra: str) -> dict[str, list[str]]:
+    """Run the stub pipeline; return {simple process name: [status per task]}."""
     cmd = [
         "pixi", "run", "--manifest-path", str(ROOT / "pixi.toml"), "-e", "nf",
         "nextflow", "run", str(ROOT), "-profile", "test,pixi", "-stub",
         "--input", str(sheet), "--outdir", str(launch / "out"),
         "-work-dir", str(launch / "work"),
     ]
+    cmd.extend(extra)
     if resume:
         cmd.append("-resume")
     proc = subprocess.run(cmd, cwd=launch, capture_output=True, text=True)
@@ -45,12 +56,11 @@ def _run(launch: Path, sheet: Path, resume: bool) -> dict[str, str]:
     trace = launch / "out" / "pipeline_info" / "execution_trace.txt"
     with trace.open() as fh:
         rows = list(csv.DictReader(fh, delimiter="\t"))
-    status = {}
+    statuses: dict[str, list[str]] = {}
     for row in rows:
         simple = row["name"].split(" ")[0].split(":")[-1]
-        assert simple not in status, f"{simple} ran twice (one sample expected)"
-        status[simple] = row["status"]
-    return status
+        statuses.setdefault(simple, []).append(row["status"])
+    return statuses
 
 
 def _sheet(path: Path, bam: Path | None) -> Path:
@@ -61,9 +71,12 @@ def _sheet(path: Path, bam: Path | None) -> Path:
     return path
 
 
+# The TE search is scattered by default (te_aligner blat, blat_scatter).
 UPSTREAM = (
     "RELOCATE3_INDEX_GENOME",
-    "RELOCATE3_TE_SEARCH",
+    "RELOCATE3_TE_SPLIT",
+    "RELOCATE3_TE_SEARCH_CHUNK",
+    "RELOCATE3_TE_MERGE_TRIM",
     "RELOCATE3_ALIGN_GENOME",
     "RELOCATE3_FIND_INSERTIONS",
     "RELOCATE3_FIND_REFERENCE",
@@ -107,3 +120,20 @@ def test_resume_with_nothing_changed_caches_multiqc(tmp_path):
     second = _run(tmp_path, sheet, resume=True)
     assert set(second.values()) == {"CACHED"}, second
     assert versions.read_text() == first_versions
+
+
+def test_resume_caches_every_blat_scatter_task(tmp_path):
+    """Chunk groups depend only on the split (sorted names), and the merge's
+    chunk BAMs are sorted, so a -resume reuses every scatter task even though
+    the chunk tasks finish in any order. The stub split writes 3 chunks per
+    side: 6 chunks in groups of 2 give 3 TE_SEARCH_CHUNK tasks."""
+    sheet = _sheet(tmp_path / "plain.csv", None)
+    first = _run_all_tasks(tmp_path, sheet, False, "--blat_chunks_per_task", "2")
+    assert first["RELOCATE3_TE_SEARCH_CHUNK"] == ["COMPLETED"] * 3
+    assert first["RELOCATE3_TE_MERGE_TRIM"] == ["COMPLETED"]
+    assert "RELOCATE3_TE_SEARCH" not in first
+
+    second = _run_all_tasks(tmp_path, sheet, True, "--blat_chunks_per_task", "2")
+    assert second.keys() == first.keys()
+    assert {s for values in second.values() for s in values} == {"CACHED"}, second
+    assert len(second["RELOCATE3_TE_SEARCH_CHUNK"]) == 3

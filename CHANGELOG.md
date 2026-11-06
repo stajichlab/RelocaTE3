@@ -4,6 +4,33 @@
 
 ### Added
 
+- Nextflow pipeline, milestone 4: the BLAT TE search spread over jobs.
+  - New subcommands, which together give exactly `relocaTE3 run`'s outputs
+    with BLAT:
+    - `relocaTE3 te-split`: chunk FASTAs of `--chunk-reads` reads (default
+      200,000, as `run`) and a `manifest.tsv`;
+    - `relocaTE3 te-search-chunk`: BLAT any subset of the chunks (mates from
+      the manifest);
+    - `relocaTE3 te-merge-trim`: merge every chunk BAM in manifest order and
+      trim. It refuses missing, extra or repeated chunk BAMs.
+  - `relocaTE3 run` runs the same three steps in one process; its outputs are
+    unchanged.
+  - The pipeline uses them by default with `--te_aligner blat`:
+    - `RELOCATE3_TE_SPLIT`;
+    - `RELOCATE3_TE_SEARCH_CHUNK`, one task per `--blat_chunks_per_task`
+      chunks (default 8);
+    - `RELOCATE3_TE_MERGE_TRIM`, once per sample.
+    The published files are identical. `--blat_scatter false` restores the
+    single `RELOCATE3_TE_SEARCH` task.
+  - `tests/nextflow/parity_chr3.sh` accepts extra pipeline params
+    (`NXF_EXTRA_PARAMS`). CI runs the Chr3 parity gate in the image both with
+    the defaults and with small chunks (forced scatter).
+  - Measured on the riceTElib 30x simulated sample:
+    - the TE search took **1 h 21 min** across 47 chunk jobs, against
+      13 h 13 min as one job;
+    - TE-search outputs are identical to the pre-M4 single-job `run`;
+    - chunk jobs peaked at 0.36 GB of memory.
+
 - Nextflow pipeline, milestone 3:
   - New `relocaTE3 cohort` writes:
     - `cohort.characTErized.txt`: every sample's characterized rows, unchanged;
@@ -85,6 +112,21 @@
 - `validation/real_rice/run_pipeline.sh` refuses the mutable image tags `dev`
   and `pr-<n>` unless `ALLOW_MUTABLE_TAG=1`, and records the image each run
   used in `OUTDIR/container_image.txt`.
+
+### Fixed
+
+- Pipeline: boolean pipeline settings given as `false` on the command line
+  were treated as true. Nextflow >= 26.04 (the pipeline needs it) passes an
+  untyped `--genotype false` as the text "false", which counts as true. So
+  `--require_both_junctions false` still passed `--require-both-junctions`
+  (different calls), `--excision false` turned excision on,
+  `--skip_multiqc false` skipped MultiQC and the sample stats,
+  `--help false` printed the help and exited, and `--genotype false` and
+  `--blat_scatter false` had no effect. Affected every pipeline version so far
+  (M1 onward); `relocaTE3` itself and settings given in a config file,
+  `-params-file` or a profile were not affected. The five settings are now
+  typed `Boolean` in `main.nf`'s `params {}` block; values other than
+  true/false (any case) stop the run.
 
 ## 0.2.0 — unreleased (release candidates `v0.2.0rc1` 2026-10-21, `v0.2.0rc2` 2026-10-29)
 

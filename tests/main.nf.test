@@ -207,7 +207,11 @@ nextflow_pipeline {
             assert workflow.success
             assert n('RELOCATE3_INDEX_GENOME') == 1
             assert n('CAT_FASTQ') == 0
-            ['RELOCATE3_TE_SEARCH', 'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS', 'RELOCATE3_FIND_REFERENCE',
+            // BLAT TE search scattered (te_aligner blat, blat_scatter): the stub
+            // split writes 3 chunks per side; 6 <= blat_chunks_per_task (8).
+            assert n('RELOCATE3_TE_SEARCH') == 0
+            ['RELOCATE3_TE_SPLIT', 'RELOCATE3_TE_SEARCH_CHUNK', 'RELOCATE3_TE_MERGE_TRIM',
+             'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS', 'RELOCATE3_FIND_REFERENCE',
              'RELOCATE3_ALIGN_READS', 'RELOCATE3_CHARACTERIZE', 'RELOCATE3_SAMPLE_STATS'].each { p -> assert n(p) == 1 : p }
             // Once per run, after every sample.
             assert n('RELOCATE3_COHORT') == 1
@@ -238,7 +242,7 @@ nextflow_pipeline {
             ].sort()
             def versions = new File(out, 'pipeline_info/software_versions.yml').text
             // One entry per process (deduplicated across samples), and the workflow's.
-            assert versions.readLines().count { l -> l.startsWith('"') } == 10
+            assert versions.readLines().count { l -> l.startsWith('"') } == 12
             assert versions.readLines().contains('Workflow:')
             assert versions.contains('stajichlab/RelocaTE3: ')
         }
@@ -266,7 +270,8 @@ nextflow_pipeline {
             assert workflow.success
             assert n('RELOCATE3_INDEX_GENOME') == 1
             assert n('CAT_FASTQ') == 1
-            ['RELOCATE3_TE_SEARCH', 'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS', 'RELOCATE3_FIND_REFERENCE',
+            ['RELOCATE3_TE_SPLIT', 'RELOCATE3_TE_SEARCH_CHUNK', 'RELOCATE3_TE_MERGE_TRIM',
+             'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS', 'RELOCATE3_FIND_REFERENCE',
              'RELOCATE3_ALIGN_READS', 'RELOCATE3_CHARACTERIZE', 'RELOCATE3_SAMPLE_STATS'].each { p -> assert n(p) == 2 : p }
             assert n('RELOCATE3_COHORT') == 1
             assert n('MULTIQC') == 1
@@ -297,7 +302,7 @@ nextflow_pipeline {
             assert n('RELOCATE3_CHARACTERIZE') == 0
             // Nothing characterized: no cohort; the report still has the per-sample counts.
             assert n('RELOCATE3_COHORT') == 0
-            ['RELOCATE3_INDEX_GENOME', 'RELOCATE3_TE_SEARCH', 'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS',
+            ['RELOCATE3_INDEX_GENOME', 'RELOCATE3_TE_MERGE_TRIM', 'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS',
              'RELOCATE3_FIND_REFERENCE', 'RELOCATE3_SAMPLE_STATS', 'MULTIQC'].each { p -> assert n(p) == 1 : p }
             assert !new File("${outputDir}/results/cohort").exists()
         }
@@ -347,7 +352,7 @@ nextflow_pipeline {
             def n = { String p -> workflow.trace.tasks().count { t -> t.name.tokenize(' ')[0].tokenize(':')[-1] == p } }
             assert workflow.success
             assert n('RELOCATE3_FIND_REFERENCE') == 0
-            ['RELOCATE3_INDEX_GENOME', 'RELOCATE3_TE_SEARCH', 'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS',
+            ['RELOCATE3_INDEX_GENOME', 'RELOCATE3_TE_MERGE_TRIM', 'RELOCATE3_ALIGN_GENOME', 'RELOCATE3_FIND_INSERTIONS',
              'RELOCATE3_ALIGN_READS', 'RELOCATE3_CHARACTERIZE'].each { p -> assert n(p) == 1 : p }
         }
     }
@@ -528,8 +533,9 @@ nextflow_pipeline {
             }
             def expected = [
                 RELOCATE3_INDEX_GENOME   : ['--genome-aligner bwaaln'],
-                RELOCATE3_TE_SEARCH      : ['--te-aligner blat', "--te-opts='-minScore='\\''10'\\'' -tileSize=7'",
-                                            '--min-match 11', '--min-trimmed 12', '--mismatch 3'],
+                RELOCATE3_TE_SPLIT       : ['--chunk-reads 200000'],
+                RELOCATE3_TE_SEARCH_CHUNK: ["--te-opts='-minScore='\\''10'\\'' -tileSize=7'"],
+                RELOCATE3_TE_MERGE_TRIM  : ['--min-match 11', '--min-trimmed 12', '--mismatch 3'],
                 RELOCATE3_ALIGN_GENOME   : ['--genome-aligner bwaaln', "--genome-opts='-n '\\''0.04'\\'' -o 1'"],
                 RELOCATE3_FIND_INSERTIONS: ['--tsd UKN', '--target Chr3', '--te-name other', '--mismatch 3', '--min-mapq 1',
                                             '--no-require-both-junctions', '--size 501', '--distance 4',
@@ -543,7 +549,7 @@ nextflow_pipeline {
                 args.each { a -> assert (" ${words} ").contains(" ${a} ") : "${proc}: ${a}" }
             }
             // The shell hands relocaTE3 the option strings unchanged.
-            [RELOCATE3_TE_SEARCH: ['--te-opts', "-minScore='10' -tileSize=7"],
+            [RELOCATE3_TE_SEARCH_CHUNK: ['--te-opts', "-minScore='10' -tileSize=7"],
              RELOCATE3_ALIGN_GENOME: ['--genome-opts', "-n '0.04' -o 1"]].each { proc, flag_value ->
                 def (flag, value) = flag_value
                 def word = (scripts[proc] =~ /${flag}='(?:[^']|'\\'')*'/)[0]
@@ -608,8 +614,200 @@ nextflow_pipeline {
             assert stats.chr3a.characterized == a.size() - 1
             assert stats.chr3a.nonref_raw == new File(out, 'chr3a/results/ALL.repeat.all_nonref_insert.raw.txt').readLines().size()
             def versions = new File(data_dir, 'multiqc_software_versions.txt').readLines()
-            assert versions.any { l -> l.startsWith('RELOCATE3_TE_SEARCH\t') }
+            assert versions.any { l -> l.startsWith('RELOCATE3_TE_MERGE_TRIM\t') }
             assert versions.any { l -> l.startsWith('Workflow\t') }
+        }
+    }
+
+    // ---------------------------------------------------------- BLAT scatter
+    // te_aligner blat + blat_scatter (default): TE_SPLIT -> TE_SEARCH_CHUNK
+    // (sorted chunk FASTAs of a sample, both sides, in groups of
+    // blat_chunks_per_task) -> TE_MERGE_TRIM once per sample. The stub split
+    // writes 3 chunks per side.
+
+    test("BLAT scatter: sorted chunk groups of blat_chunks_per_task; one merge per sample") {
+        options "-stub"
+        tag "scatter"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_scatter.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\n" +
+                "pe,${reads}_1.fq.gz,${reads}_2.fq.gz\n" +
+                "se,${reads}_1.fq.gz,\n"
+            params {
+                input                = sheet.absolutePath
+                outdir               = "${outputDir}/results"
+                blat_chunks_per_task = 4
+            }
+        }
+
+        then {
+            def n = { String p -> workflow.trace.tasks().count { t -> t.name.tokenize(' ')[0].tokenize(':')[-1] == p } }
+            assert workflow.success
+            assert n('RELOCATE3_TE_SEARCH') == 0
+            assert n('RELOCATE3_TE_SPLIT') == 2
+            // pe: ceil(6 / 4) = 2; se: ceil(3 / 4) = 1
+            assert n('RELOCATE3_TE_SEARCH_CHUNK') == 3
+            assert n('RELOCATE3_TE_MERGE_TRIM') == 2
+            // staged file names per task: [ process, sample ] -> [ names ]
+            def staged = [:].withDefault { [] }
+            def chunkTags = []
+            new File("${launchDir}/meta/trace.csv").readLines().drop(1).each { line ->
+                def f = line.split('\t')
+                def proc = f[3].tokenize(' ')[0].tokenize(':')[-1]
+                def tag = f[3] =~ /\((.+)\)/
+                if (!tag.find()) return
+                // chunk tasks are tagged <sample>:<first chunk>, so traces tell them apart
+                def sample = tag.group(1).tokenize(':')[0]
+                if (proc == 'RELOCATE3_TE_SEARCH_CHUNK') chunkTags << tag.group(1)
+                def (dir, prefix) = f[1].tokenize('/')
+                def work = new File("${launchDir}/work/${dir}").listFiles().find { d -> d.name.startsWith(prefix) }
+                staged[[proc, sample]] << work.list().findAll { x -> x.startsWith('chunk.') || x == 'manifest.tsv' }.sort()
+            }
+            def chunk = { String s, String side, int i -> "chunk.${s}.${side}.0000${i}" }
+            assert chunkTags as Set == [
+                "pe:${chunk('pe', 'left', 0)}", "pe:${chunk('pe', 'right', 1)}", "se:${chunk('se', 'left', 0)}",
+            ].collect { t -> t.toString() } as Set
+            assert staged[['RELOCATE3_TE_SEARCH_CHUNK', 'pe']].collect { l -> l.findAll { x -> x.endsWith('.fa') } } as Set == [
+                [ chunk('pe', 'left', 0), chunk('pe', 'left', 1), chunk('pe', 'left', 2), chunk('pe', 'right', 0) ].collect { c -> c + '.fa' },
+                [ chunk('pe', 'right', 1), chunk('pe', 'right', 2) ].collect { c -> c + '.fa' },
+            ] as Set
+            assert staged[['RELOCATE3_TE_SEARCH_CHUNK', 'pe']].every { l -> l.contains('manifest.tsv') }
+            assert staged[['RELOCATE3_TE_SEARCH_CHUNK', 'se']].collect { l -> l.findAll { x -> x.endsWith('.fa') } } == [
+                (0..2).collect { i -> chunk('se', 'left', i) + '.fa' },
+            ]
+            // the merge gets every chunk BAM of its sample (and the manifest)
+            def merged = { String s -> staged[['RELOCATE3_TE_MERGE_TRIM', s]][0].findAll { x -> x.endsWith('.bam') } }
+            assert merged('pe') == ['left', 'right'].collectMany { side -> (0..2).collect { i -> chunk('pe', side, i) + '.bam' } }
+            assert merged('se') == (0..2).collect { i -> chunk('se', 'left', i) + '.bam' }
+            assert staged[['RELOCATE3_TE_MERGE_TRIM', 'pe']][0].contains('manifest.tsv')
+            // no chunk file is published
+            def published = []
+            new File("${outputDir}/results").eachFileRecurse(groovy.io.FileType.FILES) { f -> published << f.name }
+            assert !published.any { f -> f.startsWith('chunk.') || f == 'manifest.tsv' }
+            assert new File("${outputDir}/results/se/te_containing/se.read_repeat_name.txt").exists()
+        }
+    }
+
+    test("BLAT scatter: blat_chunks_per_task 1 searches each chunk in its own task") {
+        options "-stub"
+        tag "scatter"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_chr3.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\nchr3,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+            params {
+                input                = sheet.absolutePath
+                outdir               = "${outputDir}/results"
+                blat_chunks_per_task = 1
+            }
+        }
+
+        then {
+            def n = { String p -> workflow.trace.tasks().count { t -> t.name.tokenize(' ')[0].tokenize(':')[-1] == p } }
+            assert workflow.success
+            assert n('RELOCATE3_TE_SPLIT') == 1
+            assert n('RELOCATE3_TE_SEARCH_CHUNK') == 6
+            assert n('RELOCATE3_TE_MERGE_TRIM') == 1
+            assert n('RELOCATE3_CHARACTERIZE') == 1
+        }
+    }
+
+    [[blat_scatter: false], [te_aligner: 'minimap2'], [te_aligner: 'bwaaln']].each { setting ->
+        test("${setting}: one TE_SEARCH task, no scatter; the same published files") {
+            options "-stub"
+            tag "scatter"
+
+            when {
+                def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+                def sheet = new File("${outputDir}/samplesheet_chr3.csv")
+                sheet.parentFile.mkdirs()
+                sheet.text = "sample,fastq_1,fastq_2\nchr3,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+                params {
+                    input  = sheet.absolutePath
+                    outdir = "${outputDir}/results"
+                }
+                setting.each { k, v -> params[k] = v }
+            }
+
+            then {
+                def n = { String p -> workflow.trace.tasks().count { t -> t.name.tokenize(' ')[0].tokenize(':')[-1] == p } }
+                assert workflow.success
+                assert n('RELOCATE3_TE_SEARCH') == 1
+                ['RELOCATE3_TE_SPLIT', 'RELOCATE3_TE_SEARCH_CHUNK', 'RELOCATE3_TE_MERGE_TRIM'].each { p -> assert n(p) == 0 : p }
+                assert n('RELOCATE3_CHARACTERIZE') == 1
+                def out = new File("${outputDir}/results/chr3")
+                def published = []
+                out.eachFileRecurse(groovy.io.FileType.FILES) { f -> published << out.toPath().relativize(f.toPath()).toString() }
+                assert published.size() == 33
+                assert published.contains('te_containing/chr3.read_repeat_name.txt')
+            }
+        }
+    }
+
+    // A real run with small chunks, so the Chr3 reads are split into many
+    // chunks and searched in several tasks; its TE-search outputs must equal
+    // one unsplit `relocaTE3 run` on the same reads (text byte for byte, BAMs
+    // record by record: validation/blat_memory/compare_outputs.sh). The full
+    // per-sample equality with run-all is the parity gate
+    // (NXF_EXTRA_PARAMS=... tests/nextflow/parity_chr3.sh).
+    test("real run, forced scatter: TE-search outputs equal one unsplit relocaTE3 run") {
+        tag "scatter"
+        tag "scatter_real"
+
+        when {
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def sheet = new File("${outputDir}/samplesheet_chr3.csv")
+            sheet.parentFile.mkdirs()
+            sheet.text = "sample,fastq_1,fastq_2\nchr3,${reads}_1.fq.gz,${reads}_2.fq.gz\n"
+            params {
+                input                = sheet.absolutePath
+                outdir               = "${outputDir}/results"
+                blat_chunk_reads     = 5000
+                blat_chunks_per_task = 3
+                genotype             = false
+                skip_multiqc         = true
+            }
+        }
+
+        then {
+            def n = { String p -> workflow.trace.tasks().count { t -> t.name.tokenize(' ')[0].tokenize(':')[-1] == p } }
+            assert workflow.success
+            // chunks per the split's manifest; groups of 3 across both sides
+            def splitRow = new File("${launchDir}/meta/trace.csv").readLines().drop(1)
+                .collect { line -> line.split('\t') }
+                .find { f -> f[3].tokenize(' ')[0].tokenize(':')[-1] == 'RELOCATE3_TE_SPLIT' }
+            def (sdir, sprefix) = splitRow[1].tokenize('/')
+            def swork = new File("${launchDir}/work/${sdir}").listFiles().find { d -> d.name.startsWith(sprefix) }
+            def chunks = new File(swork, 'chr3.te_chunks/manifest.tsv').readLines().drop(1).findAll { l -> l }
+            assert chunks.size() > 6
+            assert n('RELOCATE3_TE_SEARCH_CHUNK') == (int) Math.ceil(chunks.size() / 3.0)
+            assert n('RELOCATE3_TE_MERGE_TRIM') == 1
+
+            def bin = "${baseDir}/.pixi/envs/pipeline/bin"
+            def base = "${outputDir}/compare"
+            def reads = "${baseDir}/tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+            def script = """
+                set -euo pipefail
+                export PATH='${bin}':"\$PATH" TMPDIR='${base}/tmp'
+                mkdir -p '${base}/tmp' '${base}/te' '${base}/scatter'
+                cp '${baseDir}/tests/data/TE_lib/RiceTE.fa' '${base}/te/'
+                relocaTE3 run --left '${reads}_1.fq.gz' --right '${reads}_2.fq.gz' \\
+                    --te-library '${base}/te/RiceTE.fa' --name chr3 --outdir '${base}/unsplit' --threads 2
+                cd '${outputDir}/results/chr3'
+                cp -r --parents chr3.left.bam chr3.right.bam te_containing flanking te_portions '${base}/scatter/'
+                PIXI_BIN='${bin}' bash '${baseDir}/validation/blat_memory/compare_outputs.sh' '${base}/unsplit' '${base}/scatter'
+            """
+            def proc = ['bash', '-c', script].execute()
+            def stdout = new StringBuffer(), stderr = new StringBuffer()
+            proc.consumeProcessOutput(stdout, stderr)
+            proc.waitFor()
+            assert proc.exitValue() == 0 : "${stdout}\n${stderr}"
+            assert stdout.toString().contains('identical=10 differing=0') : stdout
         }
     }
 }

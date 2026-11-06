@@ -15,14 +15,33 @@ include { paramsHelp; validateParameters; paramsSummaryLog; samplesheetToList } 
 include { RELOCATE3; groupLanes } from './workflows/relocate3'
 include { softwareEnvironment } from './subworkflows/local/software_environment'
 
+// On/off settings, typed so that the command line gives Booleans. Nextflow
+// >= 26.04 parses with the strict syntax parser, which drops the old type
+// detection of command-line params: an untyped `--genotype false` arrives as
+// the String "false", which Groovy treats as true. A Boolean-typed param
+// takes true/false (any case) and a bare `--flag` (true); any other word stops
+// the run (Nextflow typed parameters, docs.seqera.io/nextflow/typed-parameters).
+// Defaults, documentation and the other params stay in nextflow.config (it
+// overrides these defaults; tests/nextflow_schema_test.py keeps every boolean
+// of nextflow_schema.json typed here with the config's default). `help` is
+// not typed: it is a flag or a parameter name.
+params {
+    require_both_junctions: Boolean = true
+    blat_scatter: Boolean = true
+    genotype: Boolean = true
+    excision: Boolean = false
+    skip_multiqc: Boolean = false
+}
+
 workflow {
     main:
     // nf-schema 3: help only through paramsHelp(), before validation so that
     // --help needs no other parameter. `--help` alone arrives as true or
-    // 'true'; `--help <name>` names one parameter (nf-schema docs pattern).
-    if (params.help) {
+    // 'true'; `--help <name>` names one parameter (nf-schema docs pattern);
+    // `--help false` (a String, as help is untyped) is no help.
+    if (params.help && params.help.toString().toLowerCase() != 'false') {
         log.info(paramsHelp(
-            parameter: params.help.toString() in ['true', 'false'] ? null : params.help,
+            parameter: params.help.toString().toLowerCase() == 'true' ? null : params.help,
             command: 'nextflow run stajichlab/RelocaTE3 -profile <pixi|docker|apptainer|singularity> --input samples.csv --genome reference.fa --te_library te.fa --outdir results',
         ))
         exit(0)

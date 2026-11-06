@@ -254,7 +254,7 @@ def test_blat_chunked_run_matches_single_chunk_run(tmp_path, monkeypatch):
 
     # Chunked: 4 chunks per side, per-chunk trim through the pipeline entry.
     monkeypatch.setattr(BlatBackend, "BLAT_CHUNK_SEQS", 400)
-    real = BlatBackend.map_te_library_chunked
+    real = BlatBackend.search_te_chunks
     chunk_counts = []
 
     def spy(self, *args, **kwargs):
@@ -263,7 +263,7 @@ def test_blat_chunked_run_matches_single_chunk_run(tmp_path, monkeypatch):
         assert all(sum(c.n_reads for c in s.chunks) == 1500 for s in sides)
         return sides
 
-    monkeypatch.setattr(BlatBackend, "map_te_library_chunked", spy)
+    monkeypatch.setattr(BlatBackend, "search_te_chunks", spy)
     chunked = tmp_path / "chunked"
     chunked.mkdir()
     RelocaTE(TElib=str(RICETE), threads=2).identify_TE_reads(

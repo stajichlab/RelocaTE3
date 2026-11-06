@@ -162,6 +162,29 @@ def test_nf_test_tasks_fit_a_github_runner():
     assert cpus <= 4 and mem_gb <= 14, limits
 
 
+def test_blat_scatter_resources_fit_the_observed_30x_run():
+    """Scatter labels sized from the riceTElib 30x trace (2026-11-05).
+
+    TE_SEARCH_CHUNK (8 chunks, 4 BLATs at once) peaked at 0.36 GB, so 2 GB;
+    TE_MERGE_TRIM peaked at 3.2 GB using ~1.2 CPUs for 32 min, so 2 CPUs and
+    8 GB (8 h), not process_medium's 4 CPUs. Memory and time still grow with
+    the attempt, and 137/140 (OOM / SLURM limit) still retry.
+    """
+    cfg = _config("pixi")
+    chunk = "process.'withLabel:process_blat_chunk'"
+    assert cfg[f"{chunk}.cpus"] == "4"
+    assert cfg[f"{chunk}.memory"] == "{ 2.GB * task.attempt }"
+    assert cfg[f"{chunk}.time"] == "{ 4.h * task.attempt }"
+    merge = "process.'withLabel:process_merge_trim'"
+    assert cfg[f"{merge}.cpus"] == "2"
+    assert cfg[f"{merge}.memory"] == "{ 8.GB * task.attempt }"
+    assert cfg[f"{merge}.time"] == "{ 8.h * task.attempt }"
+    assert "[137, 140]" in cfg["process.errorStrategy"]
+    assert cfg["process.maxRetries"] == "2"
+    module = (ROOT / "modules" / "local" / "relocate3_te_merge_trim" / "main.nf").read_text()
+    assert "label 'process_merge_trim'" in module
+
+
 # ------------------------------------------- pipeline_info/software_environment.txt
 
 ENV_PROBE = """\

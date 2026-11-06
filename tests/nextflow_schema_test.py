@@ -223,3 +223,69 @@ def test_report_params_have_their_own_schema_group():
     group = schema["$defs"]["report_options"]
     assert set(group["properties"]) == {"skip_multiqc", "multiqc_title"}
     assert {"$ref": "#/$defs/report_options"} in schema["allOf"]
+
+
+# ------------------------------------------------------- BLAT scatter params
+
+
+def test_blat_scatter_params_are_declared():
+    """Pipeline-only: how the BLAT TE search is spread over tasks. Outputs do
+    not depend on them, so run-all has no such options."""
+    props = _schema_properties()
+    config = _config_params()
+    assert config["blat_scatter"] is True
+    assert props["blat_scatter"]["type"] == "boolean"
+    assert config["blat_chunks_per_task"] == 8
+    assert props["blat_chunks_per_task"]["type"] == "integer"
+    assert props["blat_chunks_per_task"]["minimum"] == 1
+    assert props["blat_chunk_reads"]["type"] == "integer"
+    assert props["blat_chunk_reads"]["minimum"] == 1
+    assert props["blat_chunk_reads"].get("hidden") is True
+    run_all = vars(_run_all_defaults())
+    for name in ("blat_scatter", "blat_chunks_per_task", "blat_chunk_reads"):
+        assert name not in run_all
+
+
+def test_blat_chunk_reads_default_is_the_unsplit_chunk_size():
+    """Chunks of RelocaTE2's 200,000 reads, as `relocaTE3 run` and te-split
+    cut them (aligners.BLAT_CHUNK_SEQS)."""
+    from RelocaTE3.aligners import BLAT_CHUNK_SEQS
+
+    assert _config_params()["blat_chunk_reads"] == BLAT_CHUNK_SEQS
+    te_split = build_parser().parse_args(["te-split", "-1", "r1.fq", "-n", "s"])
+    assert te_split.chunk_reads == BLAT_CHUNK_SEQS
+
+
+def test_blat_scatter_params_have_their_own_schema_group():
+    schema = json.loads(SCHEMA.read_text())
+    group = schema["$defs"]["scatter_options"]
+    assert set(group["properties"]) == {"blat_scatter", "blat_chunks_per_task", "blat_chunk_reads"}
+    assert {"$ref": "#/$defs/scatter_options"} in schema["allOf"]
+
+
+def _main_nf_typed_params() -> dict[str, tuple[str, object]]:
+    """main.nf's typed ``params {}`` block: name -> (type, default)."""
+    body = _config_block((ROOT / "main.nf").read_text(), "params")
+    typed = {}
+    for line in body.splitlines():
+        line = re.sub(r"(^|\s)//.*$", "", line).strip()
+        if not line:
+            continue
+        m = re.fullmatch(r"(\w+)\s*:\s*(\w+)\s*=\s*(.+)", line)
+        assert m, f"unsupported line in main.nf params block: {line}"
+        typed[m.group(1)] = (m.group(2), _literal(m.group(3)))
+    return typed
+
+
+def test_every_boolean_param_is_typed_in_main_nf():
+    """Nextflow >= 26.04 (strict parser) passes an untyped `--genotype false`
+    as the String "false", which is true in Groovy. Only a param typed Boolean
+    in main.nf's params block arrives as a Boolean. `help` is boolean or a
+    parameter name, so it stays untyped (main.nf handles both)."""
+    booleans = {name for name, prop in _schema_properties().items()
+                if prop.get("type") == "boolean"}
+    typed = _main_nf_typed_params()
+    config = _config_params()
+    assert booleans == {name for name, (kind, _) in typed.items() if kind == "Boolean"}
+    for name in booleans:
+        assert typed[name][1] == config[name], name

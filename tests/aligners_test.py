@@ -537,7 +537,9 @@ class TestBlatCommand(unittest.TestCase):
         """
         from unittest import mock
 
-        from RelocaTE3.aligners import BlatBackend
+        from contextlib import nullcontext
+
+        from RelocaTE3.aligners import split_te_query
 
         with tempfile.TemporaryDirectory() as tmp:
             fq = Path(tmp) / "reads.fq"
@@ -549,18 +551,16 @@ class TestBlatCommand(unittest.TestCase):
 
             def chunks_for(use_seqtk):
                 sub = Path(tmp, "seqtk" if use_seqtk else "py")
-                sub.mkdir()
-                backend = BlatBackend()
-                backend.BLAT_CHUNK_SEQS = 3  # 7 records -> 3 chunks
-                whole = str(sub / "query.fa")
                 ctx = (
                     mock.patch("RelocaTE3.aligners.shutil.which", return_value=None)
                     if not use_seqtk
-                    else mock.patch.object(BlatBackend, "name", "blat")
+                    else nullcontext()
                 )
-                with ctx:
-                    parts = backend._write_query_chunks(fq, whole, str(sub), "s")
-                return [Path(p).read_text() for p in parts], Path(whole).read_text()
+                with ctx:  # 7 records -> 3 chunks
+                    parts = split_te_query(fq, sub, "s", chunk_reads=3)
+                texts = [Path(p).read_text() for p, _ in parts]
+                self.assertEqual([n for _, n in parts], [3, 3, 1])
+                return texts, "".join(texts)
 
             seqtk_chunks, seqtk_whole = chunks_for(True)
             py_chunks, py_whole = chunks_for(False)

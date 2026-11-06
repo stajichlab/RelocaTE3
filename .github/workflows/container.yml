@@ -142,7 +142,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   # The pipeline in the published image: the test profile, then the Chr3 parity
-  # gate with run-all in the same image.
+  # gate with run-all in the same image, with default and with small BLAT
+  # chunks (forced scatter).
   # Depends on Task 3 of plans/2026-11-03-nextflow-m2-plan.md: the `docker`
   # profile, the `container_tag` param and parity_chr3.sh's mode argument.
   pipeline-container:
@@ -187,6 +188,15 @@ jobs:
           grep -qxF "container: ${IMAGE}:${TAG}" "${record}"
 
       - name: Chr3 parity (run-all vs pipeline, both in the image)
+        run: bash tests/nextflow/parity_chr3.sh docker "${TAG}"
+
+      # The same gate with small BLAT chunks: on Chr3 the default 200,000-read
+      # chunks give one chunk per side; 5,000 gives a dozen or more per side
+      # and several TE_SEARCH_CHUNK tasks (te-split -> te-search-chunk ->
+      # te-merge-trim). Outputs must still equal run-all's.
+      - name: Chr3 parity, forced BLAT scatter (both in the image)
+        env:
+          NXF_EXTRA_PARAMS: "--blat_chunk_reads 5000 --blat_chunks_per_task 3"
         run: bash tests/nextflow/parity_chr3.sh docker "${TAG}"
 
       - name: Logs on failure

@@ -206,6 +206,21 @@ def test_pipeline_container_job_runs_after_image():
     assert "tests/nextflow/parity_chr3.sh docker" in job
 
 
+def test_pipeline_container_job_runs_the_forced_scatter_parity():
+    """M4: the parity gate again with small BLAT chunks, so the image's
+    te-split / te-search-chunk / te-merge-trim path (many chunk tasks) must
+    equal run-all too. Default params give one chunk per side on Chr3."""
+    steps = _steps(_job(_read(CONTAINER), "pipeline-container"))
+    default = _step_index(steps, "tests/nextflow/parity_chr3.sh docker")
+    forced = [s for s in steps if "NXF_EXTRA_PARAMS" in s]
+    assert len(forced) == 1
+    step = forced[0]
+    assert 'NXF_EXTRA_PARAMS: "--blat_chunk_reads 5000 --blat_chunks_per_task 3"' in step
+    assert 'bash tests/nextflow/parity_chr3.sh docker "${TAG}"' in step
+    assert "NXF_EXTRA_PARAMS" not in steps[default]
+    assert steps.index(step) > default
+
+
 def test_pipeline_container_job_checks_the_recorded_image():
     # pipeline_info/software_environment.txt names the image the run used.
     job = _job(_read(CONTAINER), "pipeline-container")
