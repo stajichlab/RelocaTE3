@@ -222,6 +222,41 @@ def test_report_dir_override(tmp_path):
     assert _value(proc, "report_dir") == str(rep)
 
 
+@pytest.mark.parametrize("mode_args", [
+    ("--mode", "run-all"),
+    ("--container-tag", "sha-abc1237"),
+])
+@pytest.mark.parametrize("var", ["RELOCATE3_VALIDATION_OUTDIR", "RELOCATE3_VALIDATION_REPORT_DIR"])
+def test_inherited_output_overrides_are_refused(tmp_path, mode_args, var):
+    """An output override inherited from the caller's environment would silently
+    redirect the run (exported through sbatch) and the report; the wrapper owns
+    these variables (--pipeline-outdir / --report-dir) and refuses a caller's."""
+    proc = _validate(tmp_path, *mode_args, **{var: str(tmp_path / "elsewhere")})
+    assert proc.returncode != 0
+    assert var in proc.stderr
+    assert not _commands(proc)
+
+
+def test_pipeline_mode_default_report_dir_is_per_tag(tmp_path):
+    proc = _validate(tmp_path, "--container-tag", "sha-abc1237", "--pipeline-outdir", str(tmp_path / "o"))
+    assert proc.returncode == 0, proc.stderr
+    assert _value(proc, "report_dir") == str(tmp_path / "cfg" / "report" / "sha-abc1237")
+
+
+def test_pipeline_skip_run_without_tag_reports_per_outdir(tmp_path):
+    out = tmp_path / "nf_out" / "sha-abc1237"
+    out.mkdir(parents=True)
+    proc = _validate(tmp_path, "--skip-run", "--pipeline-outdir", str(out))
+    assert proc.returncode == 0, proc.stderr
+    assert _value(proc, "report_dir") == str(tmp_path / "cfg" / "report" / "sha-abc1237")
+
+
+def test_run_all_mode_keeps_the_config_report_dir(tmp_path):
+    proc = _validate(tmp_path, "--mode", "run-all")
+    assert proc.returncode == 0, proc.stderr
+    assert _value(proc, "report_dir") == str(tmp_path / "cfg" / "report")
+
+
 @pytest.mark.parametrize("args", [
     ("--local",), ("--force",), ("S_1",), ("--mode", "other"),
 ])
@@ -332,6 +367,8 @@ def test_release_check_pipeline_mode_chains_head_job_and_report(tmp_path):
     assert report.startswith("sbatch ") and "--dependency=afterok:" in report
     assert "run_validation.sh --mode pipeline --skip-run" in report
     assert f"--pipeline-outdir {rr / 'results'}" in report
+    # The report goes to the tag's own report dir (report/<tag>).
+    assert "--container-tag 0.3.0rc1" in report
     # A dry run submits and writes nothing.
     assert not (rr / "config.toml").exists()
     assert not (base / "results" / "release-validation" / "v9.9.9rc1" / "real_rice.submission").exists()

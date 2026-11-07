@@ -38,8 +38,9 @@
 #   DRY_RUN=1               print the sbatch commands ("+ ..."); submit and write nothing
 #
 # Outputs: results/release-validation/<REF>/clone/validation/real_rice/
-#          {results,report,logs}/ (pipeline mode also results.nextflow/, the
-#          launch and work directory); submission record in
+#          {results,report,logs}/ (pipeline mode reports into report/<tag>/
+#          and also writes results.nextflow/, the launch and work directory);
+#          submission record in
 #          results/release-validation/<REF>/real_rice.submission
 
 set -euo pipefail
@@ -123,8 +124,8 @@ if [[ "$MODE" == pipeline ]]; then
     --export="ALL,CONFIG=$CONFIG,PYTHON=$ENV_BIN/python,NXF_APPTAINER_CACHEDIR=$CACHE" \
     "$RR/run_pipeline.sh" "$TAG" "$RR/results")
   SUBMITTED+=("$RUN_ID")
-  printf -v WRAP 'export PATH=%q:$PATH; cd %q && bash validation/real_rice/run_validation.sh --mode pipeline --skip-run --pipeline-outdir %q --config %q' \
-    "$PLOT_BIN" "$CLONE" "$RR/results" "$CONFIG"
+  printf -v WRAP 'export PATH=%q:$PATH; cd %q && bash validation/real_rice/run_validation.sh --mode pipeline --skip-run --container-tag %q --pipeline-outdir %q --config %q' \
+    "$PLOT_BIN" "$CLONE" "$TAG" "$RR/results" "$CONFIG"
 else
   RUN_ID=$(submit "${DEP[@]}" \
     -p "$PARTITION" --cpus-per-task 16 --mem 64gb --time 08:00:00 \

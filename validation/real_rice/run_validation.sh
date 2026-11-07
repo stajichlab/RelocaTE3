@@ -14,6 +14,8 @@
 #   Steps 3-4 are the same commands in both modes; in pipeline mode the
 #   RelocaTE3 outdir they read is the pipeline outdir (exported as
 #   RELOCATE3_VALIDATION_OUTDIR, which _config.py honours; config untouched).
+#   This script owns RELOCATE3_VALIDATION_OUTDIR / _REPORT_DIR: a value
+#   inherited from the caller is refused (use --pipeline-outdir / --report-dir).
 #
 # Designed to be launched from the RelocaTE3/ working directory:
 #   bash validation/real_rice/run_validation.sh --container-tag sha-2c9a448
@@ -28,7 +30,10 @@
 #                             --skip-run with --pipeline-outdir. Mutable tags
 #                             (dev, pr-<n>) are refused unless ALLOW_MUTABLE_TAG=1.
 #   --pipeline-outdir DIR     pipeline mode: pipeline outdir to run into / report on
-#   --report-dir DIR          report here instead of the config's paths.report_dir
+#   --report-dir DIR          report here instead of the default: the config's
+#                             paths.report_dir (run-all) or <paths.report_dir>/<tag>
+#                             (pipeline; <tag> = --container-tag, else the
+#                             basename of --pipeline-outdir)
 #   --config FILE             default validation/real_rice/config.toml
 #   --skip-run --skip-nonref --skip-char
 #   --local, --force, SAMPLE...   run-all mode only (pipeline mode resumes into
@@ -78,13 +83,22 @@ while [[ $# -gt 0 ]]; do
     --force)        FORCE=1;      shift ;;
     --config)       CONFIG_ARG="${2:?--config needs a file}"; shift 2 ;;
     -h|--help)
-      sed -n '2,46p' "$0"; exit 0 ;;
+      sed -n '2,49p' "$0"; exit 0 ;;
     --)          shift; while [[ $# -gt 0 ]]; do EXPLICIT_SAMPLES+=("$1"); shift; done ;;
     -*)
       die "unknown flag: $1" ;;
     *)
       EXPLICIT_SAMPLES+=("$1"); shift ;;
   esac
+done
+
+# The output overrides _config.py reads are set here from the flags only; an
+# inherited value would silently redirect the run (sbatch exports the
+# environment) and the report.
+for var in RELOCATE3_VALIDATION_OUTDIR RELOCATE3_VALIDATION_REPORT_DIR; do
+  if [[ -n "${!var:-}" ]]; then
+    die "$var is set in the environment (${!var}); unset it and use --pipeline-outdir (pipeline mode) / --report-dir instead"
+  fi
 done
 
 case "$MODE" in
@@ -169,6 +183,12 @@ DO_CHAR="${CFG[8]}"
 TARGET="${CFG[9]}"
 TE_NAME="${CFG[10]}"
 REPORT_DIR="${CFG[11]}"
+# Pipeline mode reports per tag by default, so reports of different images
+# (and the run-all report in paths.report_dir) do not overwrite each other.
+if [[ "$MODE" == pipeline && -z "$REPORT_DIR_ARG" ]]; then
+  REPORT_DIR="$REPORT_DIR/${TAG:-$(basename "$PIPE_OUT")}"
+  export RELOCATE3_VALIDATION_REPORT_DIR="$REPORT_DIR"
+fi
 echo "[validate-rice] relocate3_outdir: $OUTROOT"
 echo "[validate-rice] report_dir: $REPORT_DIR"
 if [[ "$MODE" == pipeline && -n "$TAG" ]]; then echo "[validate-rice] container_tag: $TAG"; fi

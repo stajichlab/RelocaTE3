@@ -64,6 +64,14 @@ submits one SLURM job per task. Before submitting, `run_pipeline.sh`'s own
 - The report reads that outdir: `run_validation.sh` exports
   `RELOCATE3_VALIDATION_OUTDIR=<outdir>`, which `_config.py` uses in place of
   `[paths].relocate3_outdir`. `config.toml` is not edited.
+- The report goes to `<[paths].report_dir>/<tag>` (with `--skip-run` and no
+  tag: `<[paths].report_dir>/<basename of --pipeline-outdir>`), so reports of
+  different images, and the run-all report in `[paths].report_dir`, do not
+  overwrite each other.
+- `run_validation.sh` refuses to start if `RELOCATE3_VALIDATION_OUTDIR` or
+  `RELOCATE3_VALIDATION_REPORT_DIR` is already set in your environment (an
+  inherited value would silently redirect the run and the report); use
+  `--pipeline-outdir` / `--report-dir`.
 - Rerunning the same command resumes (`-resume`). `--force`, `--local` and
   sample names are run-all only; the pipeline always runs the whole sheet.
 
@@ -95,16 +103,16 @@ pixi run validate-rice --mode run-all --force B_10         # wipe results/B_10/ 
 pixi run validate-rice --config /path/to/custom.toml ...
 ```
 
-- `--report-dir DIR` reports into DIR instead of `[paths].report_dir` (env
-  `RELOCATE3_VALIDATION_REPORT_DIR`); use it to keep pipeline and run-all
-  reports apart.
+- `--report-dir DIR` reports into DIR instead of the default
+  (`[paths].report_dir` for run-all, `[paths].report_dir/<tag>` for pipeline).
 - `--skip-nonref` / `--skip-char` skip Stage A / Stage B.
 - `DRY_RUN=1` prints every command (`+ ...`) and creates nothing.
 - Positional sample names override the config's sample CSV in run-all mode;
   the report then only covers those samples. In pipeline mode they are
   accepted with `--skip-run` only, to scope the report.
 
-Outputs land under the report dir (`validation/real_rice/report/` by default),
+Outputs land under the report dir (`validation/real_rice/report/` for run-all,
+`validation/real_rice/report/<tag>/` for pipeline mode, by default),
 in `nonref/` and `characterized/`:
 
 - `summary.tsv` — per-sample shared / R2-only / R3-only counts plus
