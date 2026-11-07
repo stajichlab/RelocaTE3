@@ -25,6 +25,13 @@ _INTERP = re.compile(r"\$\{([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\}"
 # Output keys under [paths] that are resolved relative to the config dir if not absolute.
 _RELATIVE_OUTPUT_KEYS = ("relocate3_outdir", "report_dir", "log_dir")
 
+# Environment overrides of output keys under [paths]; a relative value is
+# relative to the current directory (it comes from the caller, not the config).
+_OUTPUT_ENV = {
+    "relocate3_outdir": "RELOCATE3_VALIDATION_OUTDIR",
+    "report_dir": "RELOCATE3_VALIDATION_REPORT_DIR",
+}
+
 
 def _expand(value: str, cfg: dict[str, Any]) -> str:
     """Resolve ${section.key} references; raise on unknown keys."""
@@ -68,6 +75,11 @@ def load_config(path: str | Path) -> dict[str, Any]:
     ``validation_data/`` lives in a different absolute path:
 
     - ``RELOCATE3_VALIDATION_ROOT`` overrides ``[paths].validation_root``.
+    - ``RELOCATE3_VALIDATION_OUTDIR`` overrides ``[paths].relocate3_outdir``
+      (run_validation.sh points it at the Nextflow pipeline's outdir).
+    - ``RELOCATE3_VALIDATION_REPORT_DIR`` overrides ``[paths].report_dir``.
+
+    A relative output override is resolved against the current directory.
     """
     config_path = Path(path).resolve()
     if not config_path.is_file():
@@ -85,6 +97,10 @@ def load_config(path: str | Path) -> dict[str, Any]:
         val = paths.get(key)
         if val and not os.path.isabs(val):
             paths[key] = str((config_dir / val).resolve())
+    for key, var in _OUTPUT_ENV.items():
+        override = os.environ.get(var)
+        if override:
+            paths[key] = str(Path(override).resolve())
 
     cfg["_config_path"] = str(config_path)
     cfg["_config_dir"] = str(config_dir)

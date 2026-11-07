@@ -19,8 +19,9 @@ pixi run test                               # pytest -ra -q (all tests)
 pixi run pytest tests/acceptance_test.py    # the benchmark acceptance gate
 pixi run pytest tests/trim_test.py::test_x  # single test
 pixi run docs                               # sphinx build -> docs/_build/html
-pixi run validate-rice --local B_10         # smoke test against legacy RelocaTE2
-pixi run validate-rice                      # full 10-sample SLURM array
+pixi run validate-rice --mode run-all --local B_10   # smoke test against legacy RelocaTE2
+pixi run validate-rice --container-tag sha-<short>  # 10 samples through the pipeline (default mode)
+pixi run validate-rice --mode run-all               # 10-sample run-all SLURM array
 pre-commit run --all-files                  # ruff, black, codespell, pydocstyle, pyupgrade
 ```
 

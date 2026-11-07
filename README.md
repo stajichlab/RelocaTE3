@@ -545,6 +545,7 @@ The following commands run RelocaTE3 on real rice data and compares results
 to legacy RelocaTE2 results. See `validation` directory for more information.
 
 ```bash
-pixi run validate-rice --local --force B_10   # smoke test (one sample, forced re-run)
-pixi run validate-rice                        # full 10-sample SLURM array
+pixi run validate-rice --container-tag sha-<short>          # 10 samples through the Nextflow pipeline
+pixi run validate-rice --mode run-all --local --force B_10  # smoke test (one sample, run-all, forced re-run)
+pixi run validate-rice --mode run-all                       # 10-sample run-all SLURM array
 ```
