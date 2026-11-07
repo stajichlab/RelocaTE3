@@ -126,138 +126,50 @@ may not be `cohort` or contain `=`.
 
 ### Nextflow pipeline
 
-The repository is also a Nextflow pipeline (nf-core layout). Each task runs one
-`relocaTE3` subcommand with the settings `run-all` uses, so every sample's
-files are identical to `run-all --genotype` with the same settings (a sample
-merged from several lanes has no `run-all` equivalent).
-`tests/nextflow/parity_chr3.sh` checks this on the Chr3 test data. Samples run
-in parallel, the genome is indexed once, and the genotyping alignment runs
-alongside the TE search.
+The repository is also a Nextflow pipeline. It runs many samples in parallel
+and writes one cohort table and one MultiQC report. Each task runs one
+`relocaTE3` subcommand with `run-all`'s settings, so every sample's files are
+identical to `run-all --genotype` with the same settings
+(`tests/nextflow/parity_chr3.sh` checks this on the Chr3 test data).
 
-The pipeline needs Nextflow ≥ 26.04. `nextflow run . --help` lists the
-parameters, and `--help <parameter>` describes one. Tools come from one of two
-places:
-
-- **A container (recommended).** `ghcr.io/stajichlab/relocate3` holds the exact
-  tool versions RelocaTE3 is validated with, plus MultiQC (`pixi.lock`'s
-  `pipeline` environment). Choose
-  `-profile apptainer`, `singularity` or `docker`.
-  - `--container_tag` picks the image: a release version such as `0.3.0`,
-    `dev` (latest `main`, the default) or `sha-<commit>`. `dev` and `pr-<n>`
-    move with every push; pin a version or `sha-<commit>` for results you keep
-    (and for `-resume`). `pipeline_info/software_environment.txt` records the
-    image reference a run used.
-  - Set `NXF_APPTAINER_CACHEDIR` (or `NXF_SINGULARITY_CACHEDIR`) to a
-    directory with space, so the image (~340 MB) is downloaded once.
-- **`-profile pixi`.** Uses the `pipeline` pixi environment of a local clone
-  (the `blat` environment plus MultiQC, with identical tool builds; the image
-  is built from it). It is meant for development.
-
-On UCR HPCC, add `-profile hpcc` to send each task to SLURM. The partition
-defaults to `intel`; change it with `--slurm_partition`. At most 50 jobs are
-queued at a time. Profiles apply in command-line order, so with `test` the
-later one sets the task resource caps: `-profile test,hpcc,apptainer` keeps
-hpcc's (64 CPUs, 430 GB), `-profile hpcc,test,apptainer` caps tasks at the test
-profile's 4 CPUs and 8 GB. Run Nextflow itself from a small sbatch job, never on the
-login node:
+You need Nextflow ≥ 26.04 and Apptainer, Singularity or Docker. Test run, from
+GitHub:
 
 ```bash
-#!/usr/bin/bash -l
-#SBATCH -p intel -c 2 --mem=8G --time=3-00:00:00 -o logs/relocate3_nf.%j.log
-set -euo pipefail
-module load nextflow/26.04.6 apptainer/1.5.3
-export NXF_APPTAINER_CACHEDIR=/bigdata/<lab>/<user>/apptainer-cache
-nextflow run stajichlab/RelocaTE3 -r main -profile hpcc,apptainer \
-  --input samples.csv --genome reference.fa --te_library mping.fa \
-  --repeatmasker reference.fa.RepeatMasker.out --te_name mping \
-  --outdir results -resume
+nextflow run stajichlab/RelocaTE3 -r v0.3.0rc1 -profile test,apptainer --container_tag 0.3.0rc1
 ```
 
-From a clone, without containers:
+`v0.3.0rc1` is not tagged yet. Until it is, use `-r main` and leave out
+`--container_tag` (the default image tag, `dev`, is built from `main`).
+
+Your own samples:
 
 ```bash
-pixi install -e pipeline -e nf
-pixi run -e nf nextflow run . -profile test,pixi          # Chr3 test data, ~2 min (any launch dir)
-pixi run -e nf nextflow run . -profile pixi \
-  --input samples.csv --genome reference.fa --te_library RiceTE.fa \
-  --repeatmasker reference.fa.RepeatMasker.out --te_name mping --outdir results
+nextflow run stajichlab/RelocaTE3 -r v0.3.0rc1 -profile apptainer \
+  --container_tag 0.3.0rc1 \
+  --input samples.csv --genome reference.fa \
+  --te_library mping.fa --te_name mping \
+  --repeatmasker reference.fa.RepeatMasker.out --outdir results
 ```
 
-Validated so far:
-- Chr3 test data: identical to `run-all` with pixi, Docker and Apptainer
-  (`tests/nextflow/parity_chr3.sh`).
-- 10 real rice samples (`-profile hpcc,apptainer`): all identical to the
-  v0.2.0rc2 `run-all` results. The run took 25 minutes end to end, and no task
-  used more than 0.7 GB (`validation/real_rice/run_pipeline.sh`).
-
-The sample sheet is CSV, one row per sequencing lane. Rows with the same
-`sample` are merged in sheet order. `fastq_2` is optional (single-end).
-`genotype_bam` is an optional existing BAM or CRAM for genotyping, with its
-`.bai` or `.csi` (BAM) or `.crai` (CRAM) beside it. Sample names may contain
-only letters, digits, `.`, `_` and `-`, and start with a letter or digit.
+The sample sheet is CSV, one row per lane (rows with the same `sample` are
+merged); `fastq_2` and `genotype_bam` are optional:
 
 ```csv
 sample,fastq_1,fastq_2,genotype_bam
-HEG4,/data/HEG4_L1_R1.fq.gz,/data/HEG4_L1_R2.fq.gz,
-HEG4,/data/HEG4_L2_R1.fq.gz,/data/HEG4_L2_R2.fq.gz,
+HEG4,/data/HEG4_R1.fq.gz,/data/HEG4_R2.fq.gz,
 A123,/data/A123_R1.fq.gz,/data/A123_R2.fq.gz,/data/A123.cram
 ```
 
-Paths in the sheet are resolved relative to the directory Nextflow is launched
-from, so use absolute paths.
+Settings use `run-all`'s names in snake case (`--te_aligner`, `--size`, ...)
+with the same defaults, except that `--genotype` is on. Outputs:
+`results/<sample>/` (the `run-all` layout), `results/cohort/` (see "Cohort
+outputs"), `results/multiqc/relocate3_report.html` and `results/pipeline_info/`.
+On UCR HPCC, add `-profile hpcc` and launch Nextflow from an sbatch head job.
 
-Outputs:
-- `results/<sample>/`: the same layout as `run-all`.
-- `results/cohort/`: the `relocaTE3 cohort` outputs over all characterized
-  samples (see "Cohort outputs"). They are written when at least one sample
-  was genotyped.
-- `results/multiqc/relocate3_report.html`: one summary report.
-  - Calls per sample and per genotype class.
-  - Per-sample counts: TE-containing reads, flanking reads, calls per output
-    tier, reference calls.
-  - Software versions.
-  - `--skip_multiqc` turns it off; `--multiqc_title` sets its title.
-- `results/pipeline_info/`: software versions, the software environment, and
-  Nextflow's report, timeline, trace and DAG.
-
-Settings use `run-all`'s names in snake case, with the same defaults:
-`--te_aligner`, `--genome_aligner`, `--mismatch`, `--size`, `--min_mapq`,
-`--tsd` and so on. The exception is `--genotype`, which is **on** by default.
-`--genotype false` stops aligning reads for genotyping, but, as in `run-all`, a
-sample with a `genotype_bam` is always genotyped. `nextflow_schema.json` describes every
-setting, and they can be supplied in one file with `-params-file params.yaml`.
-
-**BLAT scatter.** With `--te_aligner blat` (the default), the TE search of
-one sample is spread over many tasks. On a cluster it no longer runs as one
-long job (13 h for one 30x rice sample).
-1. `RELOCATE3_TE_SPLIT` cuts each read side into chunks of 200,000 reads
-   (`relocaTE3 te-split`). These are the same chunks `relocaTE3 run` makes
-   internally.
-2. `RELOCATE3_TE_SEARCH_CHUNK` searches the chunks in groups of
-   `--blat_chunks_per_task` (default 8), 4 at a time per task
-   (`relocaTE3 te-search-chunk`).
-3. `RELOCATE3_TE_MERGE_TRIM` merges each side's chunk results in order and
-   trims them, once per sample (`relocaTE3 te-merge-trim`).
-
-The outputs are identical to the single `RELOCATE3_TE_SEARCH` task's, file for
-file, so `results/<sample>/` is unchanged. The chunk files are not published.
-`tests/nextflow/parity_chr3.sh` checks this with small chunks (see its header).
-
-- `--blat_chunks_per_task N`: more chunks per task means fewer, longer jobs.
-  It changes nothing in the results.
-- `--blat_scatter false`: one `RELOCATE3_TE_SEARCH` task per sample, as before.
-  Use it where many small jobs cost more than they save: a single machine
-  without a scheduler, or a cluster that limits the number of jobs.
-- Other TE aligners (`--te_aligner minimap2`, `bwaaln`, ...) always run one
-  `RELOCATE3_TE_SEARCH` task.
-- Disk: the chunk files stay in the Nextflow work directory until it is
-  cleaned (`nextflow clean`, or delete `-work-dir` after the run). For one
-  30x rice sample (374 chunks) that is about 15 GB of chunk FASTAs plus about
-  6 GB of chunk BAMs, and while `RELOCATE3_TE_SPLIT` runs it also briefly
-  holds one whole read side as FASTA. Leave room for this per sample in
-  flight.
-
-See `plans/2026-11-02-nextflow-pipeline-design.md`.
+**The [pipeline user guide](docs/source/pipeline.rst)** covers the sample sheet
+rules, every parameter, the profiles, an HPCC launch script, outputs, the BLAT
+scatter, reproducibility and troubleshooting.
 
 ### Staged subcommands
 

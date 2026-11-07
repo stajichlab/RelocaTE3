@@ -17,6 +17,7 @@ see ``tests/acceptance_test.py``.
 
    installation
    usage
+   pipeline
    output
    migration
    api
