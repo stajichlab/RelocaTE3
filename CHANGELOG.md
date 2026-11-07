@@ -1,9 +1,40 @@
 # Changelog
 
-## Unreleased
+## 0.3.0rc1 — 2026-11-07
+
+First release with the Nextflow pipeline. 0.2.0 stopped at its second
+release candidate (`v0.2.0rc2`); this release candidate supersedes it.
+
+- **Nextflow pipeline** (milestones 1–4): `nextflow run stajichlab/RelocaTE3`
+  runs one task per `run-all` step, and every sample's files are identical to
+  `relocaTE3 run-all --genotype` with the same settings (Chr3 parity gate).
+  Needs Nextflow ≥ 26.04.
+- **Containers and CI**: image `ghcr.io/stajichlab/relocate3` (tags: the
+  version, `dev`, `pr-<n>`, `sha-<short>`); profiles `apptainer`,
+  `singularity`, `docker`, `pixi`, `test`, and `hpcc` for UCR SLURM.
+- **Cohort outputs**: `relocaTE3 cohort` (all calls, sites × samples genotype
+  matrix) and a MultiQC report.
+- **BLAT scatter**: the TE search runs as many small jobs. On the riceTElib
+  30x sample it took 1 h 21 min instead of 13 h 13 min, with identical
+  output.
+- **Fixed**: boolean pipeline settings given as `false` on the command line
+  were treated as true (see Fixed below).
+- **Validated**: the 10 real-rice samples run through the pipeline
+  (`-profile hpcc,apptainer`) give results identical to v0.2.0rc2.
+- User guide for the pipeline: `docs/source/pipeline.rst`.
 
 ### Added
 
+- Nextflow pipeline, milestone 5 (documentation and release):
+  - User guide `docs/source/pipeline.rst` (parameter tables generated from
+    `nextflow_schema.json`) and a README quick start.
+  - `validation/real_rice/run_validation.sh` (`pixi run validate-rice`) runs
+    the 10 real-rice samples through the pipeline by default
+    (`--mode pipeline --container-tag <tag>`); `--mode run-all` keeps the
+    old path. `validation/release/submit_real_rice.sh` likewise.
+  - `scripts/post_release.sh <next>.devN` returns `nextflow.config`, the
+    schema and the guide to a development version and the `dev` image after
+    a release tag.
 - Nextflow pipeline, milestone 4: the BLAT TE search spread over jobs.
   - New subcommands, which together give exactly `relocaTE3 run`'s outputs
     with BLAT:
@@ -109,6 +140,11 @@
 - Pipeline `-profile pixi` stops at start if `--pixi_env` has no `relocaTE3`.
 - Pipeline runs write `pipeline_info/software_environment.txt` (container
   image or pixi environment).
+- Nextflow head-job scripts (`validation/real_rice/run_pipeline.sh`,
+  `validation/blat_scatter/run_scatter_pipeline.sh`, the guide's sbatch
+  template) ask for 1 day instead of 3: a head job only orchestrates, and a
+  long limit kept job 31830681 pending behind a maintenance reservation.
+  Override with `sbatch --time=...`.
 - `validation/real_rice/run_pipeline.sh` refuses the mutable image tags `dev`
   and `pr-<n>` unless `ALLOW_MUTABLE_TAG=1`, and records the image each run
   used in `OUTDIR/container_image.txt`.
@@ -128,7 +164,7 @@
   typed `Boolean` in `main.nf`'s `params {}` block; values other than
   true/false (any case) stop the run.
 
-## 0.2.0 — unreleased (release candidates `v0.2.0rc1` 2026-10-21, `v0.2.0rc2` 2026-10-29)
+## 0.2.0 — not released as final (release candidates `v0.2.0rc1` 2026-10-21, `v0.2.0rc2` 2026-10-29; superseded by 0.3.0rc1)
 
 First release aimed at replacing RelocaTE2 for paired-end short-read data.
 

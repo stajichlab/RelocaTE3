@@ -41,13 +41,13 @@ takes a few minutes after the image is pulled.
 
 .. note::
 
-   ``v0.3.0rc1`` is not tagged yet. Until it is, use ``-r main`` and leave out
-   ``--container_tag``. The default tag, ``dev``, is the image built from
-   ``main``:
+   For the development version, use ``-r main --container_tag dev``. The
+   ``dev`` image is built from ``main``:
 
    .. code-block:: bash
 
-      nextflow run stajichlab/RelocaTE3 -r main -profile test,apptainer
+      nextflow run stajichlab/RelocaTE3 -r main -profile test,apptainer \
+        --container_tag dev
 
 Your own data:
 
@@ -375,7 +375,7 @@ Tasks run in <container_registry>:<container_tag>. CI publishes dev (main branch
      - Image repository, without the tag.
    * - ``--container_tag``
      - string
-     - ``dev``
+     - ``0.3.0rc1``
      - Image tag: dev, pr-<n>, sha-<short> or a release version.
 
 Profile options
@@ -488,7 +488,7 @@ The head job submits one SLURM job per task and waits for them.
    #SBATCH -p intel
    #SBATCH --cpus-per-task=2
    #SBATCH --mem=8G
-   #SBATCH --time=3-00:00:00
+   #SBATCH --time=1-00:00:00
    #SBATCH -o logs/relocate3_nf.%j.log
    set -euo pipefail
    date
@@ -534,6 +534,15 @@ Notes:
 - When the head job stops (for example at its time limit), Nextflow cancels
   the task jobs it submitted. Submit the script again; ``-resume`` picks up
   from the finished tasks.
+- The head job only submits and waits for the task jobs, so it needs little
+  CPU and memory. Its 1-day limit fits the measured runs below; give a large
+  cohort more with ``sbatch --time=3-00:00:00 run_relocate3_nf.sh``. Keep the
+  limit no longer than needed: SLURM holds a job whose limit overlaps a
+  scheduled maintenance reservation until the reservation ends.
+- ``conf/hpcc.config``'s ``resourceLimits`` (64 CPUs, 430 GB, 30 days) is a
+  ceiling, not a request: Nextflow lowers any larger request, including a
+  retry's, to it. Each task asks for its label's resources from
+  ``conf/base.config``.
 
 Measured: 10 real rice samples with ``-profile hpcc,apptainer`` took 25
 minutes end to end, and every sample's files were identical to the

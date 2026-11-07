@@ -9,16 +9,17 @@ aligner pair as RelocaTE2, `blat` for TE search and `bwa aln` for genome
 placement, but the aligner for each stage is selectable: `minimap2`, `bwa`,
 `bwa-mem2`, `bwa aln`, `bowtie2`, or `blat` (see "Choosing an aligner").
 
-> Status: release candidate 0.2.0 (see `CHANGELOG.md`). The full pipeline
+> Status: release candidate 0.3.0rc1 (see `CHANGELOG.md`). The full pipeline
 > (read trimming → genome re-alignment → non-reference insertion calling →
 > reference/shared insertions → genotyping) runs end to end. On the rice Chr3
 > 2 Mb test data, at the shipped defaults, it recovers 196/200 simulated
 > insertions at precision 1.000, the same as RelocaTE2
 > (`notes/2026-08-12-relocate2-chr3-baseline.md`); `tests/acceptance_test.py`
 > gates this. On the larger simulated rice benchmark it matches RelocaTE2's
-> accuracy but uses about 3x its peak memory at 30x coverage. Validated for
-> paired-end short reads; see the changelog's known limitations. See `plans/PLAN.md`
-> for the roadmap (Rust acceleration and Nextflow scatter are planned).
+> accuracy. Many samples run through the Nextflow pipeline ("Nextflow
+> pipeline" below). Validated for paired-end short reads; see the changelog's
+> known limitations. See `plans/PLAN.md` for the roadmap (long reads, multiple
+> reference genomes, a pangenome reference, Rust acceleration).
 
 ## Installation
 
@@ -139,8 +140,8 @@ GitHub:
 nextflow run stajichlab/RelocaTE3 -r v0.3.0rc1 -profile test,apptainer --container_tag 0.3.0rc1
 ```
 
-`v0.3.0rc1` is not tagged yet. Until it is, use `-r main` and leave out
-`--container_tag` (the default image tag, `dev`, is built from `main`).
+For the development version, use `-r main --container_tag dev` (the `dev`
+image is built from `main`).
 
 Your own samples:
 

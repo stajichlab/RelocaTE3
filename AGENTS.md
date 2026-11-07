@@ -97,8 +97,12 @@ sbatch tests/nextflow/parity_chr3.sh      # parity gate vs run-all on Chr3; must
 - Python ≥ 3.10; targets `pyupgrade --py310-plus`.
 - Formatting/lint via pre-commit: ruff (check + format), black (py311), codespell, pydocstyle (`--convention=google`, src only).
 - Google-style docstrings. Tests are exempt from pydocstyle and pyupgrade.
-- `versioningit` derives `__version__` from git tags (`default-tag = "0.1.0"`). Don't hand-edit a version.
+- `versioningit` derives `__version__` from git tags (`default-tag = "0.1.0"`); commits after tag `vX` get `X.postN+g<sha>`. The Python version is never hand-edited. The pipeline's `manifest.version` and default `container_tag` are (Release steps below).
 - `docs/source/` is a Sphinx project; build with `pixi run docs`.
+
+## Release steps
+
+The release commit sets `manifest.version`, the default `container_tag` (`nextflow.config` + `nextflow_schema.json`, then `python docs/source/_gen_params.py`), `CITATION.cff` and the CHANGELOG heading to the version; `containers/check_release.sh` gates this on the `v*` tag in `container.yml`. After the tag, `bash scripts/post_release.sh <next>.devN` on a new branch returns to a development version that sorts after the release in PEP 440 (after `0.3.0rc1`: `0.3.0rc2.dev0`, image `dev`; `0.3.0dev` sorts before it). Full checklist: `docs/2026-11-07-release-v0.3.0rc1.md`.
 
 ## Roadmap context
 

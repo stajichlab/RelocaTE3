@@ -2,12 +2,15 @@
 #SBATCH -p intel
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=8G
-#SBATCH --time=3-00:00:00
+#SBATCH --time=1-00:00:00
 #SBATCH -J rt3-nf-real-rice
 #SBATCH -o logs/real_rice_pipeline.%j.log
 #
 # Real-rice validation through the Nextflow pipeline: the head job. Nextflow
 # runs here and submits one SLURM job per task (-profile hpcc,apptainer).
+# The head job only orchestrates: the 10 samples took 1 h 04 min (job
+# 31830681), so the limit is 1 day. Override with sbatch --time=2-00:00:00 ...;
+# a limit overlapping a maintenance reservation keeps the job pending.
 #
 # Usage, from the repository root:
 #   sbatch validation/real_rice/run_pipeline.sh CONTAINER_TAG [OUTDIR]
