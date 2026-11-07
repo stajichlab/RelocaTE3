@@ -515,7 +515,10 @@ Submit it from the directory that holds ``samples.csv``:
 
 .. code-block:: bash
 
-   sbatch run_relocate3_nf.sh
+   mkdir -p logs && sbatch run_relocate3_nf.sh
+
+Create ``logs/`` before submitting: SLURM opens the ``#SBATCH -o`` log before
+the script runs, so with no ``logs/`` the job fails without writing a log.
 
 Notes:
 
@@ -531,8 +534,10 @@ Notes:
   for example after a failure or with more samples. It is harmless on the
   first run. Launch from the same directory: Nextflow keeps its run history
   in ``.nextflow/`` there.
-- When the head job stops (for example at its time limit), Nextflow cancels
-  the task jobs it submitted. Submit the script again; ``-resume`` picks up
+- When the head job stops (for example at its time limit), Nextflow normally
+  cancels the task jobs it submitted, when it is stopped cleanly (``scancel``
+  of the head job sends SIGTERM). If it is killed abruptly, cancel leftover
+  task jobs with ``scancel``. Submit the script again; ``-resume`` picks up
   from the finished tasks.
 - The head job only submits and waits for the task jobs, so it needs little
   CPU and memory. Its 1-day limit fits the measured runs below; give a large
@@ -544,9 +549,11 @@ Notes:
   retry's, to it. Each task asks for its label's resources from
   ``conf/base.config``.
 
-Measured: 10 real rice samples with ``-profile hpcc,apptainer`` took 25
-minutes end to end, and every sample's files were identical to the
-v0.2.0rc2 ``run-all`` results (``validation/real_rice/run_pipeline.sh``).
+Measured: 10 real rice samples with ``-profile hpcc,apptainer`` and image
+``sha-2c9a448`` (head job 31830681, ``validation/real_rice/run_pipeline.sh``)
+ran for 1 h 04 min (time spent pending in the queue is not counted). Every
+sample's files were identical to the v0.2.0rc2 ``run-all`` results
+(``validation/real_rice/compare_pipeline_to_rc2.sh``, job 31833986).
 
 
 Outputs
@@ -725,7 +732,8 @@ Note that a sample with a ``genotype_bam`` is always genotyped.
 **The image pull is slow, times out, or fills your home directory.**
 Set ``NXF_APPTAINER_CACHEDIR`` (or ``NXF_SINGULARITY_CACHEDIR``) to a shared
 directory with space. The profiles allow 60 minutes per pull. On UCR HPCC,
-``sbatch containers/pull_and_check.sh <tag>`` (from a clone) pulls the image
+``mkdir -p logs && sbatch containers/pull_and_check.sh <tag>`` (from a clone)
+pulls the image
 into that cache ahead of a run and checks the tools in it.
 
 **A task was killed for memory or time.**

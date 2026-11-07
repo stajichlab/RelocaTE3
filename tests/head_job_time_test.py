@@ -21,7 +21,17 @@ HEAD_JOBS = [
     "validation/real_rice/run_pipeline.sh",
     "validation/blat_scatter/run_scatter_pipeline.sh",
     "docs/source/pipeline.rst",  # the guide's sbatch template
+    "conf/hpcc.config",  # the launch pattern in its header comment
 ]
+# User-facing docs that may carry sbatch templates (checked when they do).
+DOC_TEMPLATES = [
+    "README.md",
+    "docs/source/pipeline.rst",
+    "docs/source/installation.rst",
+    "conf/hpcc.config",
+    "validation/real_rice/README.md",
+]
+SBATCH_TIME = re.compile(r"#SBATCH[^\n]*?--time[= ](\S+)")
 ONE_DAY = 24 * 3600
 
 
@@ -46,7 +56,7 @@ def _seconds(limit: str) -> int:
 
 @pytest.mark.parametrize("path", HEAD_JOBS)
 def test_head_job_time_limit_at_most_one_day(path):
-    limits = re.findall(r"#SBATCH\s+--time[= ](\S+)", (ROOT / path).read_text())
+    limits = SBATCH_TIME.findall((ROOT / path).read_text())
     assert limits, f"{path}: no #SBATCH --time"
     for limit in limits:
         assert _seconds(limit) <= ONE_DAY, f"{path}: --time={limit} is more than a day"
@@ -55,6 +65,22 @@ def test_head_job_time_limit_at_most_one_day(path):
 @pytest.mark.parametrize("path", HEAD_JOBS)
 def test_head_job_documents_the_override(path):
     assert "sbatch --time=" in (ROOT / path).read_text()
+
+
+@pytest.mark.parametrize("path", DOC_TEMPLATES)
+def test_doc_templates_time_limit_at_most_one_day(path):
+    for limit in SBATCH_TIME.findall((ROOT / path).read_text()):
+        assert _seconds(limit) <= ONE_DAY, f"{path}: --time={limit} is more than a day"
+
+
+@pytest.mark.parametrize("path", DOC_TEMPLATES)
+def test_doc_templates_create_the_log_dir_before_sbatch(path):
+    """SLURM opens the #SBATCH -o log before the script runs: with a missing
+    logs/ the job fails without a log, so a mkdir inside the script is too
+    late. A template that logs under logs/ says to create it at submission."""
+    text = (ROOT / path).read_text()
+    if re.search(r"#SBATCH[^\n]*?(-o|--output)[= ]logs/", text):
+        assert "mkdir -p logs && sbatch" in text, f"{path}: submit with mkdir -p logs && sbatch ..."
 
 
 def test_seconds():
