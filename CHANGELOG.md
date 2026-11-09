@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0rc1 — 2026-11-07
+## 0.3.0rc1 — 2026-11-09
 
 First release with the Nextflow pipeline. 0.2.0 stopped at its second
 release candidate (`v0.2.0rc2`); this release candidate supersedes it.
