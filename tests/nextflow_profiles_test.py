@@ -11,6 +11,7 @@ pulled and no job is submitted (the probe has no processes).
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -19,6 +20,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 IMAGE = "ghcr.io/stajichlab/relocate3"
+# The default image tag: `dev` on a development manifest, the version on a
+# release (tests/nextflow_schema_test.py checks which).
+DEFAULT_TAG = re.search(
+    r"(?m)^\s*container_tag\s*=\s*'([^']+)'", (ROOT / "nextflow.config").read_text()
+).group(1)
 
 pytestmark = pytest.mark.skipif(
     shutil.which("pixi") is None or not (ROOT / ".pixi" / "envs" / "nf").is_dir(),
@@ -76,7 +82,7 @@ def _probe(tmp_path: Path, profile: str, *args: str) -> dict[str, str]:
 @pytest.mark.parametrize("engine", ["apptainer", "singularity"])
 def test_apptainer_like_profiles(engine):
     cfg = _config(f"test,{engine}")
-    assert cfg["process.container"] == f"'{IMAGE}:dev'"
+    assert cfg["process.container"] == f"'{IMAGE}:{DEFAULT_TAG}'"
     assert cfg[f"{engine}.enabled"] == "true"
     assert cfg[f"{engine}.autoMounts"] == "true"
     assert cfg[f"{engine}.pullTimeout"] == "'60 min'"
@@ -88,7 +94,7 @@ def test_apptainer_like_profiles(engine):
 
 def test_docker_profile():
     cfg = _config("test,docker")
-    assert cfg["process.container"] == f"'{IMAGE}:dev'"
+    assert cfg["process.container"] == f"'{IMAGE}:{DEFAULT_TAG}'"
     assert cfg["docker.enabled"] == "true"
     assert cfg["docker.runOptions"] == "'-u $(id -u):$(id -g)'"
     assert cfg["apptainer.enabled"] == "false"
@@ -103,7 +109,7 @@ def test_pixi_profile_has_no_container():
 
 
 def test_container_tag_cli_override(tmp_path):
-    assert _probe(tmp_path, "apptainer")["container"] == f"{IMAGE}:dev"
+    assert _probe(tmp_path, "apptainer")["container"] == f"{IMAGE}:{DEFAULT_TAG}"
     got = _probe(tmp_path, "apptainer", "--container_tag", "pr-7")
     assert got["container"] == f"{IMAGE}:pr-7"
     got = _probe(tmp_path, "docker", "--container_registry", "example.org/rt3",
@@ -125,13 +131,13 @@ def test_hpcc_profile_submits_to_slurm():
     assert cfg["executor.$slurm.queueSize"] == "50"
     assert cfg["executor.$slurm.submitRateLimit"] == "'10/1min'"
     # The apptainer profile still provides the image; no cacheDir override.
-    assert cfg["process.container"] == f"'{IMAGE}:dev'"
+    assert cfg["process.container"] == f"'{IMAGE}:{DEFAULT_TAG}'"
     assert "apptainer.cacheDir" not in cfg
 
 
 def test_slurm_partition_cli_override(tmp_path):
     assert _probe(tmp_path, "hpcc,apptainer") == {
-        "container": f"{IMAGE}:dev", "queue": "intel", "executor": "slurm",
+        "container": f"{IMAGE}:{DEFAULT_TAG}", "queue": "intel", "executor": "slurm",
     }
     got = _probe(tmp_path, "hpcc,apptainer", "--slurm_partition", "epyc")
     assert got["queue"] == "epyc"

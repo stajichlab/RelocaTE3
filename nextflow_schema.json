@@ -230,7 +230,7 @@
                 },
                 "container_tag": {
                     "type": "string",
-                    "default": "dev",
+                    "default": "0.3.0rc1",
                     "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$",
                     "description": "Image tag: dev, pr-<n>, sha-<short> or a release version.",
                     "fa_icon": "fas fa-tag"

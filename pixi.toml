@@ -94,7 +94,9 @@ nf = { features = ["nextflow"], no-default-feature = true }
 [tasks]
 test = "pytest -ra -q"
 docs = "sphinx-build -b html docs/source docs/_build/html"
-# Full real-rice validation: run RelocaTE3 on every sample, normalize both
-# call sets, compare, and write validation/real_rice/report/. Pass extra
-# args through (e.g. `pixi run validate-rice --local`, `--skip-run`, `--force`).
+# Full real-rice validation: run RelocaTE3 on every sample (default: the
+# Nextflow pipeline, needs --container-tag; or --mode run-all), normalize both
+# call sets, compare, and write validation/real_rice/report/. Pass extra args
+# through (e.g. `pixi run validate-rice --container-tag sha-<short>`,
+# `--mode run-all --local B_10`, `--skip-run`).
 validate-rice = "bash validation/real_rice/run_validation.sh"

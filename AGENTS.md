@@ -4,27 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-RelocaTE3 is a pure-Python reimplementation of [RelocaTE2](https://github.com/JinfengChen/RelocaTE2) that calls transposable-element (TE) insertion polymorphisms from short-read resequencing data at single-base resolution. External dependencies are minimized to `minimap2`, `samtools`, `bedtools`, and the Python library `pysam` (plus `bcftools` for excision mode). RelocaTE2 parity was reached in v0.2.0rc2. Roadmap order, set 2026-11-02: Nextflow pipeline (`plans/2026-11-02-nextflow-pipeline-design.md`) → long reads → multiple reference genomes as separate FASTAs → pangenome reference → Rust acceleration.
+RelocaTE3 is a pure-Python reimplementation of [RelocaTE2](https://github.com/JinfengChen/RelocaTE2) that calls transposable-element (TE) insertion polymorphisms from short-read resequencing data at single-base resolution. The shipped defaults match RelocaTE2: `blat` for the TE-library search (`--te-aligner`) and `bwa aln` for genome placement (`--genome-aligner bwaaln`); it also calls `samtools`, `minimap2` (genome index), `seqtk` (FASTQ to FASTA for BLAT) and the Python library `pysam` (plus `bcftools` for excision mode). `blat` lives in its own pixi environment (`-e blat`; `pipeline` = blat + MultiQC), not in `default`. RelocaTE2 parity was reached in v0.2.0rc2. Roadmap order, set 2026-11-02: Nextflow pipeline (`plans/2026-11-02-nextflow-pipeline-design.md`) → long reads → multiple reference genomes as separate FASTAs → pangenome reference → Rust acceleration.
 
-Status: end-to-end pipeline runs; rice Chr3 2 Mb acceptance benchmark recovers ~178/200 simulated insertions (~89% recall, ~90% precision) and is gated by `tests/acceptance_test.py`.
+Status: at the defaults the rice Chr3 2 Mb acceptance benchmark recovers 196/200 simulated insertions at precision 1.000 (F1 0.990), the same as RelocaTE2, gated by `tests/acceptance_test.py`. The Nextflow pipeline (`main.nf`, below) runs many samples with per-sample output identical to `run-all --genotype`; v0.3.0rc1 is its first release.
 
 ## Common commands
 
-The project uses [pixi](https://pixi.sh) to pin tool versions (`minimap2`, `samtools`, `bedtools`) and the editable install. Prefer pixi over a bare venv so the binary tools resolve consistently.
+The project uses [pixi](https://pixi.sh) to pin tool versions and the editable install (environments in `pixi.toml`: `default` = core tools + plotting, no blat; `blat`; `pipeline` = blat + MultiQC; `nf` = Nextflow + nf-test). Prefer pixi over a bare venv so the binary tools resolve consistently.
 
 ```bash
 pixi install                                # create/refresh the environment
-pixi run relocaTE3 --help                   # entry point (script in pyproject.toml)
+pixi run -e blat relocaTE3 --help          # entry point; -e blat for the default TE aligner
 pixi run test                               # pytest -ra -q (all tests)
-pixi run pytest tests/acceptance_test.py    # the benchmark acceptance gate
+pixi run -e blat pytest tests/acceptance_test.py   # the benchmark acceptance gate (needs blat)
 pixi run pytest tests/trim_test.py::test_x  # single test
 pixi run docs                               # sphinx build -> docs/_build/html
-pixi run validate-rice --local B_10         # smoke test against legacy RelocaTE2
-pixi run validate-rice                      # full 10-sample SLURM array
+pixi run validate-rice --mode run-all --local B_10   # smoke test against legacy RelocaTE2
+pixi run validate-rice --container-tag sha-<short>  # 10 samples through the pipeline (default mode)
+pixi run validate-rice --mode run-all               # 10-sample run-all SLURM array
 pre-commit run --all-files                  # ruff, black, codespell, pydocstyle, pyupgrade
 ```
 
-Without pixi, `pip install -e .` works if `minimap2`/`samtools`/`bedtools` are already on PATH.
+Without pixi, `pip install -e .` works if `blat`, `bwa`, `samtools`, `minimap2`, `seqtk` (and `bcftools` for excision) are already on PATH.
 
 ## Architecture
 
@@ -88,7 +89,7 @@ sbatch tests/nextflow/parity_chr3.sh      # parity gate vs run-all on Chr3; must
 
 - `tests/` mirrors the module layout (`trim_test.py`, `insertions_test.py`, …) plus `acceptance_test.py` (the recall/precision gate on the rice Chr3 2 Mb fixture) and `pipeline_test.py` (end-to-end on a small fixture).
 - Test data lives in `tests/data/`; transient outputs go under `tests/results/` (gitignored).
-- The acceptance test runs the real pipeline and shells out to `minimap2`/`samtools` — it will be skipped or fail loudly if those aren't on PATH. Run it under `pixi run` to get the pinned versions.
+- The acceptance test runs the real pipeline: one gate pinned to minimap2 (runs in `default`) and the RelocaTE2-parity gate on the shipped defaults (blat + bwa aln), which skips without `blat` on PATH. Run it with `pixi run -e blat pytest tests/acceptance_test.py` to get both with the pinned versions.
 - The `validation/real_rice/` harness runs RelocaTE3 against legacy RelocaTE2 calls on real rice samples; the `validate-rice` pixi task is the driver.
 
 ## Repository conventions
@@ -96,8 +97,22 @@ sbatch tests/nextflow/parity_chr3.sh      # parity gate vs run-all on Chr3; must
 - Python ≥ 3.10; targets `pyupgrade --py310-plus`.
 - Formatting/lint via pre-commit: ruff (check + format), black (py311), codespell, pydocstyle (`--convention=google`, src only).
 - Google-style docstrings. Tests are exempt from pydocstyle and pyupgrade.
-- `versioningit` derives `__version__` from git tags (`default-tag = "0.1.0"`). Don't hand-edit a version.
+- `versioningit` derives `__version__` from git tags (`default-tag = "0.1.0"`); commits after tag `vX` get `X.postN+g<sha>`. The Python version is never hand-edited. The pipeline's `manifest.version` and default `container_tag` are (Release steps below).
 - `docs/source/` is a Sphinx project; build with `pixi run docs`.
+
+## Release steps
+
+The release commit sets `manifest.version`, the default `container_tag` (`nextflow.config` + `nextflow_schema.json`, then `python docs/source/_gen_params.py`), `CITATION.cff` and the CHANGELOG heading to the version; `containers/check_release.sh` gates this on the `v*` tag in `container.yml`. After the tag, `bash scripts/post_release.sh <next>.devN` on a new branch returns to a development version that sorts after the release in PEP 440 (after `0.3.0rc1`: `0.3.0rc2.dev0`, image `dev`; `0.3.0dev` sorts before it). Bump the `-r v<version>` / `--container_tag <version>` examples in `README.md` and `docs/source/pipeline.rst` to the new version in the same commit.
+
+Tag the merge commit of the release PR explicitly, never whatever `HEAD` is:
+
+```bash
+MERGE_SHA=$(gh pr view <n> --json mergeCommit -q .mergeCommit.oid)   # or: git log --merges -1 --format=%H origin/main
+git tag -a v<version> "$MERGE_SHA" -m "RelocaTE3 <version>"
+git push origin v<version>
+```
+
+Full checklist: `docs/2026-11-07-release-v0.3.0rc1.md`.
 
 ## Roadmap context
 

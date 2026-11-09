@@ -2,7 +2,7 @@
 #SBATCH -p intel
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=8G
-#SBATCH --time=3-00:00:00
+#SBATCH --time=1-00:00:00
 #SBATCH -J rt3-m4-scatter
 #SBATCH -o logs/nextflow_m4_scatter.%j.log
 #
@@ -13,6 +13,11 @@
 # the TE search; the rest of the pipeline is unchanged by M4.
 #
 # The pixi env loads the worktree's src (editable): do not edit src/ while it runs.
+#
+# Head job: it only runs Nextflow (the TE search took 1 h 21 min over 47 chunk
+# jobs, job 31766412), so the limit is 1 day. With --blat_scatter false the
+# single TE_SEARCH task alone took 13 h 13 min; give that run more with
+# sbatch --time=2-00:00:00 validation/blat_scatter/run_scatter_pipeline.sh ...
 #
 # Usage, from the repository root:
 #   sbatch validation/blat_scatter/run_scatter_pipeline.sh [EXTRA nextflow params...]

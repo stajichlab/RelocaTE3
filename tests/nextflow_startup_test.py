@@ -14,6 +14,7 @@ directory). Needs the pixi ``nf`` environment; skipped without.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -22,6 +23,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 READS = ROOT / "tests/data/sim_reads/MSU7.Chr3_2M.ALL_reads_6X_100_500"
+# The default image tag: `dev` on a development manifest, the version on a
+# release (tests/nextflow_schema_test.py checks which).
+DEFAULT_TAG = re.search(
+    r"(?m)^\s*container_tag\s*=\s*'([^']+)'", (ROOT / "nextflow.config").read_text()
+).group(1)
 
 pytestmark = pytest.mark.skipif(
     shutil.which("pixi") is None or not (ROOT / ".pixi" / "envs" / "nf").is_dir(),
@@ -47,7 +53,7 @@ def test_container_profile_passes_startup(tmp_path, engine):
     log = proc.stdout + proc.stderr
     assert proc.returncode == 0, log
     # The summary log was printed, with the container image in it.
-    assert "ghcr.io/stajichlab/relocate3:dev" in log
+    assert f"ghcr.io/stajichlab/relocate3:{DEFAULT_TAG}" in log
     assert "Cannot cast" not in log
 
 

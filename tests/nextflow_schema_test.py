@@ -140,7 +140,7 @@ def test_manifest_version_never_lags_the_package():
 
     nextflow.config cannot read ``git describe``, so the manifest holds the
     version under development. Its release part may be ahead of the installed
-    package (e.g. ``0.3.0dev`` while the last tag is 0.2.0rc2) but never behind,
+    package (e.g. ``0.3.0rc2.dev0`` while the last tag is 0.2.0rc2) but never behind,
     and on a tagged final release the two must be equal.
     """
     manifest = _config_block(CONFIG.read_text(), "manifest")
@@ -184,7 +184,7 @@ def test_container_tag_default_names_a_published_image():
     """The default tag must exist in ghcr (.github/workflows/container.yml).
 
     CI publishes ``dev`` (main), ``pr-<n>``, ``sha-<short>`` and, on ``v*``
-    tags, the PEP 440 version. A development manifest (``0.3.0dev``) has no
+    tags, the PEP 440 version. A development manifest (``0.3.0rc2.dev0``) has no
     image of its own, so it defaults to ``dev``; a release or release
     candidate manifest defaults to its own version, which its tag publishes.
     """

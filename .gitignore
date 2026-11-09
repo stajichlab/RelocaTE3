@@ -168,6 +168,8 @@ scratchpad/
 !/scripts/replay_intact_fullreads.py
 # SLURM runner for the full test suite on compute nodes.
 !/scripts/run_full_tests.slurm
+# Maintainer step after a release tag (tests/post_release_test.py).
+!/scripts/post_release.sh
 # Tests that exercise only the ignored analysis scripts above.
 /tests/memory_profile_test.py
 /tests/error_audit_test.py
