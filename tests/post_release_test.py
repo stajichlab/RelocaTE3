@@ -68,10 +68,20 @@ def project(tmp_path: Path) -> Path:
         (proj / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(ROOT / name, proj / name)
     _set_release(proj, "0.3.0rc1")
+    _git_tag(proj, "v0.3.0rc1")
     return proj
 
 
-def _run(*args: str) -> subprocess.CompletedProcess:
+GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"]
+
+
+def _git_tag(project: Path, tag: str) -> None:
+    """Make the copy a git repo whose HEAD carries the release tag, as on main."""
+    for cmd in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "release"], ["tag", tag]):
+        subprocess.run([*GIT, "-C", str(project), *cmd], check=True, capture_output=True)
+
+
+def _run(*args: str, **extra_env: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         capture_output=True,
@@ -80,6 +90,7 @@ def _run(*args: str) -> subprocess.CompletedProcess:
         env={
             "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin",
             "PYTHON": sys.executable,
+            **extra_env,
         },
     )
 
@@ -228,3 +239,41 @@ def test_usage_without_arguments():
     res = _run()
     assert res.returncode == 2
     assert "usage" in res.stderr.lower()
+
+
+def test_refuses_before_the_release_tag_exists(project: Path):
+    """Run it only after the tag is pushed: otherwise main would leave the
+    release config before the tag's CI build reads it."""
+    subprocess.run([*GIT, "-C", str(project), "tag", "-d", "v0.3.0rc1"], check=True, capture_output=True)
+    before = _snapshot(project)
+    res = _run("0.3.0rc2.dev0", str(project))
+    assert res.returncode == 1, res.stdout + res.stderr
+    assert "v0.3.0rc1" in res.stderr and "tag" in res.stderr
+    assert _snapshot(project) == before
+    res = _run("0.3.0rc2.dev0", str(project), ALLOW_UNTAGGED="1")
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert _manifest(project) == "0.3.0rc2.dev0"
+
+
+def test_half_applied_state_names_the_recovery(project: Path):
+    """If a run stopped after writing nextflow.config only, a rerun must say how
+    to recover instead of a bare 'not a release'."""
+    cfg = project / "nextflow.config"
+    cfg.write_text(re.sub(r"(?m)^(\s*version\s*=\s*)'[^']*'", r"\g<1>'0.3.0rc2.dev0'", cfg.read_text(), count=1))
+    before = _snapshot(project)
+    res = _run("0.3.0rc2.dev0", str(project))
+    assert res.returncode == 1, res.stdout + res.stderr
+    assert "git checkout --" in res.stderr
+    assert _snapshot(project) == before
+
+
+def test_old_python_gets_a_clear_message(project: Path, tmp_path: Path):
+    """System python3 can be 3.6 here; the heredoc uses 3.8+ syntax."""
+    fake = tmp_path / "python36"
+    fake.write_text("#!/bin/sh\nexit 1\n")
+    fake.chmod(0o755)
+    before = _snapshot(project)
+    res = _run("0.3.0rc2.dev0", str(project), PYTHON=str(fake))
+    assert res.returncode == 1
+    assert "3.8" in res.stderr
+    assert _snapshot(project) == before

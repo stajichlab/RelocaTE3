@@ -26,8 +26,12 @@
 # container_tag defaults equal it, and NEXT_DEV_VERSION is a later dev version.
 # A rerun with the same NEXT_DEV_VERSION is a no-op. tests/post_release_test.py.
 #
-# Env: PYTHON  interpreter with `packaging` (default: the pipeline pixi env's
-#              python if present, else python3)
+# Also refuses before the release tag v<manifest.version> exists (the tag's CI
+# build reads the release config), unless ALLOW_UNTAGGED=1.
+#
+# Env: PYTHON          interpreter >= 3.8 with `packaging` (default: the
+#                      pipeline pixi env's python if present, else python3)
+#      ALLOW_UNTAGGED  1 = skip the release-tag check
 set -euo pipefail
 
 usage() { sed -n '/^#   bash/,/^#   PROJECT_DIR/{s/^# \{0,1\}//;p;}' "${BASH_SOURCE[0]}"; }
@@ -51,6 +55,13 @@ for f in nextflow.config nextflow_schema.json CHANGELOG.md; do
 done
 
 echo "post_release: $(date '+%Y-%m-%d %H:%M:%S') next=${NEXT} project=${PROJECT_DIR}"
+# The embedded Python uses 3.8+ syntax; check first so an old system python3
+# (3.6 on some HPCC nodes) gets this message instead of a SyntaxError.
+if ! "${PYTHON}" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' 2>/dev/null; then
+  echo "ERROR: ${PYTHON} is not Python >= 3.8; set PYTHON (e.g. ${PROJECT_DIR}/.pixi/envs/pipeline/bin/python)" >&2
+  exit 1
+fi
+export ALLOW_UNTAGGED="${ALLOW_UNTAGGED:-0}"
 
 "${PYTHON}" - "${NEXT}" "${PROJECT_DIR}" <<'EOF'
 from __future__ import annotations
@@ -123,17 +134,35 @@ if manifest == next_text and tag == "dev" and schema_tag == "dev":
     print(f"already at {next_text} with container_tag 'dev'; nothing to do")
     sys.exit(0)
 
+RESTORE = ("git checkout -- nextflow.config nextflow_schema.json CHANGELOG.md "
+           "docs/source/pipeline.rst")
+if manifest == next_text and (tag != "dev" or schema_tag != "dev"):
+    die(f"half-applied: manifest.version is already {next_text} but the container_tag "
+        f"defaults are config '{tag}', schema '{schema_tag}'. Restore the release files "
+        f"(in {project}: {RESTORE}) and run this again")
+
 try:
     current = Version(manifest)
 except InvalidVersion:
     die(f"manifest.version '{manifest}' is not a PEP 440 version")
 if current.is_devrelease or current.is_postrelease or current.local:
-    die(f"manifest.version {manifest} is not a release; run this only on the tagged release's config")
+    die(f"manifest.version {manifest} is not a release; run this only on the tagged release's "
+        f"config (if an earlier run stopped half-way: {RESTORE})")
 if tag != manifest or schema_tag != manifest:
     die(
         f"container_tag defaults (config '{tag}', schema '{schema_tag}') differ from "
         f"manifest.version {manifest}; this is not a release config"
     )
+if os.environ.get("ALLOW_UNTAGGED") != "1":
+    import subprocess
+
+    probe = subprocess.run(
+        ["git", "-C", str(project), "rev-parse", "-q", "--verify", f"refs/tags/v{manifest}"],
+        capture_output=True, text=True,
+    )
+    if probe.returncode != 0:
+        die(f"release tag v{manifest} not found in {project}; tag and push the release "
+            f"first (git fetch --tags if it was pushed elsewhere), or set ALLOW_UNTAGGED=1")
 if nxt <= current:
     die(f"{next_text} does not sort after the release {manifest} (PEP 440); e.g. use {current.base_version}rc2.dev0 "
         f"after an rc, or the next patch's .dev0 after a final release")
