@@ -25,43 +25,34 @@ release candidate (`v0.2.0rc2`); this release candidate supersedes it.
 
 ### Added
 
-- Nextflow pipeline, milestone 5 (documentation and release):
-  - User guide `docs/source/pipeline.rst` (parameter tables generated from
-    `nextflow_schema.json`) and a README quick start.
-  - `validation/real_rice/run_validation.sh` (`pixi run validate-rice`) runs
-    the 10 real-rice samples through the pipeline by default
-    (`--mode pipeline --container-tag <tag>`); `--mode run-all` keeps the
-    old path. `validation/release/submit_real_rice.sh` likewise.
-  - `scripts/post_release.sh <next>.devN` returns `nextflow.config`, the
-    schema and the guide to a development version and the `dev` image after
-    a release tag.
-- Nextflow pipeline, milestone 4: the BLAT TE search spread over jobs.
-  - New subcommands, which together give exactly `relocaTE3 run`'s outputs
-    with BLAT:
-    - `relocaTE3 te-split`: chunk FASTAs of `--chunk-reads` reads (default
-      200,000, as `run`) and a `manifest.tsv`;
-    - `relocaTE3 te-search-chunk`: BLAT any subset of the chunks (mates from
-      the manifest);
-    - `relocaTE3 te-merge-trim`: merge every chunk BAM in manifest order and
-      trim. It refuses missing, extra or repeated chunk BAMs.
-  - `relocaTE3 run` runs the same three steps in one process; its outputs are
-    unchanged.
-  - The pipeline uses them by default with `--te_aligner blat`:
-    - `RELOCATE3_TE_SPLIT`;
-    - `RELOCATE3_TE_SEARCH_CHUNK`, one task per `--blat_chunks_per_task`
-      chunks (default 8);
-    - `RELOCATE3_TE_MERGE_TRIM`, once per sample.
-    The published files are identical. `--blat_scatter false` restores the
-    single `RELOCATE3_TE_SEARCH` task.
-  - `tests/nextflow/parity_chr3.sh` accepts extra pipeline params
-    (`NXF_EXTRA_PARAMS`). CI runs the Chr3 parity gate in the image both with
-    the defaults and with small chunks (forced scatter).
-  - Measured on the riceTElib 30x simulated sample:
-    - the TE search took **1 h 21 min** across 47 chunk jobs, against
-      13 h 13 min as one job;
-    - TE-search outputs are identical to the pre-M4 single-job `run`;
-    - chunk jobs peaked at 0.36 GB of memory.
-
+- Nextflow pipeline, milestone 1:
+  - `main.nf` in nf-core layout, with parameter and sample-sheet checks
+    (nf-schema) and `pixi` and `test` profiles.
+  - One task per `run-all` step; the genome is indexed once; lanes are merged;
+    genotyping runs in parallel.
+  - Per-sample output is identical to `run-all` on the Chr3 test data
+    (`tests/nextflow/parity_chr3.sh`).
+  - Needs Nextflow ≥ 26.04 (nf-schema 3.0.0).
+  - `--help` prints the parameters and exits 0; `--help <parameter>` describes
+    one.
+  - Sample names, `--te_name` and `--target` are limited to `[A-Za-z0-9._-]`.
+  - A sample with a `genotype_bam` is genotyped even with `--genotype false`,
+    as `run-all` does with `--genotype-bam`.
+  - New `--bcftools` setting (as `run-all --bcftools`).
+- Nextflow pipeline, milestone 2:
+  - Container image `ghcr.io/stajichlab/relocate3`, built by GitHub Actions
+    from `pixi.lock` (`containers/Dockerfile`). Tags:
+    - the version on release tags;
+    - `dev` for `main`;
+    - `pr-<n>` and `sha-<commit>`.
+  - Profiles `apptainer`, `singularity` and `docker` (`--container_tag`), and
+    `hpcc` for UCR SLURM (`--slurm_partition`).
+  - CI runs pytest, nf-test, `nextflow lint` and the Chr3 parity check inside
+    the image on every pull request.
+  - Validation:
+    - Chr3 parity passes with pixi, Docker and Apptainer.
+    - The 10 real-rice samples run through `-profile hpcc,apptainer` are
+      identical to v0.2.0rc2.
 - Nextflow pipeline, milestone 3:
   - New `relocaTE3 cohort` writes:
     - `cohort.characTErized.txt`: every sample's characterized rows, unchanged;
@@ -92,35 +83,41 @@ release candidate (`v0.2.0rc2`); this release candidate supersedes it.
   - Checked on the 10 real-rice samples: the cohort holds all 5,775 calls,
     identical to the per-sample tables. The matrix has 2,847 sites, 1,056 of
     them called in at least 2 samples (`validation/real_rice/cohort_report.sh`).
-
-- Nextflow pipeline, milestone 1:
-  - `main.nf` in nf-core layout, with parameter and sample-sheet checks
-    (nf-schema) and `pixi` and `test` profiles.
-  - One task per `run-all` step; the genome is indexed once; lanes are merged;
-    genotyping runs in parallel.
-  - Per-sample output is identical to `run-all` on the Chr3 test data
-    (`tests/nextflow/parity_chr3.sh`).
-  - Needs Nextflow ≥ 26.04 (nf-schema 3.0.0).
-  - `--help` prints the parameters and exits 0; `--help <parameter>` describes
-    one.
-  - Sample names, `--te_name` and `--target` are limited to `[A-Za-z0-9._-]`.
-  - A sample with a `genotype_bam` is genotyped even with `--genotype false`,
-    as `run-all` does with `--genotype-bam`.
-  - New `--bcftools` setting (as `run-all --bcftools`).
-- Nextflow pipeline, milestone 2:
-  - Container image `ghcr.io/stajichlab/relocate3`, built by GitHub Actions
-    from `pixi.lock` (`containers/Dockerfile`). Tags:
-    - the version on release tags;
-    - `dev` for `main`;
-    - `pr-<n>` and `sha-<commit>`.
-  - Profiles `apptainer`, `singularity` and `docker` (`--container_tag`), and
-    `hpcc` for UCR SLURM (`--slurm_partition`).
-  - CI runs pytest, nf-test, `nextflow lint` and the Chr3 parity check inside
-    the image on every pull request.
-  - Validation:
-    - Chr3 parity passes with pixi, Docker and Apptainer.
-    - The 10 real-rice samples run through `-profile hpcc,apptainer` are
-      identical to v0.2.0rc2.
+- Nextflow pipeline, milestone 4: the BLAT TE search spread over jobs.
+  - New subcommands, which together give exactly `relocaTE3 run`'s outputs
+    with BLAT:
+    - `relocaTE3 te-split`: chunk FASTAs of `--chunk-reads` reads (default
+      200,000, as `run`) and a `manifest.tsv`;
+    - `relocaTE3 te-search-chunk`: BLAT any subset of the chunks (mates from
+      the manifest);
+    - `relocaTE3 te-merge-trim`: merge every chunk BAM in manifest order and
+      trim. It refuses missing, extra or repeated chunk BAMs.
+  - `relocaTE3 run` runs the same three steps in one process; its outputs are
+    unchanged.
+  - The pipeline uses them by default with `--te_aligner blat`:
+    - `RELOCATE3_TE_SPLIT`;
+    - `RELOCATE3_TE_SEARCH_CHUNK`, one task per `--blat_chunks_per_task`
+      chunks (default 8);
+    - `RELOCATE3_TE_MERGE_TRIM`, once per sample.
+    The published files are identical. `--blat_scatter false` restores the
+    single `RELOCATE3_TE_SEARCH` task.
+  - `tests/nextflow/parity_chr3.sh` accepts extra pipeline params
+    (`NXF_EXTRA_PARAMS`). CI runs the Chr3 parity gate in the image both with
+    the defaults and with small chunks (forced scatter).
+  - Measured on the riceTElib 30x simulated sample:
+    - the TE search took **1 h 21 min** across 47 chunk jobs, against
+      13 h 13 min as one job;
+    - TE-search outputs are identical to the pre-M4 single-job `run`;
+    - chunk jobs peaked at 0.36 GB of memory.
+- Nextflow pipeline, milestone 5 (documentation and release):
+  - User guide `docs/source/pipeline.rst` (parameter tables generated from
+    `nextflow_schema.json`) and a README quick start.
+  - `validation/real_rice/run_validation.sh --mode pipeline` and
+    `validation/real_rice/run_pipeline.sh`: the real-rice harness on the
+    pipeline (see Changed for the new default).
+  - `scripts/post_release.sh <next>.devN` returns `nextflow.config`, the
+    schema and the guide to a development version and the `dev` image after
+    a release tag.
 - `relocaTE3 align-reads`: the genotyping alignment as its own step. `run-all`
   uses it.
 - New pixi environment `nf` (Nextflow ≥ 26.04, nf-test).
@@ -145,6 +142,13 @@ release candidate (`v0.2.0rc2`); this release candidate supersedes it.
   template) ask for 1 day instead of 3: a head job only orchestrates, and a
   long limit kept job 31830681 pending behind a maintenance reservation.
   Override with `sbatch --time=...`.
+- `pixi run validate-rice` (`validation/real_rice/run_validation.sh`) now runs
+  the 10 real-rice samples through the Nextflow pipeline by default and so
+  **requires `--container-tag <tag>`**; pass `--mode run-all` for the previous
+  behaviour. Pipeline-mode reports go to `<report_dir>/<tag>/`. It refuses to
+  start if `RELOCATE3_VALIDATION_OUTDIR` or `RELOCATE3_VALIDATION_REPORT_DIR`
+  is set in the caller's environment. `validation/release/submit_real_rice.sh`
+  likewise defaults to pipeline mode with a required `--container-tag`.
 - `validation/real_rice/run_pipeline.sh` refuses the mutable image tags `dev`
   and `pr-<n>` unless `ALLOW_MUTABLE_TAG=1`, and records the image each run
   used in `OUTDIR/container_image.txt`.
