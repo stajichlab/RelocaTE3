@@ -1,6 +1,6 @@
 # Long-read TE detection: algorithm proposal
 
-2026-11-09. Status: **proposal; approach B approved, decisions 2–6 open**. Roadmap item after the
+2026-11-09. Status: **proposal; decisions 1–2 made, 3–6 open**. Roadmap item after the
 Nextflow pipeline (`plans/2026-11-02-nextflow-pipeline-design.md`). It
 replaces the sketch in `plans/FEATURES.md`, Feature 3.
 
@@ -223,6 +223,131 @@ What it costs: new clustering, consensus and genotyping code with no
 RelocaTE2 reference to check against. That is why the validation gates below
 are part of the proposal, not an afterthought.
 
+## Designing for multiple references and pangenomes
+
+Requested by the maintainer on 2026-11-09. The two roadmap items after long
+reads are (1) several reference genomes given as separate FASTA files and
+(2) a pangenome graph as the reference. The long-read feature ships with one
+linear reference, but its data model must not assume there is only one. These
+rules apply from milestone L2:
+
+**1. A position always names its reference.**
+- Use a `Locus` record, never a bare chromosome string: `reference_id`,
+  `sequence_id` (contig, or later a graph path), `start`, `end`, `strand`.
+- Every signature, cluster and call carries a `Locus`.
+- In a graph, the same record holds a path name plus offset, or a node walk.
+- No dictionary is keyed by chromosome name alone.
+
+**2. References are a list, behind one interface.**
+- Internally: `references: list[Reference]`, each with `id`, FASTA, TE
+  annotation and aligner index. The CLI accepts one for now.
+- A `ReferenceSpace` interface provides:
+  - `sequences()`;
+  - `fetch(locus)`;
+  - `te_annotation(locus)`;
+  - later, `project(locus, to_reference)` (liftover between FASTAs, or
+    projection onto a graph path).
+- A linear FASTA is the first implementation; a graph is a later one.
+
+**3. Evidence is separated from the alignment format.**
+- Signature collection reads **placement records**, not pysam objects:
+  read id, query interval, target `Locus`, strand, mapping quality, identity,
+  and the edit operations that matter (insertions, deletions, clips).
+- A BAM adapter produces them now. A GAF adapter (minigraph, vg giraffe,
+  GraphAligner) can produce the same records later.
+- Steps 3–7 never see the file format.
+
+**4. Signatures keep the read-side evidence.**
+- Store the inserted sequence, about 200 bp of flanking read sequence on each
+  side, the read name and the query coordinates.
+- A site can then be re-placed on another reference by aligning its flanks.
+  The whole sample does not need re-aligning.
+
+**5. "Non-reference" is a property relative to a reference, not a kind of
+call.**
+- An insertion absent from reference A can be present in reference B.
+- The internal call (`TEAllele`) holds:
+  - the element: family, strand, structure, consensus sequence, TSD;
+  - its flanking anchor sequences;
+  - `placements: {reference_id: Locus}`;
+  - `state: {reference_id: present | absent}`;
+  - the sample genotype with its read counts.
+- Today's file names (`all_nonref_insert`, `all_ref_insert`) become views of
+  that model for one chosen reference.
+
+**6. Site identity is explicit.**
+- Each call gets a stable `site_id`, built from reference, locus, strand and
+  family.
+- The cohort matrix groups by `site_id`, not by re-deriving a key from
+  columns.
+- Multi-reference support can then define equivalence classes of `site_id`s
+  (the same insertion seen against different references, or nearby
+  breakpoints) without changing every consumer.
+- This is also where the opposite-strand and nearby-site merging deferred in
+  the pipeline milestones belongs.
+
+**7. Outputs carry the reference.**
+- New long-read columns include `reference_id` (one value for now).
+- Intermediate files (signatures, clusters, calls) have a written schema with
+  a version field.
+- The existing short-read tables keep their columns unchanged.
+
+**8. No single-genome global state.**
+- Nothing in the long-read modules reads "the genome" from module-level
+  state.
+- A function that needs a reference takes a `Reference` or `ReferenceSpace`
+  argument.
+
+What this costs now: a few small dataclasses and one adapter layer. What it
+avoids later: rewriting clustering, consensus and genotyping when the
+reference stops being one FASTA.
+
+## Candidates for a later Rust rewrite
+
+Requested by the maintainer on 2026-11-09. Rust comes after the multi-reference
+work on the roadmap, and nothing here is to be done now. This section records
+where a rewrite is likely to pay off, and how to write the Python so the port
+is cheap.
+
+**Long-read path** (new code; estimates only until profiled on the 30× panel):
+
+| Stage | Why it is likely hot | Rust route |
+|---|---|---|
+| Signature collection (step 2) | One pass over every alignment, parsing CIGAR strings and supplementary-alignment tags in a Python loop. This is the largest loop in the design | `noodles` or `rust-htslib`; one record in, signature records out |
+| Reference-spanning read counts (step 7) | A second pass over the alignments around every candidate | Fold into the same Rust pass as signature collection, with an interval index |
+| Clustering (step 3) | Sort and sweep over millions of signatures; cheap per item, large in total | Straightforward once signatures are plain records |
+| TE annotation (step 4) | Many short alignments of inserts to the TE library. The cost is process start-up and file round trips, not the aligner | `minimap2-rs` bindings, in process |
+| Consensus (step 5) | Partial-order alignment per site. abPOA/spoa are already C/C++; the Python cost is batching and conversion | Call the library from Rust; parallel over sites with `rayon` |
+
+**Short-read path** (existing code; these were the measured or suspected
+hotspots during the parity and memory work):
+
+| Code | Evidence |
+|---|---|
+| `librelocate.py` `_parse_te_bam`, `write_trimmed_reads_chunked` (trim) | The 20 GB memory peak fixed by chunking; still a Python object per TE hit |
+| `aligners.py` `_iter_psl_to_sam`, `_query_sequences` (BLAT PSL → SAM) | About 6 GB and minutes per side before chunking |
+| `insertions.py` `_stream_clusters`, `_call_insertions`, `_estimate_tsd_length_from_depth` | Per-record loops over the flank BAM; named in `plans/FEATURES.md`, Feature 1 |
+| `characterize.py` | One `samtools view` subprocess per insertion site |
+| FASTQ → FASTA and chunking | Already moved to `seqtk` + `split`; a Rust reader would remove the temporary whole-side FASTA |
+
+**Rules that keep the port cheap** (apply while writing the long-read code):
+1. **Stage boundaries are files with a written schema** (see rule 7 above).
+   A Rust binary can then replace one stage, for example
+   `relocaTE3 lr-signatures`, and must produce the identical file.
+2. **Each stage has golden-output tests.** Those tests become the parity gate
+   for the Rust version, exactly as `run-all` output was the gate for the
+   Nextflow pipeline.
+3. **Inner loops are pure functions over small typed records.** That means
+   dataclasses with primitive fields, with no pysam objects or nested dicts
+   passed between stages.
+4. **Measure before porting.** Each stage logs its wall time, peak memory and
+   record counts. The pipeline trace already records per-task time and
+   memory.
+5. **Leave the choice of binding open:** a PyO3 extension module (the
+   in-process `--backend rust` idea of `plans/FEATURES.md`) or standalone
+   binaries behind the same subcommands. File-level stage boundaries make
+   either possible.
+
 ## Validation (replaces RelocaTE2 parity for this feature)
 
 | Gate | Data | Passes when |
@@ -240,7 +365,7 @@ as with the short-read parity work.
 | # | Delivers | Gate |
 |---|---|---|
 | L1 | Long-read simulated panel (ONT + HiFi; 5×/15×/30×) with truth; scoring in the benchmark | panel reproducible; a general SV caller + TE filter gives a baseline number |
-| L2 | `--read-type`, genome alignment presets, signature collection, clustering (steps 1–3) as tested subcommands | signatures recover the simulated sites (recall of *sites*, before any filter) |
+| L2 | The data model (`Locus`, `Reference`, placement records, signature schema; see "Designing for multiple references"); `--read-type`, genome alignment presets, signature collection, clustering (steps 1–3) as tested subcommands with per-stage timing | signatures recover the simulated sites (recall of *sites*, before any filter) |
 | L3 | TE annotation + filters (steps 4, 6): first complete calls for spanning insertions | gate 1 on spanning calls |
 | L4 | Consensus, exact breakpoints, TSDs, insert FASTA (step 5); partial-read (clip) calls | TSD exactness; long-LTR recall |
 | L5 | Genotyping and reference-TE absence (step 7); outputs and cohort compatibility (step 8) | allele-frequency accuracy on simulated heterozygous and low-frequency sites |
@@ -255,10 +380,9 @@ Each milestone is one branch and pull request, TDD, as with the pipeline.
    The alternative worth discussing is C, wrapping Sniffles2 or cuteSV. It is
    faster to a first result, but weaker for somatic and partial-read calls,
    with two more dependencies.
-2. **Technologies in the first release.** ONT (R10 / Q20+) and PacBio HiFi
-   both from the start, with older ONT R9 and PacBio CLR as "supported, less
-   tested"? Or one technology first? Recommendation: ONT-HQ and HiFi
-   together; they share everything but presets and thresholds.
+2. **Technologies in the first release. DECIDED 2026-11-09:** ONT (R10 /
+   Q20+) and PacBio HiFi are both validated from the start. Older ONT R9 and
+   PacBio CLR run through `--read-type` as "supported, less tested".
 3. **Consensus engine.** abPOA or spoa through their Python bindings (small,
    fast, on Bioconda)? Or a heavier polisher (racon/medaka) for old ONT data?
    Recommendation: abPOA/spoa; revisit only if R9 data matters to the lab.
