@@ -375,7 +375,7 @@ Tasks run in <container_registry>:<container_tag>. CI publishes dev (main branch
      - Image repository, without the tag.
    * - ``--container_tag``
      - string
-     - ``0.3.0rc1``
+     - ``dev``
      - Image tag: dev, pr-<n>, sha-<short> or a release version.
 
 Profile options
