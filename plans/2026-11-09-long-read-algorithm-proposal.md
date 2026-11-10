@@ -1,6 +1,6 @@
 # Long-read TE detection: algorithm proposal
 
-2026-11-09. Status: **proposal, not yet approved**. Roadmap item after the
+2026-11-09. Status: **proposal; approach B approved, decisions 2–6 open**. Roadmap item after the
 Nextflow pipeline (`plans/2026-11-02-nextflow-pipeline-design.md`). It
 replaces the sketch in `plans/FEATURES.md`, Feature 3.
 
@@ -250,7 +250,8 @@ Each milestone is one branch and pull request, TDD, as with the pipeline.
 
 ## Decisions for the maintainer
 
-1. **Approach.** Accept approach B (genome-first signatures with consensus)?
+1. **Approach. DECIDED 2026-11-09: approach B**, genome-first signatures
+   with consensus. The question asked was: accept approach B?
    The alternative worth discussing is C, wrapping Sniffles2 or cuteSV. It is
    faster to a first result, but weaker for somatic and partial-read calls,
    with two more dependencies.
