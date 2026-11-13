@@ -51,5 +51,28 @@ def test_read_truth_gff_rejects_bad_strand(tmp_path, strand):
         mpc.read_truth_gff(gff)
 
 
+@pytest.mark.parametrize(
+    ("attrs", "message"),
+    [
+        ("ID=mPing.Chr3.100;TSD=TTN;", "TSD"),
+        ("ID=mPing.Chr3.100;TSD=tta;", "TSD"),
+        ("Parent_ID=x;TSD=TTA;", "ID"),
+        ("ID=mPing.Chr3.100;XTSD=TTA;", "TSD"),
+    ],
+)
+def test_read_truth_gff_rejects_malformed_attributes(tmp_path, attrs, message):
+    gff = tmp_path / "t.gff"
+    gff.write_text(f"Chr3\tMSU7\tmPing\t100\t101\t.\t+\t.\t{attrs}\n")
+    with pytest.raises(ValueError, match=message):
+        mpc.read_truth_gff(gff)
+
+
+def test_read_truth_gff_rejects_non_integer_position(tmp_path):
+    gff = tmp_path / "t.gff"
+    gff.write_text("Chr3\tMSU7\tmPing\tabc\t101\t.\t+\t.\tID=m;TSD=TTA;\n")
+    with pytest.raises(ValueError, match=r"t\.gff:1"):
+        mpc.read_truth_gff(gff)
+
+
 def test_fixture_has_200_events():
     assert len(mpc.read_truth_gff(GFF)) == 200

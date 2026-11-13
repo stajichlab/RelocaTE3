@@ -35,17 +35,28 @@ def read_truth_gff(path: Path) -> list[TruthEvent]:
             fields = line.rstrip("\n").split("\t")
             if len(fields) < 9:
                 raise ValueError(f"{path}:{number}: expected 9 columns")
-            ident = re.search(r"ID=([^;]+)", fields[8])
-            tsd = re.search(r"TSD=([ACGT]+)", fields[8])
-            if ident is None or tsd is None:
-                raise ValueError(f"{path}:{number}: missing ID or TSD attribute")
+            attrs = fields[8]
+            ident = re.search(r"(?:^|;)\s*ID=([^;]+)", attrs)
+            if ident is None:
+                raise ValueError(f"{path}:{number}: missing ID attribute")
+            tsd = re.search(r"(?:^|;)\s*TSD=([^;]*)", attrs)
+            if tsd is None:
+                raise ValueError(f"{path}:{number}: missing TSD attribute")
+            if not re.fullmatch(r"[ACGT]+", tsd.group(1)):
+                raise ValueError(f"{path}:{number}: bad TSD {tsd.group(1)!r}")
             if fields[6] not in ("+", "-"):
                 raise ValueError(f"{path}:{number}: bad strand {fields[6]!r}")
+            try:
+                position = int(fields[3])
+            except ValueError:
+                raise ValueError(
+                    f"{path}:{number}: bad position {fields[3]!r}"
+                ) from None
             events.append(
                 TruthEvent(
                     event_id=ident.group(1),
                     chrom=fields[0],
-                    position=int(fields[3]),
+                    position=position,
                     family=fields[2],
                     strand=fields[6],
                     tsd=tsd.group(1),
