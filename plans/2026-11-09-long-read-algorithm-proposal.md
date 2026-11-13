@@ -1,6 +1,6 @@
 # Long-read TE detection: algorithm proposal
 
-2026-11-09, updated 2026-11-13. Status: **proposal; decisions 1–5 made, 6 open**. Roadmap item after the
+2026-11-09, updated 2026-11-13. Status: **accepted design; all six decisions made (2026-11-13)**. Roadmap item after the
 Nextflow pipeline (`plans/2026-11-02-nextflow-pipeline-design.md`). It
 replaces the sketch in `plans/FEATURES.md`, Feature 3.
 
@@ -452,9 +452,17 @@ Each milestone is one branch and pull request, TDD, as with the pipeline.
    scope for the first release. Each read type gives its own call set, which
    keeps the short-read path untouched and keeps gate 2 and gate 4 an
    independent cross-check. A later step can merge call sets by `site_id`.
-6. **Command shape.** One CLI with `--read-type` (recommended; the user-facing
-   surface stays one tool) and separate internal modules for the long-read
-   path, so the validated short-read code is not edited.
+6. **Command shape. DECIDED 2026-11-13:** one tool. `run-all`, `run-batch`
+   and the pipeline sample sheet gain `--read-type`
+   (`short` default, `ont`, `ont-hq`, `hifi`, `clr`); `short` is today's
+   behaviour unchanged. Long-read input is a FASTQ or an existing BAM/CRAM.
+   Long-read stages are their own subcommands in separate modules, so the
+   validated short-read code is not edited. An option given with the wrong
+   read type is rejected with a clear error. Rejected: a separate
+   `long-run` command.
+
+All six decisions are made. Next: one implementation plan per milestone,
+starting with L1.
 
 ## Sources
 
