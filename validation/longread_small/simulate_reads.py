@@ -12,6 +12,7 @@ import argparse
 import contextlib
 import csv
 import gzip
+import hashlib
 import io
 import sys
 import tempfile
@@ -27,6 +28,20 @@ MANIFEST_HEADER = (
     "reads",
     "control_reads",
 )
+
+SIMULATION_HEADER = (
+    "platform",
+    "coverage",
+    "seed",
+    "genome",
+    "genome_bytes",
+    "genome_sha256",
+    "reads",
+    "ccs_yield",
+)
+
+# Fields a completed directory must match before a rerun may skip it.
+MATCHED_FIELDS = ("platform", "coverage", "seed", "genome_sha256")
 
 # The toolkit's PLATFORMS keys this driver supports; checked without importing it.
 SUPPORTED_PLATFORMS = ("ont-hq", "hifi")
@@ -184,6 +199,121 @@ def needs_run(directory: Path) -> bool:
     )
 
 
+def genome_identity(genome: Path) -> tuple[int, str]:
+    """Return a genome file's size and content digest.
+
+    Args:
+        genome: FASTA file.
+
+    Returns:
+        ``(size in bytes, SHA-256 hex digest)``.
+    """
+    digest = hashlib.sha256()
+    with open(genome, "rb") as handle:
+        while chunk := handle.read(1 << 20):
+            digest.update(chunk)
+    return Path(genome).stat().st_size, digest.hexdigest()
+
+
+def write_simulation_record(
+    directory: Path,
+    platform_key: str,
+    coverage: float,
+    seed: int,
+    genome: Path,
+    reads: int,
+    ccs_yield: float | None,
+) -> None:
+    """Write ``simulation.tsv``: what a read directory was simulated from.
+
+    Args:
+        directory: The read directory.
+        platform_key: Platform key.
+        coverage: Target depth.
+        seed: PBSIM3 seed.
+        genome: Source FASTA, recorded as given plus its size and SHA-256.
+        reads: Number of reads written.
+        ccs_yield: Mean ccs ZMW yield, or None when ccs was not run.
+    """
+    size, digest = genome_identity(genome)
+    row = (
+        platform_key,
+        f"{coverage:g}",
+        str(seed),
+        str(genome),
+        str(size),
+        digest,
+        str(reads),
+        "NA" if ccs_yield is None else f"{ccs_yield:.4f}",
+    )
+    with open(directory / "simulation.tsv", "w") as handle:
+        handle.write("\t".join(SIMULATION_HEADER) + "\n")
+        handle.write("\t".join(row) + "\n")
+
+
+def check_complete(
+    directory: Path,
+    platform_key: str,
+    coverage: float,
+    seed: int,
+    genome: Path,
+) -> None:
+    """Check that a completed read directory matches the current job.
+
+    Nothing is overwritten or deleted, whatever the outcome.
+
+    Args:
+        directory: A read directory holding a ``.complete`` marker.
+        platform_key: Platform the job asks for.
+        coverage: Depth the job asks for.
+        seed: Seed the job asks for.
+        genome: FASTA the job would simulate from; compared by SHA-256.
+
+    Raises:
+        RuntimeError: If ``simulation.tsv`` is missing, is not one header row
+            plus one record with ``SIMULATION_HEADER`` columns, or differs
+            from the job in any of ``MATCHED_FIELDS``.
+    """
+    path = directory / "simulation.tsv"
+    if not path.is_file():
+        raise RuntimeError(
+            f"{directory} is marked complete but has no simulation.tsv; "
+            f"cannot tell what it holds. Move it aside: mv {directory} "
+            f"{directory}.unverified"
+        )
+    lines = path.read_text().splitlines()
+    if len(lines) != 2 or tuple(lines[0].split("\t")) != SIMULATION_HEADER:
+        raise RuntimeError(
+            f"unreadable {path}: expected a header {SIMULATION_HEADER} and one "
+            f"record. Move the directory aside: mv {directory} "
+            f"{directory}.unverified"
+        )
+    values = lines[1].split("\t")
+    if len(values) != len(SIMULATION_HEADER):
+        raise RuntimeError(
+            f"unreadable {path}: record has {len(values)} fields, expected "
+            f"{len(SIMULATION_HEADER)}"
+        )
+    found = dict(zip(SIMULATION_HEADER, values, strict=True))
+    wanted = {
+        "platform": platform_key,
+        "coverage": f"{coverage:g}",
+        "seed": str(seed),
+        "genome_sha256": genome_identity(genome)[1],
+    }
+    differing = [
+        f"{field} (completed {found[field]}, requested {wanted[field]})"
+        for field in MATCHED_FIELDS
+        if found[field] != wanted[field]
+    ]
+    if differing:
+        raise RuntimeError(
+            f"{directory} was completed for a different job: "
+            f"{'; '.join(differing)}. Rerun with the original arguments or "
+            f"use a new --panel; it is never overwritten"
+        )
+
+
 @contextlib.contextmanager
 def open_pooled(path: Path, compresslevel: int = 6) -> Iterator[io.TextIOWrapper]:
     """Open a gzip text stream whose bytes depend only on what is written.
@@ -219,8 +349,8 @@ def simulate(
     """Simulate one pooled FASTQ into ``directory``.
 
     Reads are pooled into ``reads.fastq.gz.partial``, renamed to
-    ``reads.fastq.gz`` when done, then ``simulation.tsv`` and ``.complete``
-    are written. A failure leaves the ``.partial`` file in place so
+    ``reads.fastq.gz`` when done, then ``simulation.tsv`` (see
+    ``write_simulation_record``) and ``.complete`` are written. A failure leaves the ``.partial`` file in place so
     ``needs_run`` refuses the directory until it is moved aside.
 
     Args:
@@ -248,6 +378,9 @@ def simulate(
         pool_fastq_gz,
         run_ccs,
     )
+
+    # Private toolkit helper, verified against simulate_data commit 1e19882
+    # (working tree dirty); the toolkit's own drivers import it the same way.
     from simulate_data.modules.te_benchmark_panel import _pbsim_contig_outputs
     from simulate_data.utils import run_command
 
@@ -271,10 +404,10 @@ def simulate(
     if count == 0:
         raise RuntimeError(f"no reads simulated for {directory}")
     partial.rename(directory / "reads.fastq.gz")
-    with open(directory / "simulation.tsv", "w") as handle:
-        handle.write("platform\tcoverage\tseed\treads\tccs_yield\n")
-        mean_yield = f"{sum(yields) / len(yields):.4f}" if yields else "NA"
-        handle.write(f"{platform_key}\t{coverage:g}\t{seed}\t{count}\t{mean_yield}\n")
+    mean_yield = sum(yields) / len(yields) if yields else None
+    write_simulation_record(
+        directory, platform_key, coverage, seed, genome, count, mean_yield
+    )
     (directory / ".complete").touch()
     return count
 
@@ -291,7 +424,8 @@ def main(argv: list[str] | None = None) -> int:
     Raises:
         ValueError: On invalid inputs (see ``validate_inputs``).
         FileNotFoundError: If a genome FASTA is missing.
-        RuntimeError: On incomplete earlier output or a failed simulation.
+        RuntimeError: On incomplete earlier output, completed output from a
+            different job (see ``check_complete``), or a failed simulation.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--panel", type=Path, required=True, help="panel root")
@@ -318,6 +452,7 @@ def main(argv: list[str] | None = None) -> int:
         ):
             directory = (args.panel / relative).parent
             if not needs_run(directory):
+                check_complete(directory, job.platform, job.coverage, seed, genome)
                 print(f"skip (complete): {directory}")
                 continue
             count = simulate(

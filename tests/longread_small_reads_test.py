@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import sys
 import time
 from pathlib import Path
@@ -129,3 +130,105 @@ def test_pooled_gzip_is_byte_deterministic(tmp_path):
         time.sleep(1.1)  # a gzip mtime would differ between the two files
     assert outputs[0] == outputs[1]
     assert gzip.decompress(outputs[0]) == b"@r1\nACGT\n+\nIIII\n"
+
+
+def _fake_simulate(calls):
+    """Stand-in for `simulate`: writes the files the real one writes."""
+
+    def fake(platform_key, genome, coverage, seed, directory, name_prefix, *_):
+        calls.append(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+        with gzip.open(directory / "reads.fastq.gz", "wt") as handle:
+            handle.write(f"@{name_prefix}:S1_1\nACGT\n+\nIIII\n")
+        sr.write_simulation_record(
+            directory, platform_key, coverage, seed, genome, 1, None
+        )
+        (directory / ".complete").touch()
+        return 1
+
+    return fake
+
+
+def _argv(panel, sample, reference, *extra):
+    return [
+        "--panel",
+        str(panel),
+        "--sample-genome",
+        str(sample),
+        "--reference",
+        str(reference),
+        "--platform",
+        "ont-hq",
+        "--coverage",
+        "5",
+        *extra,
+    ]
+
+
+@pytest.fixture
+def genomes(tmp_path):
+    sample = tmp_path / "sample.fa"
+    sample.write_text(">Chr3\nACGTACGT\n")
+    reference = tmp_path / "reference.fa"
+    reference.write_text(">Chr3\nACGT\n")
+    return sample, reference
+
+
+def test_simulation_record_holds_genome_identity(tmp_path, genomes):
+    sample, _ = genomes
+    sr.write_simulation_record(tmp_path, "hifi", 5, 916, sample, 12, 0.95)
+    rows = (tmp_path / "simulation.tsv").read_text().splitlines()
+    record = dict(zip(rows[0].split("\t"), rows[1].split("\t"), strict=True))
+    assert record == {
+        "platform": "hifi",
+        "coverage": "5",
+        "seed": "916",
+        "genome": str(sample),
+        "genome_bytes": str(sample.stat().st_size),
+        "genome_sha256": hashlib.sha256(sample.read_bytes()).hexdigest(),
+        "reads": "12",
+        "ccs_yield": "0.9500",
+    }
+
+
+def test_matching_rerun_skips_and_writes_manifest(tmp_path, genomes, monkeypatch):
+    calls = []
+    monkeypatch.setattr(sr, "simulate", _fake_simulate(calls))
+    panel = tmp_path / "panel"
+    assert sr.main(_argv(panel, *genomes)) == 0
+    assert len(calls) == 2
+    (panel / "panel_manifest.tsv").unlink()
+    assert sr.main(_argv(panel, *genomes)) == 0
+    assert len(calls) == 2  # nothing simulated again
+    assert (panel / "panel_manifest.tsv").is_file()
+
+
+def test_rerun_with_changed_seed_is_refused(tmp_path, genomes, monkeypatch):
+    monkeypatch.setattr(sr, "simulate", _fake_simulate([]))
+    panel = tmp_path / "panel"
+    sr.main(_argv(panel, *genomes))
+    with pytest.raises(RuntimeError, match=r"cov5x_rep1.*seed"):
+        sr.main(_argv(panel, *genomes, "--seed", "1000"))
+
+
+def test_rerun_with_changed_genome_is_refused(tmp_path, genomes, monkeypatch):
+    monkeypatch.setattr(sr, "simulate", _fake_simulate([]))
+    panel = tmp_path / "panel"
+    sr.main(_argv(panel, *genomes))
+    sample, _ = genomes
+    sample.write_text(">Chr3\nTTTTACGT\n")
+    with pytest.raises(RuntimeError, match=r"cov5x_rep1.*genome_sha256"):
+        sr.main(_argv(panel, *genomes))
+    before = (panel / "reads/ont-hq/cov5x_rep1/reads.fastq.gz").read_bytes()
+    assert gzip.decompress(before).startswith(b"@cov5x_rep1:sample")  # untouched
+
+
+@pytest.mark.parametrize("content", [None, "", "platform\tseed\nhifi\t1\n"])
+def test_complete_dir_without_usable_record_is_refused(tmp_path, genomes, content):
+    target = tmp_path / "cov5x_rep1"
+    target.mkdir()
+    (target / ".complete").touch()
+    if content is not None:
+        (target / "simulation.tsv").write_text(content)
+    with pytest.raises(RuntimeError, match=str(target)):
+        sr.check_complete(target, "ont-hq", 5, 916, genomes[0])
