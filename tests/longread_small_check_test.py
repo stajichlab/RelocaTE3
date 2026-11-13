@@ -67,7 +67,7 @@ def test_fastq_stats_rejects_cut_gzip(tmp_path):
         cp.fastq_stats(path)
 
 
-def test_count_clipped_reads():
+def test_count_unexplained_reads():
     sam = [
         "@SQ\tSN:Chr3\tLN:10",
         "r1\t0\tChr3\t1\t60\t100M\t*\t0\t0\t*\t*",
@@ -75,16 +75,26 @@ def test_count_clipped_reads():
         "r3\t0\tChr3\t1\t60\t80M20S\t*\t0\t0\t*\t*",
         "r4\t0\tChr3\t1\t60\t90M10S\t*\t0\t0\t*\t*",
         "r5\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*",
+        "r6\t8\tChr3\t1\t60\t100M\t*\t0\t0\t*\t*",  # only the mate unmapped
     ]
-    assert cp.count_clipped_reads(sam, min_clip=20) == 2
+    # r2 and r3 are clipped, r5 is unmapped.
+    assert cp.count_unexplained_reads(sam, min_clip=20) == 3
 
 
-def test_count_clipped_reads_skips_secondary_and_supplementary():
+def test_count_unexplained_reads_counts_unmapped_pairs():
+    sam = [
+        "p\t77\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII",
+        "p\t141\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII",
+    ]
+    assert cp.count_unexplained_reads(sam, min_clip=20) == 2
+
+
+def test_count_unexplained_reads_skips_secondary_and_supplementary():
     sam = [
         "r1\t256\tChr3\t1\t0\t30S70M\t*\t0\t0\t*\t*",
         "r2\t2048\tChr3\t1\t60\t30S70M\t*\t0\t0\t*\t*",
     ]
-    assert cp.count_clipped_reads(sam, min_clip=20) == 0
+    assert cp.count_unexplained_reads(sam, min_clip=20) == 0
 
 
 def test_coverage_within_tolerance():
@@ -96,16 +106,43 @@ def test_coverage_within_tolerance():
     )
 
 
-def test_clipped_short_reads_reports_minimap2_stderr(tmp_path):
+def test_unexplained_short_reads_reports_minimap2_stderr(tmp_path):
     reads = tmp_path / "r.fq"
     reads.write_text("@r\nACGT\n+\nIIII\n")
     missing = tmp_path / "no_such_genome.fa"
     with pytest.raises(RuntimeError) as caught:
-        cp.clipped_short_reads(missing, reads, reads, threads=1)
+        cp.unexplained_short_reads(missing, reads, reads, threads=1)
     message = str(caught.value)
     assert str(missing) in message
     assert "minimap2" in message
     assert "stderr" in message
+
+
+class _FakeProcess:
+    """Stands in for a minimap2 Popen whose output cannot be parsed."""
+
+    def __init__(self, *args, **kwargs):
+        self.stdout = iter(["not\ta\tsam\n"])
+        self.returncode = None
+        self.killed = False
+        self.waited = False
+        _FakeProcess.last = self
+
+    def kill(self):
+        self.killed = True
+
+    def wait(self):
+        self.waited = True
+        self.returncode = -9
+        return self.returncode
+
+
+def test_unexplained_short_reads_kills_minimap2_on_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(cp.subprocess, "Popen", _FakeProcess)
+    with pytest.raises((IndexError, ValueError)):
+        cp.unexplained_short_reads(tmp_path / "g.fa", tmp_path, tmp_path, 1)
+    assert _FakeProcess.last.killed
+    assert _FakeProcess.last.waited
 
 
 # --- main on a tiny synthetic panel (minimap2 mocked out) -------------------
@@ -113,14 +150,25 @@ def test_clipped_short_reads_reports_minimap2_stderr(tmp_path):
 GENOME_LENGTH = 1000
 
 
-def _panel(tmp_path: Path, read_bases: int = 5000) -> dict[str, Path]:
-    """Build a one-row panel: 5x requested on a 1000 bp reference."""
+def _panel(
+    tmp_path: Path,
+    read_bases: int = 5000,
+    sample_length: int = 1200,
+    sample_bases: int | None = None,
+) -> dict[str, Path]:
+    """Build a one-row panel: 5x requested on a 1000 bp reference.
+
+    Sample reads get ``sample_bases`` (default ``read_bases``) and the
+    control reads ``read_bases``.
+    """
     panel = tmp_path / "panel"
     reference = tmp_path / "ref.fa"
     reference.write_text(">Chr3\n" + "A" * GENOME_LENGTH + "\n")
     genomes = panel / "truth" / "genomes"
     genomes.mkdir(parents=True)
-    (genomes / "sample_h1.fa").write_text(">Sample#1#Chr3\n" + "A" * 1200 + "\n")
+    (genomes / "sample_h1.fa").write_text(
+        ">Sample#1#Chr3\n" + "A" * sample_length + "\n"
+    )
     (panel / "truth_events.tsv").write_text(
         "event_id\n" + "".join(f"e{i}\n" for i in range(200))
     )
@@ -128,10 +176,11 @@ def _panel(tmp_path: Path, read_bases: int = 5000) -> dict[str, Path]:
     reads = "reads/ont-hq/cov5x_rep1/reads.fastq.gz"
     control = "reads/ont-hq/cov5x_rep1_reference_control/reads.fastq.gz"
     rows.append(f"cov5x_rep1\tont-hq\t5\t1\t{reads}\t{control}")
-    for relative in (reads, control):
+    sample_bases = read_bases if sample_bases is None else sample_bases
+    for relative, bases in ((reads, sample_bases), (control, read_bases)):
         path = panel / relative
         path.parent.mkdir(parents=True)
-        _fastq(path, [read_bases // 10] * 10)
+        _fastq(path, [bases // 10] * 10)
         (path.parent / ".complete").touch()
     (panel / "panel_manifest.tsv").write_text("\n".join(rows) + "\n")
     short = tmp_path / "short.fq.gz"
@@ -159,7 +208,7 @@ def fake_minimap2(monkeypatch):
     def fake(genome, r1, r2, threads):
         return 10 if genome.name == "sample_h1.fa" else 1000
 
-    monkeypatch.setattr(cp, "clipped_short_reads", fake)
+    monkeypatch.setattr(cp, "unexplained_short_reads", fake)
 
 
 def test_main_pass_writes_report_and_marker(tmp_path, fake_minimap2, capsys):
@@ -171,8 +220,8 @@ def test_main_pass_writes_report_and_marker(tmp_path, fake_minimap2, capsys):
     assert lines[0].split("\t")[0] == "platform"
     assert len([line for line in lines[1:] if not line.startswith("#")]) == 2
     assert all(line.endswith("\tok") for line in lines[1:3])
-    assert "# clipped_short_reads_reference\t1000" in lines
-    assert "# clipped_short_reads_sample\t10" in lines
+    assert "# unexplained_short_reads_reference\t1000" in lines
+    assert "# unexplained_short_reads_sample\t10" in lines
     assert "RESULT: PASS" in capsys.readouterr().out
 
 
@@ -187,7 +236,7 @@ def test_main_coverage_off_fails_without_marker(tmp_path, fake_minimap2, capsys)
 
 def test_main_clip_ratio_fails(tmp_path, monkeypatch, capsys):
     paths = _panel(tmp_path)
-    monkeypatch.setattr(cp, "clipped_short_reads", lambda genome, *a: 100)
+    monkeypatch.setattr(cp, "unexplained_short_reads", lambda genome, *a: 100)
     assert cp.main(_argv(paths)) == 1
     assert "does not explain" in capsys.readouterr().err
     assert not (paths["panel"] / ".complete").exists()
@@ -244,6 +293,71 @@ def test_main_empty_manifest_fails(tmp_path, fake_minimap2, capsys):
     manifest.write_text(manifest.read_text().splitlines()[0] + "\n")
     assert cp.main(_argv(paths)) == 1
     assert "no rows" in capsys.readouterr().err
+
+
+def test_main_zero_unexplained_on_reference_fails(tmp_path, monkeypatch, capsys):
+    paths = _panel(tmp_path)
+    monkeypatch.setattr(cp, "unexplained_short_reads", lambda genome, *a: 0)
+    assert cp.main(_argv(paths)) == 1
+    err = capsys.readouterr().err
+    assert "below the floor" in err
+    assert not (paths["panel"] / ".complete").exists()
+
+
+def test_main_sample_coverage_uses_sample_genome_length(
+    tmp_path, fake_minimap2, capsys
+):
+    # Sample genome is 2000 bp: 10000 sample bases are 5x on it but 10x on
+    # the 1000 bp reference; 5000 control bases are 5x on the reference.
+    paths = _panel(tmp_path, read_bases=5000, sample_length=2000, sample_bases=10000)
+    assert cp.main(_argv(paths)) == 0, capsys.readouterr().err
+    lines = (paths["panel"] / "qc" / "panel_check.tsv").read_text().splitlines()
+    coverage = {line.split("\t")[2]: line.split("\t")[5] for line in lines[1:3]}
+    assert coverage == {"reads": "5.00", "control_reads": "5.00"}
+
+
+def test_main_sample_coverage_off_on_sample_genome_fails(
+    tmp_path, fake_minimap2, capsys
+):
+    # 5000 sample bases would be 5x on the reference but are 2.5x on the
+    # 2000 bp sample genome they came from.
+    paths = _panel(tmp_path, read_bases=5000, sample_length=2000)
+    assert cp.main(_argv(paths)) == 1
+    err = capsys.readouterr().err
+    assert "coverage off target" in err
+    assert "cov5x_rep1/reads.fastq.gz" in err
+
+
+def test_main_empty_sample_genome_fails(tmp_path, fake_minimap2, capsys):
+    paths = _panel(tmp_path)
+    (paths["panel"] / "truth/genomes/sample_h1.fa").write_text(">Sample#1#Chr3\n")
+    assert cp.main(_argv(paths)) == 1
+    assert "sample_h1.fa" in capsys.readouterr().err
+
+
+def test_main_unreadable_reference_fails(tmp_path, fake_minimap2, capsys):
+    paths = _panel(tmp_path)
+    paths["reference"].write_bytes(b">Chr3\n\xff\xfe\x00\n")
+    assert cp.main(_argv(paths)) == 1
+    assert str(paths["reference"]) in capsys.readouterr().err
+
+
+def test_main_short_manifest_row_fails(tmp_path, fake_minimap2, capsys):
+    paths = _panel(tmp_path)
+    manifest = paths["panel"] / "panel_manifest.tsv"
+    header = manifest.read_text().splitlines()[0]
+    manifest.write_text(f"{header}\ncov5x_rep1\tont-hq\t5\n")
+    assert cp.main(_argv(paths)) == 1
+    err = capsys.readouterr().err
+    assert "FAIL:" in err
+    assert "missing fields" in err
+
+
+def test_main_truth_ignores_blank_lines(tmp_path, fake_minimap2, capsys):
+    paths = _panel(tmp_path)
+    truth = paths["panel"] / "truth_events.tsv"
+    truth.write_text(truth.read_text() + "\n\n")
+    assert cp.main(_argv(paths)) == 0, capsys.readouterr().err
 
 
 def test_main_empty_fastq_fails(tmp_path, fake_minimap2, capsys):

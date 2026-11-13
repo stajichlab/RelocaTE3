@@ -4,7 +4,9 @@
 Checks: manifest paths exist with completion markers; every FASTQ is a
 complete gzip stream; delivered coverage is within tolerance; the truth
 table has 200 rows; and the fixture's original short reads fit the rebuilt
-sample genome (few clipped reads) far better than the reference.
+sample genome far better than the reference (few reads left unmapped or
+soft-clipped). Sample reads' coverage is measured on the sample genome they
+were simulated from, control reads' on the reference.
 Needs minimap2 on PATH for the last check.
 
 ``<panel>/.complete`` is written only when every check passes. A panel that
@@ -27,6 +29,10 @@ from pathlib import Path
 COVERAGE_TOLERANCE = 0.25  # HiFi loses about 8% of molecules in ccs
 MAX_CLIP_RATIO = 0.05
 MIN_CLIP = 20
+# The 200 insertions each leave many clipped or unmapped short reads on the
+# reference (30029 on the Chr3 fixture), so fewer than this means the fit
+# check saw no signal (e.g. empty or wrong short reads) and proves nothing.
+MIN_REFERENCE_UNEXPLAINED = 100
 EXPECTED_EVENTS = 200
 MANIFEST_COLUMNS = ("sample", "platform", "coverage", "reads", "control_reads")
 REPORT_HEADER = (
@@ -91,15 +97,23 @@ def fastq_stats(path: Path) -> dict[str, int]:
     return {"reads": len(lengths), "bases": total, "n50": n50, "max_length": lengths[0]}
 
 
-def count_clipped_reads(sam_lines: Iterable[str], min_clip: int) -> int:
-    """Count mapped primary records with a soft clip of at least ``min_clip``.
+def count_unexplained_reads(sam_lines: Iterable[str], min_clip: int) -> int:
+    """Count primary records the genome does not explain.
+
+    A primary record is unexplained if it is unmapped or soft-clipped by at
+    least ``min_clip`` bases at either end. Secondary and supplementary
+    records are skipped.
 
     Args:
         sam_lines: SAM lines without trailing newlines; headers are skipped.
         min_clip: Smallest soft clip (bases, either end) that counts.
 
     Returns:
-        The number of clipped primary alignments.
+        The number of unmapped or clipped primary records.
+
+    Raises:
+        ValueError: If a record's flag is not an integer.
+        IndexError: If a record has fewer than six fields.
     """
     count = 0
     for line in sam_lines:
@@ -107,7 +121,10 @@ def count_clipped_reads(sam_lines: Iterable[str], min_clip: int) -> int:
             continue
         fields = line.split("\t")
         flag = int(fields[1])
-        if flag & 0x904:  # unmapped, secondary or supplementary
+        if flag & 0x900:  # secondary or supplementary
+            continue
+        if flag & 0x4:
+            count += 1
             continue
         clips = [int(n) for n in re.findall(r"(\d+)S", fields[5])]
         if clips and max(clips) >= min_clip:
@@ -131,8 +148,8 @@ def coverage_ok(bases: int, genome_length: int, requested: float) -> bool:
     return abs(delivered - requested) <= COVERAGE_TOLERANCE * requested
 
 
-def clipped_short_reads(genome: Path, r1: Path, r2: Path, threads: int) -> int:
-    """Map paired short reads to ``genome`` and count clipped reads.
+def unexplained_short_reads(genome: Path, r1: Path, r2: Path, threads: int) -> int:
+    """Map paired short reads to ``genome`` and count unexplained reads.
 
     Args:
         genome: FASTA to map to (indexed on the fly by minimap2).
@@ -141,11 +158,14 @@ def clipped_short_reads(genome: Path, r1: Path, r2: Path, threads: int) -> int:
         threads: minimap2 threads.
 
     Returns:
-        Primary alignments soft-clipped by at least ``MIN_CLIP`` bases.
+        Primary records unmapped or soft-clipped by at least ``MIN_CLIP``
+        bases (see ``count_unexplained_reads``).
 
     Raises:
         RuntimeError: If minimap2 exits non-zero; the message holds the
             tail of its stderr.
+        ValueError: If minimap2 output is not SAM; minimap2 is killed first.
+        IndexError: As for ``ValueError``.
     """
     with tempfile.TemporaryFile(mode="w+") as stderr:
         process = subprocess.Popen(
@@ -164,9 +184,14 @@ def clipped_short_reads(genome: Path, r1: Path, r2: Path, threads: int) -> int:
             text=True,
         )
         assert process.stdout is not None
-        count = count_clipped_reads(
-            (line.rstrip("\n") for line in process.stdout), MIN_CLIP
-        )
+        try:
+            count = count_unexplained_reads(
+                (line.rstrip("\n") for line in process.stdout), MIN_CLIP
+            )
+        except BaseException:
+            process.kill()
+            process.wait()
+            raise
         if process.wait() != 0:
             stderr.seek(0)
             tail = "".join(stderr.readlines()[-STDERR_TAIL_LINES:])
@@ -188,9 +213,54 @@ def fasta_length(path: Path) -> int:
 
     Raises:
         OSError: If the file cannot be read.
+        ValueError: If the file is not text.
     """
     with open(path) as handle:
         return sum(len(line.strip()) for line in handle if not line.startswith(">"))
+
+
+def genome_length_or_fail(path: Path, label: str, failures: list[str]) -> int | None:
+    """Return a FASTA's length, or record a failure and return None.
+
+    Args:
+        path: FASTA to measure.
+        label: What the FASTA is, for the failure message.
+        failures: List that a failure message is appended to.
+
+    Returns:
+        The total sequence length, or None if the file is missing,
+        unreadable or holds no sequence.
+    """
+    try:
+        length = fasta_length(path)
+    except (OSError, ValueError) as error:
+        failures.append(f"cannot read {label} {path}: {error}")
+        return None
+    if length == 0:
+        failures.append(f"{label} has no sequence: {path}")
+        return None
+    return length
+
+
+def count_truth_events(path: Path) -> int:
+    """Count non-empty rows after the header of a TSV.
+
+    Args:
+        path: ``truth_events.tsv``.
+
+    Returns:
+        Rows with at least one non-blank field, header excluded.
+
+    Raises:
+        OSError: If the file cannot be read.
+    """
+    with open(path, newline="") as handle:
+        rows = [
+            row
+            for row in csv.reader(handle, delimiter="\t")
+            if any(field.strip() for field in row)
+        ]
+    return max(len(rows) - 1, 0)
 
 
 def read_manifest(path: Path) -> list[dict[str, str]]:
@@ -204,8 +274,8 @@ def read_manifest(path: Path) -> list[dict[str, str]]:
 
     Raises:
         OSError: If the file cannot be read.
-        ValueError: If a column in ``MANIFEST_COLUMNS`` is missing or the
-            manifest has no rows.
+        ValueError: If a column in ``MANIFEST_COLUMNS`` is missing, a row
+            lacks a value for one, or the manifest has no rows.
     """
     with open(path, newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
@@ -215,6 +285,12 @@ def read_manifest(path: Path) -> list[dict[str, str]]:
         rows = list(reader)
     if not rows:
         raise ValueError(f"{path} has no rows")
+    for number, row in enumerate(rows, start=2):
+        empty = [c for c in MANIFEST_COLUMNS if not row.get(c)]
+        if empty:
+            raise ValueError(
+                f"{path} line {number} has missing fields: {', '.join(empty)}"
+            )
     return rows
 
 
@@ -248,26 +324,23 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    failures = []
+    failures: list[str] = []
     rows = []
 
-    genome_length = None
-    try:
-        genome_length = fasta_length(args.reference)
-        if genome_length == 0:
-            failures.append(f"reference has no sequence: {args.reference}")
-            genome_length = None
-    except OSError as error:
-        failures.append(f"cannot read reference {args.reference}: {error}")
+    sample_genome = args.panel / "truth" / "genomes" / "sample_h1.fa"
+    lengths = {
+        "reads": genome_length_or_fail(sample_genome, "sample genome", failures),
+        "control_reads": genome_length_or_fail(args.reference, "reference", failures),
+    }
 
     truth_path = args.panel / "truth_events.tsv"
     try:
-        events = len(truth_path.read_text().splitlines()) - 1
+        events = count_truth_events(truth_path)
         if events != EXPECTED_EVENTS:
             failures.append(
                 f"{truth_path} has {events} events, expected {EXPECTED_EVENTS}"
             )
-    except OSError as error:
+    except (OSError, ValueError) as error:
         failures.append(f"cannot read truth table {truth_path}: {error}")
 
     manifest_path = args.panel / "panel_manifest.tsv"
@@ -292,6 +365,7 @@ def main(argv: list[str] | None = None) -> int:
             except ValueError:
                 failures.append(f"bad coverage {entry['coverage']!r} for {fastq}")
                 continue
+            genome_length = lengths[column]
             if genome_length is None:
                 ok = False
                 delivered = "NA"
@@ -317,28 +391,35 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
 
-    clipped_reference = clipped_sample = "NA"
-    sample_genome = args.panel / "truth" / "genomes" / "sample_h1.fa"
+    unexplained_reference = unexplained_sample = "NA"
     inputs = (args.reference, sample_genome, args.short_r1, args.short_r2)
     absent = [str(path) for path in inputs if not path.is_file()]
     if absent:
         failures.append(f"short-read fit not checked; missing: {', '.join(absent)}")
     else:
         try:
-            clipped_reference = clipped_short_reads(
+            unexplained_reference = unexplained_short_reads(
                 args.reference, args.short_r1, args.short_r2, args.threads
             )
-            clipped_sample = clipped_short_reads(
+            unexplained_sample = unexplained_short_reads(
                 sample_genome, args.short_r1, args.short_r2, args.threads
             )
-        except (OSError, RuntimeError) as error:
+        except (OSError, RuntimeError, ValueError, IndexError) as error:
             failures.append(f"short-read fit not checked: {error}")
         else:
-            if clipped_sample > MAX_CLIP_RATIO * clipped_reference:
+            if unexplained_reference < MIN_REFERENCE_UNEXPLAINED:
+                failures.append(
+                    f"only {unexplained_reference} short reads unexplained by the "
+                    f"reference, below the floor of {MIN_REFERENCE_UNEXPLAINED}; "
+                    f"the fit check has no signal (check {args.short_r1} and "
+                    f"{args.short_r2})"
+                )
+            elif unexplained_sample > MAX_CLIP_RATIO * unexplained_reference:
                 failures.append(
                     f"rebuilt genome does not explain the original short reads: "
-                    f"{clipped_sample} clipped reads vs {clipped_reference} on "
-                    f"the reference (max ratio {MAX_CLIP_RATIO})"
+                    f"{unexplained_sample} unexplained reads vs "
+                    f"{unexplained_reference} on the reference "
+                    f"(max ratio {MAX_CLIP_RATIO})"
                 )
 
     qc = args.panel / "qc"
@@ -348,8 +429,10 @@ def main(argv: list[str] | None = None) -> int:
             handle.write("\t".join(REPORT_HEADER) + "\n")
             for row in rows:
                 handle.write("\t".join(str(value) for value in row) + "\n")
-            handle.write(f"# clipped_short_reads_reference\t{clipped_reference}\n")
-            handle.write(f"# clipped_short_reads_sample\t{clipped_sample}\n")
+            handle.write(
+                f"# unexplained_short_reads_reference\t{unexplained_reference}\n"
+            )
+            handle.write(f"# unexplained_short_reads_sample\t{unexplained_sample}\n")
     else:
         failures.append(f"panel directory not found: {args.panel}")
 
