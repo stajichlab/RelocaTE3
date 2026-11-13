@@ -1,6 +1,6 @@
 # Long-read TE detection: algorithm proposal
 
-2026-11-09, updated 2026-11-13. Status: **proposal; decisions 1–4 made, 5–6 open**. Roadmap item after the
+2026-11-09, updated 2026-11-13. Status: **proposal; decisions 1–5 made, 6 open**. Roadmap item after the
 Nextflow pipeline (`plans/2026-11-02-nextflow-pipeline-design.md`). It
 replaces the sketch in `plans/FEATURES.md`, Feature 3.
 
@@ -448,9 +448,10 @@ Each milestone is one branch and pull request, TDD, as with the pipeline.
    in `/rhome/nmath020/bigdata/nanopore_data`; see "Gate 4 samples". The
    maintainer also asked for a small test set for fast iteration (tier 1)
    and named `relocate-benchmark` as the place for the large test (tier 2).
-5. **Mixed short + long reads for one sample.** Out of scope for the first
-   release (recommended). Each read type gives its own call set, and a later
-   step can merge them.
+5. **Mixed short + long reads for one sample. DECIDED 2026-11-13:** out of
+   scope for the first release. Each read type gives its own call set, which
+   keeps the short-read path untouched and keeps gate 2 and gate 4 an
+   independent cross-check. A later step can merge call sets by `site_id`.
 6. **Command shape.** One CLI with `--read-type` (recommended; the user-facing
    surface stays one tool) and separate internal modules for the long-read
    path, so the validated short-read code is not edited.
