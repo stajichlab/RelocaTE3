@@ -1,6 +1,6 @@
 # Long-read TE detection: algorithm proposal
 
-2026-11-09. Status: **proposal; decisions 1–2 made, 3–6 open**. Roadmap item after the
+2026-11-09, updated 2026-11-13. Status: **proposal; decisions 1–3 made, 4–6 open**. Roadmap item after the
 Nextflow pipeline (`plans/2026-11-02-nextflow-pipeline-design.md`). It
 replaces the sketch in `plans/FEATURES.md`, Feature 3.
 
@@ -132,8 +132,10 @@ some of these signatures:
 ### Step 5. Consensus and exact placement
 - **Spanning clusters:**
   1. Take each supporting read's segment (insert ± about 500 bp of flank).
-  2. Build a partial-order-alignment consensus (abPOA or spoa; both are on
-     Bioconda and have Python bindings).
+  2. Build a partial-order-alignment consensus with abPOA (`pyabpoa`,
+     decision 3). The call sits behind one function,
+     `consensus(sequences) -> sequence`, so spoa (`pyspoa`) can replace it
+     if the simulated panel shows a difference.
   3. Realign the consensus to the reference.
   - Breakpoint: where the consensus leaves and rejoins the reference.
   - TSD: the reference bases present on **both** sides of the insert in the
@@ -383,9 +385,13 @@ Each milestone is one branch and pull request, TDD, as with the pipeline.
 2. **Technologies in the first release. DECIDED 2026-11-09:** ONT (R10 /
    Q20+) and PacBio HiFi are both validated from the start. Older ONT R9 and
    PacBio CLR run through `--read-type` as "supported, less tested".
-3. **Consensus engine.** abPOA or spoa through their Python bindings (small,
-   fast, on Bioconda)? Or a heavier polisher (racon/medaka) for old ONT data?
-   Recommendation: abPOA/spoa; revisit only if R9 data matters to the lab.
+3. **Consensus engine. DECIDED 2026-11-13:** a small partial-order-alignment
+   library through its Python binding. Start with abPOA, behind one function
+   so spoa can be swapped in. Packages checked on conda-forge/bioconda on
+   2026-11-13: `pyabpoa` 1.5.7, `pyspoa` 0.3.2. Rejected: racon/medaka
+   (large dependencies, chemistry-specific models, slower per site; revisit
+   only if R9 data matters to the lab) and single-best-read (ONT breakpoints
+   and TSDs would carry read errors).
 4. **Real data for gate 4.** Which rice samples have long reads, and are there
    matched short reads?
 5. **Mixed short + long reads for one sample.** Out of scope for the first
