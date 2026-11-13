@@ -331,13 +331,38 @@ def test_main_writes_config(tmp_path):
     assert (out / "panel.json").exists()
 
 
-def test_write_config_dir_cleans_up_on_te_library_error(tmp_path):
+def test_write_config_dir_rejects_unsupported_te_base_before_writing(
+    tmp_path, monkeypatch
+):
     gff, genome, te_lib = _small_inputs(
         tmp_path, "Chr3\tMSU7\tmPing\t6\t7\t.\t+\t.\tID=e1;TSD=CCC;\n"
     )
     te_lib.write_text(">mPing\nACNT\n")
     out = tmp_path / "config"
-    with pytest.raises(ValueError, match="unsupported base"):
+
+    def no_write(*args, **kwargs):
+        raise AssertionError("wrote output before validation finished")
+
+    monkeypatch.setattr(mpc.shutil, "copyfile", no_write)
+    with pytest.raises(
+        ValueError, match=r"te\.fa: record 'mPing' position 3: unsupported base 'N'"
+    ):
+        mpc.write_config_dir(gff, genome, te_lib, out)
+    assert not out.exists()
+    assert not (tmp_path / "config.partial").exists()
+
+
+def test_write_config_dir_removes_partial_on_write_error(tmp_path, monkeypatch):
+    gff, genome, te_lib = _small_inputs(
+        tmp_path, "Chr3\tMSU7\tmPing\t6\t7\t.\t+\t.\tID=e1;TSD=CCC;\n"
+    )
+    out = tmp_path / "config"
+
+    def disk_full(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(mpc.shutil, "copyfile", disk_full)
+    with pytest.raises(OSError, match="disk full"):
         mpc.write_config_dir(gff, genome, te_lib, out)
     assert not out.exists()
     assert not (tmp_path / "config.partial").exists()

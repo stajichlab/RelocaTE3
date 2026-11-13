@@ -178,16 +178,30 @@ def normalize_te_library(src: Path, dst: Path) -> list[tuple[str, int, str, str]
         for index, base in enumerate(bases):
             if base in "ACGT":
                 continue
-            if base not in AMBIGUITY:
-                raise ValueError(
-                    f"{src}: record {name!r} position {index + 1}: "
-                    f"unsupported base {base!r}"
-                )
+            _check_te_base(src, name, index, base)
             changes.append((name, index + 1, base, AMBIGUITY[base]))
             bases[index] = AMBIGUITY[base]
         lines.append(f">{name}\n{''.join(bases)}\n")
     dst.write_text("".join(lines))
     return changes
+
+
+def _check_te_base(src: Path, name: str, index: int, base: str) -> None:
+    """Reject a TE library base that is neither A/C/G/T nor in ``AMBIGUITY``.
+
+    Args:
+        src: TE library path, for the error message.
+        name: Record name.
+        index: 0-based position of ``base`` in the record.
+        base: The uppercase base.
+
+    Raises:
+        ValueError: If ``base`` is not A/C/G/T and not in ``AMBIGUITY``.
+    """
+    if base not in "ACGT" and base not in AMBIGUITY:
+        raise ValueError(
+            f"{src}: record {name!r} position {index + 1}: unsupported base {base!r}"
+        )
 
 
 def build_config(events: list[TruthEvent]) -> dict:
@@ -303,9 +317,10 @@ def _check_events(
 def write_config_dir(gff: Path, genome: Path, te_library: Path, outdir: Path) -> None:
     """Write backbone, normalized TE library, panel.json and truth table.
 
-    All input checks run before anything is written. Files are built in
-    ``<outdir>.partial`` and renamed to ``outdir`` only once all are written;
-    on an error the partial directory is removed.
+    All input checks, including the TE library bases, run before anything is
+    written. Files are built in ``<outdir>.partial`` and renamed to ``outdir``
+    only once all are written; if writing fails, the partial directory is
+    removed and the original error is raised.
 
     Args:
         gff: Truth GFF (see ``read_truth_gff``).
@@ -315,6 +330,7 @@ def write_config_dir(gff: Path, genome: Path, te_library: Path, outdir: Path) ->
 
     Raises:
         FileExistsError: If ``outdir`` or ``<outdir>.partial`` already exists.
+        OSError: If writing the output fails.
         ValueError: On invalid input (see ``read_truth_gff``, ``read_fasta``,
             ``normalize_te_library``, ``build_config``), an event whose
             chromosome is missing or whose TSD lies outside the chromosome or
@@ -327,8 +343,11 @@ def write_config_dir(gff: Path, genome: Path, te_library: Path, outdir: Path) ->
             raise FileExistsError(f"refusing to overwrite {path}")
     events = read_truth_gff(gff)
     reference = read_fasta(genome)
-    families = set(read_fasta(te_library))
-    _check_events(events, reference, families, gff, genome, te_library)
+    library = read_fasta(te_library)
+    for name, sequence in library.items():
+        for index, base in enumerate(sequence):
+            _check_te_base(te_library, name, index, base)
+    _check_events(events, reference, set(library), gff, genome, te_library)
     config = build_config(events)
     partial.mkdir(parents=True)
     try:
@@ -356,7 +375,7 @@ def write_config_dir(gff: Path, genome: Path, te_library: Path, outdir: Path) ->
                 )
                 handle.write("\t".join(row) + "\n")
     except BaseException:
-        shutil.rmtree(partial)
+        shutil.rmtree(partial, ignore_errors=True)
         raise
     partial.rename(outdir)
 
