@@ -8,7 +8,11 @@ Standard library only, so it runs in any Python >= 3.10.
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
+import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -120,7 +124,8 @@ def read_fasta(path: Path) -> dict[str, str]:
 
     Raises:
         ValueError: On a header with no name, a repeated record name, sequence
-            before the first header, or a file with no records.
+            before the first header, a record with no sequence, or a file with
+            no records.
     """
     records: dict[str, list[str]] = {}
     name = None
@@ -141,6 +146,9 @@ def read_fasta(path: Path) -> dict[str, str]:
                 records[name].append(line.strip().upper())
     if not records:
         raise ValueError(f"{path}: no FASTA records")
+    for key, parts in records.items():
+        if not "".join(parts):
+            raise ValueError(f"{path}: record {key!r} has no sequence")
     return {key: "".join(parts) for key, parts in records.items()}
 
 
@@ -171,7 +179,10 @@ def normalize_te_library(src: Path, dst: Path) -> list[tuple[str, int, str, str]
             if base in "ACGT":
                 continue
             if base not in AMBIGUITY:
-                raise ValueError(f"{src}: {name} has unsupported base {base!r} (N?)")
+                raise ValueError(
+                    f"{src}: record {name!r} position {index + 1}: "
+                    f"unsupported base {base!r}"
+                )
             changes.append((name, index + 1, base, AMBIGUITY[base]))
             bases[index] = AMBIGUITY[base]
         lines.append(f">{name}\n{''.join(bases)}\n")
@@ -229,3 +240,146 @@ def build_config(events: list[TruthEvent]) -> dict:
             for event in events
         ],
     }
+
+
+TRUTH_HEADER = (
+    "event_id",
+    "chrom",
+    "position",
+    "te_family",
+    "strand",
+    "tsd",
+    "tsd_length",
+    "biological_class",
+)
+
+
+def _check_events(
+    events: list[TruthEvent],
+    reference: dict[str, str],
+    families: set[str],
+    gff: Path,
+    genome: Path,
+    te_library: Path,
+) -> None:
+    """Check every event against the reference and the TE library.
+
+    Args:
+        events: Truth insertions read from ``gff``.
+        reference: Reference sequences read from ``genome``.
+        families: Record names of ``te_library``.
+        gff: Truth GFF path, for error messages.
+        genome: Reference FASTA path, for error messages.
+        te_library: TE library path, for error messages.
+
+    Raises:
+        ValueError: If an event names a chromosome missing from the reference,
+            its TSD falls outside the chromosome or differs from the reference
+            bases, or any event family is not a TE library record.
+    """
+    for event in events:
+        where = f"{gff}: {event.event_id}"
+        if event.chrom not in reference:
+            raise ValueError(f"{where}: chromosome {event.chrom!r} not in {genome}")
+        sequence = reference[event.chrom]
+        start = event.position - len(event.tsd)
+        if start < 0 or event.position > len(sequence):
+            raise ValueError(
+                f"{where}: TSD {event.tsd!r} ending at {event.chrom}:"
+                f"{event.position} falls outside {event.chrom} "
+                f"(length {len(sequence)})"
+            )
+        found = sequence[start : event.position]
+        if found != event.tsd:
+            raise ValueError(
+                f"{where}: TSD {event.tsd!r} does not match the reference "
+                f"{found!r} at {event.chrom}:{start + 1}-{event.position}"
+            )
+    missing = sorted({event.family for event in events} - families)
+    if missing:
+        raise ValueError(f"{gff}: families not in {te_library}: {', '.join(missing)}")
+
+
+def write_config_dir(gff: Path, genome: Path, te_library: Path, outdir: Path) -> None:
+    """Write backbone, normalized TE library, panel.json and truth table.
+
+    All input checks run before anything is written. Files are built in
+    ``<outdir>.partial`` and renamed to ``outdir`` only once all are written;
+    on an error the partial directory is removed.
+
+    Args:
+        gff: Truth GFF (see ``read_truth_gff``).
+        genome: Reference FASTA; copied unchanged to ``backbone.fa``.
+        te_library: TE library FASTA; normalized into ``te_library.fa``.
+        outdir: Output directory; must not exist.
+
+    Raises:
+        FileExistsError: If ``outdir`` or ``<outdir>.partial`` already exists.
+        ValueError: On invalid input (see ``read_truth_gff``, ``read_fasta``,
+            ``normalize_te_library``, ``build_config``), an event whose
+            chromosome is missing or whose TSD lies outside the chromosome or
+            differs from the reference, or a family absent from the library.
+    """
+    outdir = Path(outdir)
+    partial = outdir.with_name(outdir.name + ".partial")
+    for path in (outdir, partial):
+        if path.exists():
+            raise FileExistsError(f"refusing to overwrite {path}")
+    events = read_truth_gff(gff)
+    reference = read_fasta(genome)
+    families = set(read_fasta(te_library))
+    _check_events(events, reference, families, gff, genome, te_library)
+    config = build_config(events)
+    partial.mkdir(parents=True)
+    try:
+        shutil.copyfile(genome, partial / "backbone.fa")
+        changes = normalize_te_library(te_library, partial / "te_library.fa")
+        with open(partial / "te_library_changes.tsv", "w") as handle:
+            handle.write("te_id\tposition\toriginal\treplacement\n")
+            for row in changes:
+                handle.write("\t".join(str(value) for value in row) + "\n")
+        (partial / "panel.json").write_text(
+            json.dumps(config, indent=2, sort_keys=True) + "\n"
+        )
+        with open(partial / "truth_events.tsv", "w") as handle:
+            handle.write("\t".join(TRUTH_HEADER) + "\n")
+            for event in events:
+                row = (
+                    event.event_id,
+                    event.chrom,
+                    str(event.position),
+                    event.family,
+                    event.strand,
+                    event.tsd,
+                    str(len(event.tsd)),
+                    "homozygous",
+                )
+                handle.write("\t".join(row) + "\n")
+    except BaseException:
+        shutil.rmtree(partial)
+        raise
+    partial.rename(outdir)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point.
+
+    Args:
+        argv: Arguments without the program name; ``None`` reads ``sys.argv``.
+
+    Returns:
+        The process exit status, 0 on success.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--gff", type=Path, required=True)
+    parser.add_argument("--genome", type=Path, required=True)
+    parser.add_argument("--te-library", type=Path, required=True)
+    parser.add_argument("--outdir", type=Path, required=True)
+    args = parser.parse_args(argv)
+    write_config_dir(args.gff, args.genome, args.te_library, args.outdir)
+    print(f"config written: {args.outdir}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

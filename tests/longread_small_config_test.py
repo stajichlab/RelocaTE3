@@ -192,3 +192,152 @@ def test_fixture_tsd_matches_reference():
     for event in mpc.read_truth_gff(GFF):
         start = event.position - len(event.tsd)
         assert genome[event.chrom][start : event.position] == event.tsd, event
+
+
+def test_write_config_dir_on_fixture(tmp_path):
+    out = tmp_path / "config"
+    mpc.write_config_dir(GFF, GENOME, TE_LIB, out)
+    assert sorted(p.name for p in out.iterdir()) == [
+        "backbone.fa",
+        "panel.json",
+        "te_library.fa",
+        "te_library_changes.tsv",
+        "truth_events.tsv",
+    ]
+    import json
+
+    config = json.loads((out / "panel.json").read_text())
+    assert len(config["events"]) == 200
+    assert len(config["te_rules"]) == 14
+    truth = (out / "truth_events.tsv").read_text().splitlines()
+    assert truth[0].split("\t") == [
+        "event_id",
+        "chrom",
+        "position",
+        "te_family",
+        "strand",
+        "tsd",
+        "tsd_length",
+        "biological_class",
+    ]
+    assert len(truth) == 201
+    changes = (out / "te_library_changes.tsv").read_text().splitlines()
+    assert len(changes) == 4  # header + the three ambiguity codes
+    assert set("".join(mpc.read_fasta(out / "te_library.fa").values())) <= set("ACGT")
+    assert not (tmp_path / "config.partial").exists()
+
+
+def test_write_config_dir_refuses_existing(tmp_path):
+    out = tmp_path / "config"
+    out.mkdir()
+    with pytest.raises(FileExistsError):
+        mpc.write_config_dir(GFF, GENOME, TE_LIB, out)
+
+
+def test_write_config_dir_refuses_existing_partial(tmp_path):
+    out = tmp_path / "config"
+    (tmp_path / "config.partial").mkdir()
+    with pytest.raises(FileExistsError, match="partial"):
+        mpc.write_config_dir(GFF, GENOME, TE_LIB, out)
+    assert not out.exists()
+
+
+def _small_inputs(tmp_path, gff_row):
+    """Write a 12 bp genome, a one-family TE library and a one-row GFF."""
+    genome = tmp_path / "g.fa"
+    genome.write_text(">Chr3\nAAACCCGGGTTT\n")
+    te_lib = tmp_path / "te.fa"
+    te_lib.write_text(">mPing\nACGT\n")
+    gff = tmp_path / "t.gff"
+    gff.write_text(gff_row)
+    return gff, genome, te_lib
+
+
+def test_write_config_dir_small_inputs_succeed(tmp_path):
+    gff, genome, te_lib = _small_inputs(
+        tmp_path, "Chr3\tMSU7\tmPing\t6\t7\t.\t+\t.\tID=e1;TSD=CCC;\n"
+    )
+    out = tmp_path / "config"
+    mpc.write_config_dir(gff, genome, te_lib, out)
+    assert (out / "panel.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("gff_row", "message"),
+    [
+        (
+            "ChrX\tMSU7\tmPing\t6\t7\t.\t+\t.\tID=e1;TSD=CCC;\n",
+            r"e1: chromosome 'ChrX' not in .*g\.fa",
+        ),
+        (
+            "Chr3\tMSU7\tmPing\t2\t3\t.\t+\t.\tID=e1;TSD=CCC;\n",
+            r"e1: TSD .* outside Chr3",
+        ),
+        (
+            "Chr3\tMSU7\tmPing\t13\t14\t.\t+\t.\tID=e1;TSD=TTT;\n",
+            r"e1: TSD .* outside Chr3",
+        ),
+        (
+            "Chr3\tMSU7\tmPing\t6\t7\t.\t+\t.\tID=e1;TSD=GGG;\n",
+            r"t\.gff: e1: TSD 'GGG' does not match the reference 'CCC'",
+        ),
+        (
+            "Chr3\tMSU7\tPong\t6\t7\t.\t+\t.\tID=e1;TSD=CCC;\n",
+            r"families not in .*te\.fa: Pong",
+        ),
+    ],
+)
+def test_write_config_dir_rejects_bad_input_before_writing(tmp_path, gff_row, message):
+    gff, genome, te_lib = _small_inputs(tmp_path, gff_row)
+    out = tmp_path / "config"
+    with pytest.raises(ValueError, match=message):
+        mpc.write_config_dir(gff, genome, te_lib, out)
+    assert not out.exists()
+    assert not (tmp_path / "config.partial").exists()
+
+
+def test_read_fasta_rejects_record_without_sequence(tmp_path):
+    fasta = tmp_path / "t.fa"
+    fasta.write_text(">A\n>B\nACGT\n")
+    with pytest.raises(ValueError, match=r"t\.fa: record 'A' has no sequence"):
+        mpc.read_fasta(fasta)
+
+
+def test_normalize_te_library_unsupported_base_names_record_and_position(tmp_path):
+    src = tmp_path / "te.fa"
+    src.write_text(">A\nAC\nGNT\n")
+    with pytest.raises(ValueError) as info:
+        mpc.normalize_te_library(src, tmp_path / "out.fa")
+    message = str(info.value)
+    assert "'A'" in message
+    assert "position 4" in message
+    assert "'N'" in message
+    assert "(N?)" not in message
+
+
+def test_main_writes_config(tmp_path):
+    out = tmp_path / "config"
+    argv = [
+        "--gff",
+        str(GFF),
+        "--genome",
+        str(GENOME),
+        "--te-library",
+        str(TE_LIB),
+        "--outdir",
+        str(out),
+    ]
+    assert mpc.main(argv) == 0
+    assert (out / "panel.json").exists()
+
+
+def test_write_config_dir_cleans_up_on_te_library_error(tmp_path):
+    gff, genome, te_lib = _small_inputs(
+        tmp_path, "Chr3\tMSU7\tmPing\t6\t7\t.\t+\t.\tID=e1;TSD=CCC;\n"
+    )
+    te_lib.write_text(">mPing\nACNT\n")
+    out = tmp_path / "config"
+    with pytest.raises(ValueError, match="unsupported base"):
+        mpc.write_config_dir(gff, genome, te_lib, out)
+    assert not out.exists()
+    assert not (tmp_path / "config.partial").exists()
