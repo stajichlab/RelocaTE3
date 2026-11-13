@@ -119,6 +119,11 @@ Wrap R3 in an nf-core-style Nextflow pipeline: sample sheet in, per-sample scatt
 
 ## Feature 3: Long-read support (ONT + PacBio)
 
+> **Superseded 2026-11-13.** The accepted design is
+> [`2026-11-09-long-read-algorithm-proposal.md`](2026-11-09-long-read-algorithm-proposal.md)
+> (genome-first signatures, not the TE-first trim sketched below). The text
+> below is kept as planning history.
+
 ### What
 Extend R3 to accept long-read data (Oxford Nanopore, PacBio HiFi/CLR). Currently R3 assumes short reads: junction-based detection, paired-end supporting reads, a soft-clip signal. Long reads change the physics.
 
