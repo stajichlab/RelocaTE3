@@ -1,6 +1,6 @@
 # Long-read TE detection: algorithm proposal
 
-2026-11-09, updated 2026-11-13. Status: **proposal; decisions 1–3 made, 4–6 open**. Roadmap item after the
+2026-11-09, updated 2026-11-13. Status: **proposal; decisions 1–4 made, 5–6 open**. Roadmap item after the
 Nextflow pipeline (`plans/2026-11-02-nextflow-pipeline-design.md`). It
 replaces the sketch in `plans/FEATURES.md`, Feature 3.
 
@@ -362,11 +362,63 @@ hotspots during the parity and memory work):
 The benchmark repository (`relocate-benchmark`) is the place for gates 1–3,
 as with the short-read parity work.
 
+### Test data: what exists (checked 2026-11-13)
+
+Four locations, given by the maintainer. Nothing in them was changed.
+
+| Location | What it holds | State |
+|---|---|---|
+| `/rhome/nmath020/bigdata/github/github_tools/data_sim/simulate_data` | The simulation toolkit. Long-read simulation (PBSIM3, plus `ccs` for HiFi) is implemented in `longread.py` | Branch `feat/refactor-replan` with uncommitted work (molecule-level support accounting, 2026-10-12). Also holds an earlier plan, `plans/2026-09-02-relocate3-long-read-support.md` |
+| `/rhome/nmath020/wessler_bigdata/rice/make_simulated_genome/make_simulation_new` | Simulation runs. `results/riceTElib_lr_benchmark` is the long-read panel: the 500-event riceTElib truth set, identical to the short-read panel, as ONT-HQ and HiFi at 5×/15×/30× × 3 replicates, each with a matched reference-only control | **15 of 18 tasks complete.** All ONT-HQ and HiFi 5×/15× are done. The three HiFi 30× tasks hit the 48-hour limit (partial FASTQ, empty control, no completion marker). Support tables predate the 2026-10-12 accounting fix. 134 GB |
+| `/rhome/nmath020/bigdata/github/github_tools/RelocaTE/relocate_benchmark/relocate-benchmark` | The benchmark harness (callers, scoring, reports) | Short-read only: the manifest reader requires `r1`/`r2`, and no long-read dataset is registered |
+| `/rhome/nmath020/bigdata/nanopore_data` | Real ONT reads, `all_fq_final/concat_fq/<line>.ont.fq.gz`, 52 lines. Read headers show `dna_r10.4.1_e8.2_400bps_sup@v5.0.0`, so `--read-type ont-hq` | 33 `B_*`/`G_*` RILs have matched Illumina reads in `/bigdata/stajichlab/nmath020/pop2_and_pop3_analysis/find_TE/fq_input/trim`. Parents A119, A123 and HEG4 are present. EG4 and NB (Nipponbare, the reference line) are in `UCD_03.16.2026_EG4_NB/concat_fq`, not yet in `all_fq_final`. No real HiFi data |
+
+### Test tiers (smallest first)
+
+Each tier must be credible before the next is run. All computation goes
+through `sbatch`, never the login node.
+
+| Tier | Data | Run time target | Used for |
+|---|---|---|---|
+| 0. Unit | Hand-built reads and small BAMs, a few records each: spanning read, split read, clip-only read, reverse strand, nested insert, hard clip | seconds | every TDD cycle |
+| 1. Small panel | **To build in L1.** The repository's Chr3 2 Mb fixture (`tests/data/sim_genome`, 200 insertions with truth) re-simulated as ONT-HQ and HiFi reads with the `simulate_data` toolkit. Stored outside git if it exceeds a few tens of MB; a script regenerates it | minutes per sample | the long-read acceptance test, the counterpart of `tests/acceptance_test.py`; fast iteration |
+| 2. Full panel | `riceTElib_lr_benchmark` through `relocate-benchmark`, in cost order: one 5× ONT-HQ replicate, one 5× HiFi, all 5×, then 15× and 30× | hours | gates 1–3 |
+| 3. Real | The lab's ONT lines | hours | gate 4 |
+
+### Gate 4 samples (decision 4)
+
+- **NB (Nipponbare):** the sample is the reference line, so non-reference
+  calls should be near zero. A negative control on real reads.
+- **Parents HEG4, EG4, A119, A123:** known mPing content.
+- **A few RILs with matched Illumina reads,** for agreement with the
+  short-read calls. Chosen in L6 by coverage.
+- ONT only. HiFi is validated on simulated data until real HiFi exists.
+
+### Points adopted from the earlier plan (2026-09-02)
+
+The earlier plan agrees with approach B. These items from it are added to
+this design:
+- **FASTQ and BAM/CRAM are two input adapters behind one interface.** The
+  same sample run both ways must give the same calls. A hard-clipped record
+  at a junction is an error or a marked reduced-capability result, never a
+  silent loss.
+- **The benchmark sample key includes the platform**
+  (`ont-hq_cov5x_rep1`), because the panel repeats sample names across
+  platforms.
+- **An evidence table per read** is written before calls are made, so a call
+  can be traced.
+- **Reference / non-reference / absent classes** are scored on the pangenome
+  SampleA dataset. The riceTElib panel tests non-reference calls and false
+  positives only.
+- **Genotype thresholds** are calibrated on the panel's homozygous,
+  heterozygous and 10%/20%/40% mixtures, not copied from short reads.
+- **Failed HiFi 30× outputs are archived, not overwritten,** before a rerun.
+
 ## Proposed milestones
 
 | # | Delivers | Gate |
 |---|---|---|
-| L1 | Long-read simulated panel (ONT + HiFi; 5×/15×/30×) with truth; scoring in the benchmark | panel reproducible; a general SV caller + TE filter gives a baseline number |
+| L1 | Test data. (a) Build the small Chr3 2 Mb long-read panel (tier 1). (b) Teach `relocate-benchmark` to read long-read manifests and register the existing full panel, ONT-HQ and HiFi 5×/15× first. (c) Repair the three HiFi 30× tasks; this does not block L2 | small panel reproducible from one script; existing short-read benchmark scores unchanged; a general SV caller + TE filter gives a baseline number |
 | L2 | The data model (`Locus`, `Reference`, placement records, signature schema; see "Designing for multiple references"); `--read-type`, genome alignment presets, signature collection, clustering (steps 1–3) as tested subcommands with per-stage timing | signatures recover the simulated sites (recall of *sites*, before any filter) |
 | L3 | TE annotation + filters (steps 4, 6): first complete calls for spanning insertions | gate 1 on spanning calls |
 | L4 | Consensus, exact breakpoints, TSDs, insert FASTA (step 5); partial-read (clip) calls | TSD exactness; long-LTR recall |
@@ -392,8 +444,10 @@ Each milestone is one branch and pull request, TDD, as with the pipeline.
    (large dependencies, chemistry-specific models, slower per site; revisit
    only if R9 data matters to the lab) and single-best-read (ONT breakpoints
    and TSDs would carry read errors).
-4. **Real data for gate 4.** Which rice samples have long reads, and are there
-   matched short reads?
+4. **Real data for gate 4. DECIDED 2026-11-13:** the lab's ONT R10.4.1 data
+   in `/rhome/nmath020/bigdata/nanopore_data`; see "Gate 4 samples". The
+   maintainer also asked for a small test set for fast iteration (tier 1)
+   and named `relocate-benchmark` as the place for the large test (tier 2).
 5. **Mixed short + long reads for one sample.** Out of scope for the first
    release (recommended). Each read type gives its own call set, and a later
    step can merge them.
@@ -413,4 +467,4 @@ Each milestone is one branch and pull request, TDD, as with the pipeline.
 Not verified for this proposal, to check during L1:
 - the exact default thresholds of each tool beyond those quoted above;
 - which of the human-focused tools run on a plant genome and TE library;
-- the long-read mode of the lab's panel simulator.
+- the long-read mode of the panel simulator: confirmed 2026-11-13 (PBSIM3 + ccs in `simulate_data`); read realism against the real ONT data is still unmeasured.
