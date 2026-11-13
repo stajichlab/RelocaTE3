@@ -187,3 +187,6 @@ scratchpad/
 .nextflow*
 work/
 .nf-test/
+
+# Small long-read panel build output (validation/longread_small/build_panel.slurm)
+/validation/longread_small/panel_v*/
