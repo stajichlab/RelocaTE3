@@ -45,7 +45,8 @@ RELOCATE3_LR_SMALL_PANEL=<panel dir> pixi run test
 ### Build
 - Job 32073062 on `epyc`, 8 CPUs, 16 GB. Start 17:45:20, end 18:11:55 PST
   on 2026-11-13: about 27 minutes.
-- Log: `logs/lr_small_panel.32073062.log`.
+- Log: `<panel>/logs/lr_small_panel.32073062.log` (copied from the
+  worktree's `logs/`, which is deleted with the tree).
 - Built with RelocaTE3 `3d462f8`, toolkit `1e19882` (21 uncommitted paths).
   Both are in `<panel>/build_info.tsv`.
 - Size: 175 MB (the plan estimated about 130 MB). Reads are 163 MB of it;

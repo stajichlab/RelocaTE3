@@ -134,4 +134,17 @@ pixi run --locked python "${SCRIPTS}/check_panel.py" --panel "${PANEL}" \
 printf 'completed_relocate3_commit\t%s\ncompleted_slurm_job_id\t%s\n' \
   "${RELOCATE3_COMMIT}" "${SLURM_JOB_ID:-none}" >> "${PANEL}/build_info.tsv"
 
+# Keep the build log with the panel. The job is still writing it, so the
+# copy is a snapshot: it lacks the lines printed after this point.
+JOB_LOG="${BASE_DIR}/logs/lr_small_panel.${SLURM_JOB_ID:-}.log"
+if [[ -n "${SLURM_JOB_ID:-}" && -f "${JOB_LOG}" ]]; then
+  mkdir -p "${PANEL}/logs"
+  if [[ -e "${PANEL}/logs/$(basename "${JOB_LOG}")" ]]; then
+    echo "skip: ${PANEL}/logs/$(basename "${JOB_LOG}") exists; not overwritten"
+  else
+    echo "copying ${JOB_LOG} to ${PANEL}/logs/ (snapshot taken before the job ends)"
+    cp -n "${JOB_LOG}" "${PANEL}/logs/"
+  fi
+fi
+
 echo "end: $(date)"

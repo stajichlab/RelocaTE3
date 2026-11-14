@@ -15,17 +15,22 @@ Submit from the repository root (never run on the login node):
 ```bash
 mkdir -p logs
 export RELOCATE3_LR_SMALL_PANEL=/path/outside/git/longread_small/panel_v1   # optional
-export SIM_PROJECT_DIR=/path/to/simulate_data                               # required for anyone but nmath020
+export SIM_PROJECT_DIR=/path/to/simulate_data                               # required unless you use the default toolkit path
 sbatch validation/longread_small/build_panel.slurm
 ```
 
 - Without `RELOCATE3_LR_SMALL_PANEL` the panel is written to
-  `validation/longread_small/panel_v1/` (gitignored).
+  `validation/longread_small/panel_v1/` (gitignored). Inside a git worktree
+  that in-repo panel is deleted with the tree, so prefer an external path via
+  `RELOCATE3_LR_SMALL_PANEL`.
 - `SIM_PROJECT_DIR` defaults to a hard-coded home path
   (`/rhome/nmath020/bigdata/github/github_tools/data_sim/simulate_data`).
   Other users must set it.
 - Run time: about 27 minutes on `epyc`, 8 CPUs, 16 GB (job 32073062,
-  17:45 to 18:11 on 2026-11-13). Log: `logs/lr_small_panel.<jobid>.log`.
+  17:45 to 18:11 on 2026-11-13). Log: `logs/lr_small_panel.<jobid>.log`;
+  the script also copies it to `<panel>/logs/` after the panel check (a
+  snapshot taken before the job ends). The first build's log is kept at
+  `<panel>/logs/lr_small_panel.32073062.log`.
 - Success ends with `RESULT: PASS (8 FASTQs checked)` and writes
   `<panel>/.complete`.
 - Rerun-safe. Finished steps are skipped and incomplete output is refused. A
@@ -48,6 +53,8 @@ without this export the panel test skips.
 ```text
 panel_v1/
 ├── build_info.tsv           RelocaTE3 + toolkit commits, dirty counts, job id
+│                            (panel_v1 lacks the relocate3_dirty_paths and
+│                            completed_* rows, which script b8cff7b onward writes)
 ├── config/                  backbone.fa, te_library.fa, panel.json,
 │                            te_library_changes.tsv, truth_events.tsv
 ├── truth/                   the te-panel bundle (genomes/, events.tsv, ...)
@@ -56,6 +63,7 @@ panel_v1/
 ├── reads/<platform>/<sample>/reads.fastq.gz + simulation.tsv + .complete
 ├── reads/<platform>/<sample>_reference_control/reads.fastq.gz + simulation.tsv + .complete
 ├── qc/panel_check.tsv
+├── logs/lr_small_panel.<jobid>.log   build log snapshot
 └── .complete
 ```
 
@@ -86,7 +94,8 @@ panel_v1/
 
 `tests/longread_small_panel_test.py` reads the panel from
 `RELOCATE3_LR_SMALL_PANEL`, or `validation/longread_small/panel_v1/` when it
-is unset. It skips unless `<panel>/.complete` exists.
+is unset. It skips unless `<panel>/.complete` exists. Relative paths are
+resolved from the current directory; run from the repo root.
 
 ```bash
 RELOCATE3_LR_SMALL_PANEL=<panel> pixi run pytest tests/longread_small_panel_test.py
