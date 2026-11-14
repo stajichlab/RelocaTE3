@@ -48,7 +48,9 @@ RELOCATE3_LR_SMALL_PANEL=<panel dir> pixi run test
 - Log: `logs/lr_small_panel.32073062.log`.
 - Built with RelocaTE3 `3d462f8`, toolkit `1e19882` (21 uncommitted paths).
   Both are in `<panel>/build_info.tsv`.
-- Size: 175 MB (the plan estimated about 130 MB).
+- Size: 175 MB (the plan estimated about 130 MB). Reads are 163 MB of it;
+  the sample genome is 2.53 Mb, not 2.0 Mb, so sample reads at the same
+  coverage carry more bases.
 
 ### Numbers (`<panel>/qc/panel_check.tsv`)
 
@@ -83,7 +85,9 @@ RELOCATE3_LR_SMALL_PANEL=<panel dir> pixi run test
 ### Tests
 - New: `tests/longread_small_panel_test.py`, 2 tests. Skip without the
   panel; pass with `RELOCATE3_LR_SMALL_PANEL` set to the panel above.
-- `tests/longread_small_*_test.py`: 94 tests, all pass with the panel.
+- `tests/longread_small_*_test.py`: 94 tests, all pass with the panel
+  (config 41, check 31, reads 20, panel 2). The plan expected 19; the rest
+  were added by review fixes in Tasks 1–5.
 - Full suite, `RELOCATE3_LR_SMALL_PANEL=<panel> pixi run test` on compute
   node c17 (2026-11-14): 892 collected, 842 passed, 50 skipped, 0 failed.
   Skips are environment-only: no `blat`/`seqtk`, no `nf` or `pipeline` env,
@@ -131,7 +135,7 @@ RELOCATE3_LR_SMALL_PANEL=<panel dir> pixi run test
   these rows. The `b8cff7b` script has not been run end to end.
 
 ### Decisions
-- Panel written outside git (175 MB of FASTQ), selected by
+- Panel written outside git (175 MB, of which 163 MB is FASTQ), selected by
   `RELOCATE3_LR_SMALL_PANEL`.
 - The mutated genome is rebuilt from the fixture's truth GFF with
   `te-panel`, and checked against the original short reads (above).
