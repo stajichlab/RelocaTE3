@@ -84,15 +84,16 @@ RELOCATE3_LR_SMALL_PANEL=<panel dir> pixi run test
 - `truth_events.tsv`: 200 rows, all `biological_class` `homozygous`.
 
 ### Tests
-- New: `tests/longread_small_panel_test.py`, 2 tests. Skip without the
+- New: `tests/longread_small_panel_test.py`, 4 tests. Skip without the
   panel; pass with `RELOCATE3_LR_SMALL_PANEL` set to the panel above.
-- `tests/longread_small_*_test.py`: 94 tests, all pass with the panel
-  (config 41, check 31, reads 20, panel 2). The plan expected 19; the rest
+- `tests/longread_small_*_test.py`: 96 tests, all pass with the panel
+  (config 41, check 31, reads 20, panel 4). The plan expected 19; the rest
   were added by review fixes in Tasks 1–5.
 - Full suite, `RELOCATE3_LR_SMALL_PANEL=<panel> pixi run test` on compute
-  node c17 (2026-11-14): 892 collected, 842 passed, 50 skipped, 0 failed.
+  node c17 (2026-11-14, at `ec787a9`): 844 passed, 50 skipped, 0 failed
+  (`pixi run python -m pytest -o addopts="" -q`).
   Skips are environment-only: no `blat`/`seqtk`, no `nf` or `pipeline` env,
-  no `yaml`. Without the export, the 2 panel tests also skip.
+  no `yaml`. Without the export, the 4 panel tests also skip.
 - `pixi run test` prints no summary line (the task's `-q` plus `addopts`
   `-q` give `-qq`); counts were taken from the progress line and
   `pytest --co`.
@@ -133,7 +134,11 @@ RELOCATE3_LR_SMALL_PANEL=<panel dir> pixi run test
   atomic `truth_events.tsv` copy, `completed_relocate3_commit` and
   `completed_slurm_job_id` rows appended on success, and more parameters
   echoed. The panel was built with `3d462f8`, so its `build_info.tsv` lacks
-  these rows. The `b8cff7b` script has not been run end to end.
+  these rows. The `b8cff7b` script, and the log copy added in `ec787a9`, have not been
+  run end to end (the panel's log copy was made by hand). If a job is killed
+  after `check_panel.py` writes `.complete` but before the `completed_*`
+  rows and log copy, reruns exit early and those steps never happen; add
+  them by hand.
 
 ### Decisions
 - Panel written outside git (175 MB, of which 163 MB is FASTQ), selected by
