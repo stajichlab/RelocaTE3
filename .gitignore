@@ -187,3 +187,6 @@ scratchpad/
 .nextflow*
 work/
 .nf-test/
+
+# Small long-read test panel: symlink to the simulate_data build (docs/long-read-test-panel.md)
+/tests/data/longread_small
