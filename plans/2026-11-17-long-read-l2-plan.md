@@ -522,7 +522,11 @@ Rules:
   clip, the outer flank `""`.
 - **SPLIT_INS:** for one read's records with the same `(reference_id,
   sequence_id)` and strand, order them by read-orientation `query_start`.
-  For each consecutive pair (A, B): read gap = `B.query_start -
+  For each A in order, pair it with the **first later B** that passes both
+  tests below (records in between that fail are skipped; this handles reads
+  whose TE body aligns to another TE copy on the same sequence and strand;
+  review 2026-11-17 found 12/200 panel sites otherwise lost). For each pair
+  (A, B): read gap = `B.query_start -
   A.query_end`; forward strand: ref gap = `B.locus.start - A.locus.end`,
   position = `A.locus.end`; reverse strand: ref gap = `A.locus.start -
   B.locus.end`, position = `B.locus.end`. Emit when `abs(ref gap) <=
@@ -599,6 +603,13 @@ Algorithm, per `locus.key` (sequences in sorted order), deterministic:
    members sorted; `signature_ids` sorted; `n_reads` = distinct `read_id`s.
    `cluster_id = f"{reference_id}:{sequence_id}:{pos}"`, with `.1`, `.2`
    suffixes on collisions, in position order.
+
+Notes from the Task 6 review (panel, ONT-HQ 20x): minimap2 left-aligns
+gaps, so INS and LEFT CLIP sit at `truth - TSD length`, while SPLIT_INS and
+RIGHT CLIP sit at `truth`; all within the window. Cluster strand is written
+as `+` (the tables module writes `locus.strand` as given). `n_reads` counts
+distinct reads, never a sum of signature kinds (one read can give a CLIP and
+a SPLIT_INS at one site).
 
 **Tests (red first):** two reads at 1000 and 1030 (window 50) → one cluster,
 `n_reads=2`; at 1000 and 1100 → two; chained 1000/1040/1080 → one (single
