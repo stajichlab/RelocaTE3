@@ -100,6 +100,13 @@ types, and schema-version mismatches between stages are clear errors.
   reference-only controls (pure false positives). The scorer only reads
   results; nothing is simulated in RelocaTE3.
 
+## Model fields added later
+
+`PlacementRecord` keeps only what L2 uses (large insertions, soft-clip
+lengths, hard-clip lengths). The proposal's alignment identity and the
+deletion edits are added in L3 (filters) and L5 (DEL / Split-DEL); the
+dataclass is built by keyword, so adding fields is cheap.
+
 ## Not in L2
 
 DEL/Split-DEL (L5); TE annotation and filters (L3); consensus, sequence-based

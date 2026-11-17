@@ -457,7 +457,9 @@ D/N reference only, S query only, H neither):
   `(reference_pos_before_which_it_lies, stored_qstart, stored_qend)` where
   the query offsets index `seg.query_sequence` (soft clips included, hard
   clips excluded).
-- `sequence = seg.query_sequence` when both hard clips are 0, else `None`.
+- `sequence = seg.query_sequence` (stored orientation, soft clips included,
+  hard-clipped bases absent); `None` only when the BAM has no SEQ (`*`).
+  A full read sequence exists only when both hard clips are 0.
 - `has_supplementary = seg.has_tag("SA")`.
 - `locus = Locus(reference_id, seg.reference_name, seg.reference_start,
   seg.reference_end, "-" if seg.is_reverse else "+")`.
@@ -512,8 +514,8 @@ Rules:
   span; keep groups with length >= `min_ins_len`. Locus: `start = end =`
   first piece's reference position, strand from the record. Sequence =
   `rec.sequence[qs:qe]`; flanks = up to `flank` bases of `rec.sequence`
-  either side. If `rec.sequence` is None (hard clipped), sequence and flanks
-  are `""` and the length is still exact.
+  either side. If `rec.sequence` is None (no SEQ), sequence and flanks are
+  `""` and the length is still exact.
 - **CLIP:** a soft clip >= `min_clip_len`: LEFT at `locus.start`, RIGHT at
   `locus.end` (`start == end`). `insert_length` = clip length; sequence = the
   clipped bases; the inner flank = up to `flank` aligned bases next to the
@@ -529,7 +531,14 @@ Rules:
   sequence, reverse-complemented on `-` so it is reference-forward;
   `insert_length` = read gap. The read sequence comes from the primary
   record (convert stored to read orientation: reverse-complement when the
-  primary is reverse). If no full sequence exists, sequence/flanks `""`.
+  primary is reverse; use a record whose hard clips are both 0). If no full
+  sequence exists, sequence/flanks `""`. `mapq` = `min(A.mapq, B.mapq)`.
+- **Signature query coordinates** are in read orientation, counting hard
+  clips. For a stored offset `q` (into `rec.sequence`) on a forward record:
+  `left_hard_clip + q`; on a reverse record: `read_length - left_hard_clip -
+  q`, swapping start and end so `query_start < query_end`. INS and CLIP
+  signatures use this conversion; SPLIT_INS uses the records' read-orientation
+  intervals directly.
 - **collect_signatures:** stream placements; records with
   `has_supplementary` false yield INS + CLIP immediately; records with it
   true yield INS + CLIP immediately **and** are buffered by `read_id`
