@@ -206,6 +206,57 @@ def test_soft_clip_offsets_insertion_into_stored_sequence() -> None:
     assert (rec.query_start, rec.query_end) == (70, 295)
 
 
+def test_reverse_strand_insertion_offsets_and_read_orientation() -> None:
+    # Reverse version of 30H40S100M25I100M. Build the read as sequenced, then
+    # store it as the BAM would: reverse-complemented, first 30 stored bases
+    # hard-clipped.
+    read = _seq(30 + 40 + 100 + 25 + 100, 23)
+    full_stored = _rc(read)
+    stored = full_stored[30:]
+    ins_stored = full_stored[30 + 140 : 30 + 165]  # the planted I-op bases
+    rec = placement_from_segment(_seg("r", "30H40S100M25I100M", stored, flag=16), "ref")
+    assert rec.read_length == 295
+    assert rec.insertions == ((1100, 140, 165),)
+    _, qs, qe = rec.insertions[0]
+    assert rec.sequence[qs:qe] == ins_stored
+    # Task 6 conversion on a reverse record: read_length - left_hard_clip - q,
+    # with start and end swapped.
+    r_start = rec.read_length - rec.left_hard_clip - qe
+    r_end = rec.read_length - rec.left_hard_clip - qs
+    assert (r_start, r_end) == (100, 125)
+    assert _rc(rec.sequence[qs:qe]) == read[r_start:r_end]
+    # Aligned span, read orientation: stored (70, 295) -> (0, 225).
+    assert (rec.query_start, rec.query_end) == (0, 225)
+
+
+@pytest.mark.parametrize(
+    ("cigar", "stored_len"),
+    [("10S5S100M", 115), ("50M10S50M", 110), ("50M5H50M", 100), ("100M5H5S", 105)],
+)
+def test_inner_clips_rejected(cigar: str, stored_len: int) -> None:
+    seg = _seg("bad_read", cigar, _seq(stored_len, 24))
+    with pytest.raises(ValueError, match=r"bad_read.*" + cigar):
+        placement_from_segment(seg, "ref")
+
+
+def test_missing_cigar_raises_naming_read() -> None:
+    seg = _seg("nocig", "100M", _seq(100, 25))
+    seg.cigarstring = None
+    with pytest.raises(ValueError, match="nocig"):
+        placement_from_segment(seg, "ref")
+
+
+def test_iter_placements_skips_missing_cigar(tmp_path: Path) -> None:
+    nocig = _seg("nocig", "100M", _seq(100, 27), start=2000)
+    nocig.cigarstring = None
+    bam = _bam(tmp_path, [_seg("good", "300M", _seq(300, 26), start=1000), nocig])
+    stats: dict[str, int] = {}
+    recs = list(iter_placements(bam, "ref", min_mapq=20, stats=stats))
+    assert [r.read_id for r in recs] == ["good"]
+    assert stats["records"] == 2
+    assert stats["no_cigar"] == 1
+
+
 def test_missing_seq_gives_none_sequence() -> None:
     rec = placement_from_segment(_seg("r", "100M50I100M", None), "ref")
     assert rec.sequence is None
@@ -258,6 +309,7 @@ def test_iter_placements_filters_and_counts(tmp_path: Path) -> None:
         "secondary": 1,
         "unmapped": 1,
         "hard_clipped": 1,
+        "no_cigar": 0,
     }
 
 

@@ -23,7 +23,10 @@ _M, _I, _D, _N, _S, _H, _EQ, _X = 0, 1, 2, 3, 4, 5, 7, 8
 _QUERY_AND_REF = (_M, _EQ, _X)
 _REF_ONLY = (_D, _N)
 
-STATS_KEYS = ("records", "skipped_mapq", "secondary", "unmapped", "hard_clipped")
+STATS_KEYS = (
+    "records", "skipped_mapq", "secondary", "unmapped", "hard_clipped",
+    "no_cigar",
+)  # fmt: skip
 
 
 def _end_clips(cigar: list[tuple[int, int]]) -> tuple[int, int, int, int, int, int]:
@@ -64,9 +67,20 @@ def placement_from_segment(
         The record. ``query_start``/``query_end`` are in read orientation and
         count hard clips; ``insertions`` holds ``(reference_pos, stored_qstart,
         stored_qend)`` with offsets into ``seg.query_sequence``.
+
+    Raises:
+        ValueError: The record has no CIGAR (``*``), or has ``S``/``H`` ops
+            anywhere other than ``H*S*`` at each end (invalid SAM).
     """
-    cigar = seg.cigartuples or []
+    cigar = seg.cigartuples
+    if not cigar:
+        raise ValueError(f"read {seg.query_name}: mapped record has no CIGAR")
     left_hard, left_soft, right_soft, right_hard, lo, hi = _end_clips(cigar)
+    if any(op in (_S, _H) for op, _ in cigar[lo:hi]):
+        raise ValueError(
+            f"read {seg.query_name}: clip inside CIGAR {seg.cigarstring} "
+            "(only H*S* allowed at each end)"
+        )
 
     ref_pos = seg.reference_start
     stored_q = left_soft  # offset into the stored sequence (no hard clips)
@@ -84,11 +98,7 @@ def placement_from_segment(
             aligned_query += length
         elif op in _REF_ONLY:
             ref_pos += length
-        elif op == _S:
-            # An inner soft clip is invalid SAM; count it as query-only so the
-            # offsets still match the stored sequence.
-            stored_q += length
-        # H inside the CIGAR is invalid SAM and consumes nothing; P likewise.
+        # P (padding) consumes nothing; inner S/H were rejected above.
 
     read_length = seg.infer_read_length() or 0
     qs = left_hard + left_soft
@@ -131,8 +141,9 @@ def iter_placements(
 ) -> Iterator[PlacementRecord]:
     """Yield a record for each primary or supplementary alignment in a file.
 
-    Unmapped and secondary records, and records with MAPQ below ``min_mapq``,
-    are skipped. Records are read in file order; no index is needed.
+    Unmapped and secondary records, mapped records without a CIGAR (``*``),
+    and records with MAPQ below ``min_mapq`` are skipped, checked in that
+    order. Records are read in file order; no index is needed.
 
     Args:
         bam_path: BAM, or CRAM when the suffix is ``.cram``.
@@ -140,7 +151,8 @@ def iter_placements(
         min_mapq: Lowest MAPQ kept.
         stats: If given, counts ``records`` (all records read),
             ``skipped_mapq``, ``secondary``, ``unmapped`` and
-            ``hard_clipped`` (yielded records with any hard clip) are added.
+            ``hard_clipped`` (yielded records with any hard clip) and
+            ``no_cigar`` are added.
         reference_fasta: Reference FASTA; required to decode a CRAM.
         min_ins_piece: Passed to :func:`placement_from_segment`.
 
@@ -148,7 +160,8 @@ def iter_placements(
         One :class:`PlacementRecord` per kept alignment.
 
     Raises:
-        ValueError: A CRAM was given without ``reference_fasta``.
+        ValueError: A CRAM was given without ``reference_fasta``, or a
+            record has clips inside its CIGAR.
     """
     counts = dict.fromkeys(STATS_KEYS, 0)
     path = os.fspath(bam_path)
@@ -169,6 +182,9 @@ def iter_placements(
                     continue
                 if seg.is_secondary:
                     counts["secondary"] += 1
+                    continue
+                if not seg.cigartuples:
+                    counts["no_cigar"] += 1
                     continue
                 if seg.mapping_quality < min_mapq:
                     counts["skipped_mapq"] += 1
