@@ -26,6 +26,7 @@ that offset. The output does not depend on input order.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
@@ -96,6 +97,32 @@ def _record(key: tuple[str, str], insertions: list[Signature],
     )
 
 
+def _assign_clips(
+    anchors: list[tuple[int, str, int]], clip_positions: list[int], window: int
+) -> list[int | None]:
+    """Subgroup index each clip joins, or None; O(log anchors) per clip.
+
+    ``anchors`` are ``(position, first signature_id, subgroup index)`` sorted
+    ascending, so for each position the first anchor wins same-position ties.
+    The nearest position is next to the bisection point; on an equal
+    distance the earlier (left) position wins.
+    """
+    positions = [a[0] for a in anchors]
+    out: list[int | None] = []
+    for x in clip_positions:
+        right = bisect_left(positions, x)
+        best: int | None = None
+        best_dist = window + 1
+        if right > 0:
+            left = bisect_left(positions, positions[right - 1])
+            best, best_dist = left, x - positions[left]
+        if right < len(positions) and positions[right] - x < best_dist:
+            best, best_dist = right, positions[right] - x
+        out.append(anchors[best][2] if best is not None and best_dist <= window
+                   else None)  # fmt: skip
+    return out
+
+
 def _cluster_key(key: tuple[str, str], sigs: list[Signature],
                  params: ClusterParams) -> list[Cluster]:  # fmt: skip
     window = params.window
@@ -105,25 +132,22 @@ def _cluster_key(key: tuple[str, str], sigs: list[Signature],
         for group in _single_linkage(inserts, window)
         for sub in _split_by_length(group, params.length_tolerance)
     ]
-    # Candidate order encodes the tie rules: earlier position, then smaller
-    # first signature_id; min() over (distance, rank) picks the winner.
+    # Sorted order encodes the tie rules: earlier position, then smaller
+    # first signature_id.
     anchors = sorted(
         (_lower_median([s.locus.start for s in sub]),
          min(s.signature_id for s in sub), i)
         for i, sub in enumerate(subgroups)
     )  # fmt: skip
+    clips = sorted((s for s in sigs if s.kind is SignatureKind.CLIP), key=_by_pos)
     attached: list[list[Signature]] = [[] for _ in subgroups]
     loose: list[Signature] = []
-    for clip in sorted((s for s in sigs if s.kind is SignatureKind.CLIP), key=_by_pos):
-        best = min(
-            ((abs(clip.locus.start - pos), rank, i)
-             for rank, (pos, _, i) in enumerate(anchors)),
-            default=None,
-        )  # fmt: skip
-        if best is not None and best[0] <= window:
-            attached[best[2]].append(clip)
-        else:
+    targets = _assign_clips(anchors, [c.locus.start for c in clips], window)
+    for clip, target in zip(clips, targets):
+        if target is None:
             loose.append(clip)
+        else:
+            attached[target].append(clip)
     clusters = [_record(key, sub, attached[i]) for i, sub in enumerate(subgroups)]
     clusters += [_record(key, [], g) for g in _single_linkage(loose, window)]
     return clusters

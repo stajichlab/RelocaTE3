@@ -7,10 +7,12 @@ Signatures are built by hand; expected clusters follow from the rules in
 from __future__ import annotations
 
 import random
+import time
 from pathlib import Path
 
 import pytest
 
+from RelocaTE3.longread import cluster as cluster_mod
 from RelocaTE3.longread.cluster import ClusterParams, cluster_signatures
 from RelocaTE3.longread.model import (
     ClipSide, Cluster, Locus, ReadType, Signature, SignatureKind,
@@ -271,3 +273,83 @@ def test_round_trips_through_tables(tmp_path: Path) -> None:
     meta, rows = read_clusters(out)
     assert meta["reference_id"] == REF
     assert list(rows) == expected
+
+
+def _oracle_assign(
+    anchors: list[tuple[int, str, int]], clip_positions: list[int], window: int
+) -> list[int | None]:
+    """The original O(clips x anchors) rule: min over (distance, rank)."""
+    out: list[int | None] = []
+    for x in clip_positions:
+        best = min(
+            ((abs(x - pos), rank, i) for rank, (pos, _, i) in enumerate(anchors)),
+            default=None,
+        )
+        out.append(best[2] if best is not None and best[0] <= window else None)
+    return out
+
+
+def _tie_heavy(seed: int) -> list[Signature]:
+    # Sites on a 40 bp grid (window 20: neighbours never link), lengths that
+    # give several length-subgroups at one position, clips on a 10 bp grid so
+    # many sit exactly 20 bp from two anchor positions or on an anchor.
+    rng = random.Random(seed)
+    sigs: list[Signature] = []
+    for n in range(300):
+        seq = rng.choice(["Chr1", "Chr3"])
+        kind = rng.choice([SignatureKind.INS, SignatureKind.SPLIT_INS])
+        sigs.append(_sig(f"s{n}", 40 * rng.randrange(150), kind=kind,
+                         length=rng.choice([500, 520, 1000, 2000, 5000]),
+                         seq_id=seq))  # fmt: skip
+    for n in range(300):
+        side = rng.choice([ClipSide.LEFT, ClipSide.RIGHT])
+        sigs.append(_clip(f"c{n}", 10 * rng.randrange(620), side,
+                          seq_id=rng.choice(["Chr1", "Chr3"])))  # fmt: skip
+    return sigs
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3, 4, 5])
+def test_bisect_attachment_matches_linear_oracle(
+    seed: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    params = ClusterParams(window=20)
+    sigs = _tie_heavy(seed)
+    fast = cluster_signatures(sigs, params)
+    calls: list[tuple[list[int | None], list[int | None]]] = []
+    real = cluster_mod._assign_clips
+
+    def checked(anchors, clip_positions, window):  # type: ignore[no-untyped-def]
+        expected = _oracle_assign(anchors, clip_positions, window)
+        calls.append((real(anchors, clip_positions, window), expected))
+        return expected
+
+    monkeypatch.setattr(cluster_mod, "_assign_clips", checked)
+    slow = cluster_signatures(sigs, params)
+    assert fast == slow
+    assert calls and all(got == want for got, want in calls)
+    # The input really exercises the tie rules.
+    attached = sum(c.n_clip_left + c.n_clip_right for c in fast if c.insert_lengths)
+    assert attached > 50
+    assert sum(1 for c in fast if c.cluster_id.endswith(".1")) > 5
+
+
+def test_assign_clips_equal_distance_and_same_position_ties() -> None:
+    # anchors sorted by (pos, first signature_id, subgroup index)
+    anchors = [(1000, "a", 2), (1000, "b", 0), (1040, "a", 1)]
+    got = cluster_mod._assign_clips(
+        anchors, [1020, 1021, 1000, 980, 979, 1061, 1090], 20
+    )
+    assert got == [2, 1, 2, 2, None, None, None]
+    assert cluster_mod._assign_clips([], [5], 20) == [None]
+
+
+def test_clip_attachment_scales() -> None:
+    n = 20_000
+    sigs = [_sig(f"s{i}", 200 * i) for i in range(n)]
+    sigs += [_clip(f"c{i}", 200 * i + (10 if i % 2 else 90), ClipSide.RIGHT)
+             for i in range(n)]  # fmt: skip
+    t0 = time.perf_counter()
+    out = cluster_signatures(sigs, W50)
+    elapsed = time.perf_counter() - t0
+    assert len(out) == n + n // 2  # odd i attach; even i (90 bp off) stay loose
+    assert elapsed < 5.0, f"{elapsed:.1f} s for {n} sites + {n} clips"
