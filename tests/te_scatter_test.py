@@ -175,6 +175,34 @@ def test_split_te_query_empty_input_gives_no_chunks(tmp_path):
     assert split_te_query(fq, tmp_path / "out", "S.left") == []
 
 
+needs_seqtk = pytest.mark.skipif(
+    shutil.which("seqtk") is None, reason="seqtk not on PATH"
+)
+
+
+@needs_seqtk
+def test_split_te_query_empty_input_gives_no_chunks_under_uutils(
+    tmp_path, monkeypatch, uutils_path
+):
+    """uutils ``split`` writes one empty ``...00000.fa`` for empty input; GNU none."""
+    monkeypatch.setenv("PATH", uutils_path)
+    fq = _fastq(tmp_path / "reads.fq", 0)
+    assert split_te_query(fq, tmp_path / "out", "S.left") == []
+    assert list((tmp_path / "out").iterdir()) == []
+
+
+@needs_seqtk
+def test_split_te_query_same_chunks_under_uutils(tmp_path, monkeypatch, uutils_path):
+    fq = _fastq(tmp_path / "reads.fq", 7)
+    gnu = split_te_query(fq, tmp_path / "gnu", "S.left", chunk_reads=3)
+    monkeypatch.setenv("PATH", uutils_path)
+    uu = split_te_query(fq, tmp_path / "uu", "S.left", chunk_reads=3)
+    assert [(Path(p).name, n) for p, n in uu] == [(Path(p).name, n) for p, n in gnu]
+    assert [Path(p).read_bytes() for p, _ in uu] == [
+        Path(p).read_bytes() for p, _ in gnu
+    ]
+
+
 # ---------------------------------------------------------------------------
 # manifest
 # ---------------------------------------------------------------------------
