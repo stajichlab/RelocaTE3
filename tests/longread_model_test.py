@@ -64,3 +64,16 @@ def test_records_build():
     )  # fmt: skip
     assert rec.locus.sequence_id == sig.locus.sequence_id == cl.locus.sequence_id
     assert Reference("ref", "g.fa").index is None
+
+
+@pytest.mark.parametrize(
+    "member",
+    [*ReadType, *SignatureKind, *ClipSide],
+    ids=lambda m: f"{type(m).__name__}.{m.name}",
+)
+def test_enum_text_form_is_the_value(member):
+    assert str(member) == f"{member}" == member.value
+
+
+def test_clip_side_none_text_is_empty():
+    assert str(ClipSide.NONE) == f"{ClipSide.NONE}" == ""

@@ -22,6 +22,14 @@ class ReadType(str, Enum):
     HIFI = "hifi"
     CLR = "clr"
 
+    def __str__(self) -> str:
+        """Return the value, so text output is the same on every Python."""
+        return self.value
+
+    def __format__(self, spec: str) -> str:
+        """Format the value, so f-strings write it on every Python."""
+        return format(self.value, spec)
+
     @property
     def minimap2_preset(self) -> str:
         """The minimap2 ``-x`` preset for this read type."""
@@ -46,6 +54,14 @@ class SignatureKind(str, Enum):
     SPLIT_INS = "SPLIT_INS"
     CLIP = "CLIP"
 
+    def __str__(self) -> str:
+        """Return the value, so text output is the same on every Python."""
+        return self.value
+
+    def __format__(self, spec: str) -> str:
+        """Format the value, so f-strings write it on every Python."""
+        return format(self.value, spec)
+
 
 class ClipSide(str, Enum):
     """Which end of an alignment a clip signature comes from."""
@@ -53,6 +69,14 @@ class ClipSide(str, Enum):
     LEFT = "left"  # clip before the aligned part (alignment start)
     RIGHT = "right"  # clip after the aligned part (alignment end)
     NONE = ""
+
+    def __str__(self) -> str:
+        """Return the value, so text output is the same on every Python."""
+        return self.value
+
+    def __format__(self, spec: str) -> str:
+        """Format the value, so f-strings write it on every Python."""
+        return format(self.value, spec)
 
 
 @dataclass(frozen=True)
@@ -108,9 +132,15 @@ class PlacementRecord:
     ``query_start``/``query_end`` are in read orientation and count hard
     clips. ``insertions`` holds ``(reference_pos, stored_qstart, stored_qend)``
     for CIGAR insertions, with query offsets into ``sequence``.
-    ``sequence`` is the stored (reference-forward) read sequence, or ``None``
-    when hard clips make it incomplete. ``left_clip``/``right_clip`` are
-    soft-clip lengths at the stored left/right ends.
+
+    ``sequence`` is the stored query sequence exactly as in the BAM:
+    reference-forward, soft-clipped bases included, hard-clipped bases
+    absent. It is ``None`` only when the BAM has no SEQ (``*``), never just
+    because of hard clips. ``left_clip``/``right_clip`` are soft-clip
+    lengths at the stored left/right ends; ``left_hard_clip``/
+    ``right_hard_clip`` say how many read bases are missing from
+    ``sequence`` at each stored end. ``sequence`` is the full read only
+    when both hard clips are 0.
     """
 
     read_id: str
