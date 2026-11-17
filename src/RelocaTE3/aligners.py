@@ -332,20 +332,23 @@ def split_te_query(
                     stdout=out,
                     check=True,
                 )
-            subprocess.run(
-                [
-                    "split",
-                    "-l",
-                    str(2 * chunk_reads),
-                    "-d",
-                    "-a",
-                    str(_CHUNK_INDEX_DIGITS),
-                    "--additional-suffix=.fa",
-                    str(query_fa),
-                    str(outdir / prefix),
-                ],
-                check=True,
-            )
+            # GNU split writes no file for empty input, uutils split (Ubuntu
+            # 26.04's coreutils) writes one empty chunk; skip it so both give none.
+            if query_fa.stat().st_size > 0:
+                subprocess.run(
+                    [
+                        "split",
+                        "-l",
+                        str(2 * chunk_reads),
+                        "-d",
+                        "-a",
+                        str(_CHUNK_INDEX_DIGITS),
+                        "--additional-suffix=.fa",
+                        str(query_fa),
+                        str(outdir / prefix),
+                    ],
+                    check=True,
+                )
         finally:
             query_fa.unlink(missing_ok=True)
         return [(path, _count_fasta_records(path)) for path in listing()]

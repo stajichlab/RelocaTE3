@@ -37,10 +37,40 @@ def test_cohort_report_keeps_temp_files_in_the_outdir_and_reads_lines_safely():
     assert not re.search(r"for \w+ in \$\(", text), "unquoted word-split loop"
 
 
-@pytest.mark.skipif(
+def test_shell_scripts_pass_separators_as_their_own_argument():
+    """``sort -t=`` is an error in uutils coreutils <= 0.10 (Ubuntu 26.04); ``-t '='`` is not."""
+    dirs = [
+        "containers",
+        "scripts",
+        "validation",
+        "modules",
+        "subworkflows",
+        "workflows",
+        "tests/nextflow",
+    ]
+    scripts = [
+        p
+        for d in dirs
+        for p in (ROOT / d).rglob("*")
+        if p.suffix in {".sh", ".slurm", ".nf"}
+    ]
+    assert COHORT_REPORT in scripts
+    attached = [
+        f"{p.relative_to(ROOT)}: {line.strip()}"
+        for p in scripts
+        for line in p.read_text().splitlines()
+        if re.search(r"\bsort\b[^|;]*\s-t[^\s]", line)
+    ]
+    assert attached == []
+
+
+needs_pipeline_env = pytest.mark.skipif(
     not (PIPELINE_BIN / "multiqc").is_file() or shutil.which("bash") is None,
     reason="needs the pipeline env (pixi install -e pipeline)",
 )
+
+
+@needs_pipeline_env
 def test_cohort_report_passes_on_a_two_sample_tree(tmp_path):
     tree = tmp_path / "pipeline_out"
     tables = {}
@@ -62,6 +92,13 @@ def test_cohort_report_passes_on_a_two_sample_tree(tmp_path):
     assert cohort == [HEADER, *tables["B_10"], *tables["G_1"]]
     # the temporary file lived in the outdir and is gone
     assert sorted(p.name for p in out.iterdir()) == ["cohort", "mqc_in", "multiqc"]
+
+
+@needs_pipeline_env
+def test_cohort_report_passes_under_uutils(tmp_path, monkeypatch, uutils_path):
+    """The same check with uutils ``sort`` (Ubuntu 26.04's coreutils) on PATH."""
+    monkeypatch.setenv("PATH", uutils_path)
+    test_cohort_report_passes_on_a_two_sample_tree(tmp_path)
 
 
 # ------------------------------------------------------- fresh_clone_check.slurm
