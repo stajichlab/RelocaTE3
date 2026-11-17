@@ -8,7 +8,9 @@ Three kinds of read evidence (:class:`SignatureKind`):
   paired with its nearest collinear partner: the first later alignment (in
   read order) that passes both the reference-gap and read-gap tests.
   Alignments in between that fail are skipped, so a TE body that aligns to
-  another TE copy on the same sequence does not hide the insertion;
+  another TE copy on the same sequence does not hide the insertion. When
+  several A pick the same B (a duplicated segment), only the nearest A in
+  read order is kept, so each B gives at most one signature;
 - ``CLIP``: a long soft clip at either end of an alignment.
 
 Signature sequences and flanks are reference-forward; query coordinates are
@@ -159,8 +161,8 @@ def clip_signatures(rec: PlacementRecord, params: SignatureParams) -> list[Signa
 
     A LEFT clip sits at ``locus.start``, a RIGHT clip at ``locus.end``. The
     inner flank is the aligned bases next to the clip; the outer flank is
-    ``""``. Inner flanks stop at the opposite soft clip. LEFT and RIGHT clips of one record cover disjoint stored
-    offsets, so their ids differ.
+    ``""``. Inner flanks stop at the opposite soft clip. LEFT and RIGHT
+    clips of one record cover disjoint stored offsets, so their ids differ.
 
     Args:
         rec: One placement record.
@@ -200,21 +202,54 @@ def _split_order(rec: PlacementRecord) -> tuple[int, int, int, int, int]:
 
 
 def _collinear_partner(
-    a: PlacementRecord,
-    later: list[PlacementRecord],
+    group: list[PlacementRecord],
+    i: int,
     strand: str,
     params: SignatureParams,
-) -> tuple[PlacementRecord, int] | None:
-    """Return the first record after ``a`` passing both gap tests, and the position."""
-    for b in later:
+) -> tuple[int, int] | None:
+    """Find the first record after ``group[i]`` passing both gap tests.
+
+    Returns:
+        The partner's index in ``group`` and the insertion position, or None.
+    """
+    a = group[i]
+    for j in range(i + 1, len(group)):
+        b = group[j]
         if strand == "+":
             ref_gap, pos = b.locus.start - a.locus.end, a.locus.end
         else:
             ref_gap, pos = a.locus.start - b.locus.end, b.locus.end
         gap = b.query_start - a.query_end
         if abs(ref_gap) <= params.split_max_ref_gap and gap >= params.min_ins_len:
-            return b, pos
+            return j, pos
     return None
+
+
+def _nearest_a_pairs(
+    group: list[PlacementRecord], strand: str, params: SignatureParams
+) -> list[tuple[int, int, int]]:
+    """Pair each A with its partner B, keeping one A per B.
+
+    Returns:
+        ``(a_index, b_index, position)`` in A order. For each B the A with the
+        largest ``query_end`` wins; ties go to the larger ``locus.end`` on
+        ``+`` (smaller ``locus.start`` on ``-``), then to the earlier A.
+    """
+    best: dict[int, tuple[int, int]] = {}  # b_index -> (a_index, position)
+
+    def rank(i: int) -> tuple[int, int, int]:
+        a = group[i]
+        near = a.locus.end if strand == "+" else -a.locus.start
+        return (a.query_end, near, -i)
+
+    for i in range(len(group)):
+        partner = _collinear_partner(group, i, strand, params)
+        if partner is None:
+            continue
+        j, pos = partner
+        if j not in best or rank(i) > rank(best[j][0]):
+            best[j] = (i, pos)
+    return sorted((i, j, pos) for j, (i, pos) in best.items())
 
 
 def split_ins_signatures(
@@ -231,8 +266,10 @@ def split_ins_signatures(
     ``B.end`` on ``-``. A pair passes when ``abs(reference gap) <=
     split_max_ref_gap`` and the read gap is at least ``min_ins_len``. Each A
     is paired with the first later B that passes (its nearest collinear
-    partner), skipping records in between, so each A gives at most one
-    signature.
+    partner), skipping records in between. When several A pick the same B,
+    the A with the largest ``query_end`` is kept (ties: larger ``locus.end``
+    on ``+``, smaller ``locus.start`` on ``-``, then sort order). Each A and
+    each B gives at most one signature.
 
     Args:
         recs: All kept records of one read (sequences are not needed).
@@ -252,11 +289,8 @@ def split_ins_signatures(
     out = []
     for (_key, strand), group in sorted(groups.items(), key=lambda kv: kv[0]):
         group.sort(key=_split_order)
-        for i, a in enumerate(group):
-            partner = _collinear_partner(a, group[i + 1 :], strand, params)
-            if partner is None:
-                continue
-            b, pos = partner
+        for i, j, pos in _nearest_a_pairs(group, strand, params):
+            a, b = group[i], group[j]
             gap = b.query_start - a.query_end
             s, e = a.query_end, b.query_start
             if r is None:

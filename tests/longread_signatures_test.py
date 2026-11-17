@@ -623,3 +623,56 @@ def test_collect_ignores_full_sequence_of_wrong_length() -> None:
     (split,) = [s for s in sigs if s.kind is SignatureKind.SPLIT_INS]
     assert (split.sequence, split.left_flank, split.right_flank) == ("", "", "")
     assert stats["split_ins_no_sequence"] == 1
+
+
+# --- SPLIT_INS: one per B, from the nearest A ------------------------------------
+
+
+@pytest.mark.parametrize("strand", ["+", "-"])
+def test_duplicated_segment_gives_one_split_per_b(strand: str) -> None:
+    # A1 and A2 align to the same reference interval (duplicated segment);
+    # both would pair with B. Only the nearest A (A2) is kept.
+    fwd = strand == "+"
+    a_ref = (1000, 2000) if fwd else (2000, 3000)
+    b_ref = (2000, 3100) if fwd else (900, 2000)
+    a1 = _rec("d", qs=0, qe=1000, start=a_ref[0], end=a_ref[1], read_length=4000,
+              sequence=None, strand=strand, has_supp=True)  # fmt: skip
+    a2 = _rec("d", qs=1100, qe=2100, start=a_ref[0], end=a_ref[1],
+              read_length=4000, sequence=None, strand=strand, supp=True,
+              has_supp=True)  # fmt: skip
+    b = _rec("d", qs=2900, qe=4000, start=b_ref[0], end=b_ref[1],
+             read_length=4000, sequence=None, strand=strand, supp=True,
+             has_supp=True)  # fmt: skip
+    for order in ([a1, a2, b], [b, a2, a1]):
+        (s,) = split_ins_signatures(order, None, P)
+        assert s.insert_length == 800
+        assert (s.query_start, s.query_end) == (2100, 2900)
+        assert s.locus.start == 2000
+    (s,) = [x for x in collect_signatures([b, a1, a2], P)
+            if x.kind is SignatureKind.SPLIT_INS]  # fmt: skip
+    assert s.insert_length == 800
+
+
+def test_nearest_a_tie_forward_prefers_larger_end() -> None:
+    # Same query_end; A_far sorts first but ends at 1990, A_near at 2000.
+    a_far = _rec("tf", qs=0, qe=1000, start=1000, end=1990, read_length=3000,
+                 sequence=None)  # fmt: skip
+    a_near = _rec("tf", qs=100, qe=1000, start=1010, end=2000,
+                  read_length=3000, sequence=None)  # fmt: skip
+    b = _rec("tf", qs=1800, qe=3000, start=2010, end=3210, read_length=3000,
+             sequence=None)  # fmt: skip
+    (s,) = split_ins_signatures([a_far, a_near, b], None, P)
+    assert s.locus.start == 2000
+
+
+def test_nearest_a_tie_reverse_prefers_smaller_start() -> None:
+    # Reverse: A sits right of B on the reference; the nearer A starts lower.
+    a_far = _rec("tr", qs=0, qe=1000, start=2010, end=3000, read_length=3000,
+                 sequence=None, strand="-", mapq=60)  # fmt: skip
+    a_near = _rec("tr", qs=100, qe=1000, start=2000, end=2900,
+                  read_length=3000, sequence=None, strand="-",
+                  mapq=20)  # fmt: skip
+    b = _rec("tr", qs=1800, qe=3000, start=800, end=2000, read_length=3000,
+             sequence=None, strand="-", mapq=60)  # fmt: skip
+    (s,) = split_ins_signatures([a_far, a_near, b], None, P)
+    assert s.mapq == 20  # from a_near
