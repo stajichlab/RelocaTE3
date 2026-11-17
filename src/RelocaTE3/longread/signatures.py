@@ -3,8 +3,12 @@
 Three kinds of read evidence (:class:`SignatureKind`):
 
 - ``INS``: CIGAR insertions inside one alignment, nearby pieces merged;
-- ``SPLIT_INS``: a read gap between consecutive alignments of one read on
-  the same sequence and strand, with little reference gap;
+- ``SPLIT_INS``: a read gap between two alignments of one read on the same
+  sequence and strand, with little reference gap. Each alignment A is
+  paired with its nearest collinear partner: the first later alignment (in
+  read order) that passes both the reference-gap and read-gap tests.
+  Alignments in between that fail are skipped, so a TE body that aligns to
+  another TE copy on the same sequence does not hide the insertion;
 - ``CLIP``: a long soft clip at either end of an alignment.
 
 Signature sequences and flanks are reference-forward; query coordinates are
@@ -155,7 +159,7 @@ def clip_signatures(rec: PlacementRecord, params: SignatureParams) -> list[Signa
 
     A LEFT clip sits at ``locus.start``, a RIGHT clip at ``locus.end``. The
     inner flank is the aligned bases next to the clip; the outer flank is
-    ``""``. LEFT and RIGHT clips of one record cover disjoint stored
+    ``""``. Inner flanks stop at the opposite soft clip. LEFT and RIGHT clips of one record cover disjoint stored
     offsets, so their ids differ.
 
     Args:
@@ -174,17 +178,16 @@ def clip_signatures(rec: PlacementRecord, params: SignatureParams) -> list[Signa
         else rec.read_length - rec.left_hard_clip - rec.right_hard_clip
     )  # fmt: skip
     out = []
-    lc = rec.left_clip
+    lc, rc = rec.left_clip, rec.right_clip
     if lc >= params.min_clip_len:
         clip = seq[:lc] if seq is not None else ""
-        right = seq[lc : lc + flank] if seq is not None else ""
+        right = seq[lc : min(lc + flank, n - rc)] if seq is not None else ""
         out.append(_make(rec, SignatureKind.CLIP,
                          _point(rec.locus, rec.locus.start), 0, lc,
                          ClipSide.LEFT, clip, "", right))  # fmt: skip
-    rc = rec.right_clip
     if rc >= params.min_clip_len:
         clip = seq[n - rc :] if seq is not None else ""
-        left = seq[max(0, n - rc - flank) : n - rc] if seq is not None else ""
+        left = seq[max(lc, n - rc - flank) : n - rc] if seq is not None else ""
         out.append(_make(rec, SignatureKind.CLIP,
                          _point(rec.locus, rec.locus.end), n - rc, n,
                          ClipSide.RIGHT, clip, left, ""))  # fmt: skip
@@ -196,6 +199,24 @@ def _split_order(rec: PlacementRecord) -> tuple[int, int, int, int, int]:
     return (rec.query_start, rec.query_end, rec.locus.start, rec.locus.end, rec.mapq)
 
 
+def _collinear_partner(
+    a: PlacementRecord,
+    later: list[PlacementRecord],
+    strand: str,
+    params: SignatureParams,
+) -> tuple[PlacementRecord, int] | None:
+    """Return the first record after ``a`` passing both gap tests, and the position."""
+    for b in later:
+        if strand == "+":
+            ref_gap, pos = b.locus.start - a.locus.end, a.locus.end
+        else:
+            ref_gap, pos = a.locus.start - b.locus.end, b.locus.end
+        gap = b.query_start - a.query_end
+        if abs(ref_gap) <= params.split_max_ref_gap and gap >= params.min_ins_len:
+            return b, pos
+    return None
+
+
 def split_ins_signatures(
     recs: Iterable[PlacementRecord],
     read_sequence: str | None,
@@ -204,12 +225,14 @@ def split_ins_signatures(
     """Return SPLIT_INS signatures between alignments of one read.
 
     Records are grouped by ``(locus.key, locus.strand)`` and ordered by
-    read-orientation ``query_start``. For each consecutive pair (A, B) the
-    read gap is ``B.query_start - A.query_end``; the reference gap and
-    position are ``B.start - A.end`` at ``A.end`` on ``+`` and
-    ``A.start - B.end`` at ``B.end`` on ``-``. A signature is emitted when
-    ``abs(reference gap) <= split_max_ref_gap`` and the read gap is at least
-    ``min_ins_len``.
+    read-orientation ``query_start``. For a pair (A, B) the read gap is
+    ``B.query_start - A.query_end``; the reference gap and position are
+    ``B.start - A.end`` at ``A.end`` on ``+`` and ``A.start - B.end`` at
+    ``B.end`` on ``-``. A pair passes when ``abs(reference gap) <=
+    split_max_ref_gap`` and the read gap is at least ``min_ins_len``. Each A
+    is paired with the first later B that passes (its nearest collinear
+    partner), skipping records in between, so each A gives at most one
+    signature.
 
     Args:
         recs: All kept records of one read (sequences are not needed).
@@ -229,14 +252,12 @@ def split_ins_signatures(
     out = []
     for (_key, strand), group in sorted(groups.items(), key=lambda kv: kv[0]):
         group.sort(key=_split_order)
-        for a, b in zip(group, group[1:]):
-            gap = b.query_start - a.query_end
-            if strand == "+":
-                ref_gap, pos = b.locus.start - a.locus.end, a.locus.end
-            else:
-                ref_gap, pos = a.locus.start - b.locus.end, b.locus.end
-            if abs(ref_gap) > params.split_max_ref_gap or gap < params.min_ins_len:
+        for i, a in enumerate(group):
+            partner = _collinear_partner(a, group[i + 1 :], strand, params)
+            if partner is None:
                 continue
+            b, pos = partner
+            gap = b.query_start - a.query_end
             s, e = a.query_end, b.query_start
             if r is None:
                 ins = left = right = ""
@@ -275,7 +296,8 @@ def collect_signatures(
     Each record's INS and CLIP signatures are yielded as it arrives. Records
     with ``has_supplementary`` are also buffered by read, without their
     sequence; the read-orientation full sequence is kept from the first
-    record of the read with no hard clips and a sequence. SPLIT_INS
+    record of the read with no hard clips and a sequence of exactly
+    ``read_length`` bases. SPLIT_INS
     signatures follow at the end of the stream, reads in sorted id order.
 
     Args:
@@ -309,6 +331,7 @@ def collect_signatures(
                 and rec.sequence is not None
                 and rec.left_hard_clip == 0
                 and rec.right_hard_clip == 0
+                and len(rec.sequence) == rec.read_length
             ):
                 full_seq[rec.read_id] = (
                     reverse_complement(rec.sequence)

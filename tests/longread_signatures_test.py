@@ -345,9 +345,10 @@ def test_split_forward() -> None:
     assert s.signature_id == "s:SPLIT_INS:1000-1800@msu7:Chr3:2000+"
 
 
-def _reverse_split() -> (
-    tuple[str, str, str, str, str, PlacementRecord, PlacementRecord]
-):
+_ReverseSplit = tuple[str, str, str, str, str, PlacementRecord, PlacementRecord]
+
+
+def _reverse_split() -> _ReverseSplit:
     # Reference-forward picture: B's bases, the insert, then A's bases.
     b_fw, ins_fw, a_fw = _seq(1200, 60), _seq(800, 61), _seq(1000, 62)
     refwd = b_fw + ins_fw + a_fw
@@ -526,3 +527,99 @@ def test_collect_deterministic_under_shuffle_and_round_trips(tmp_path: Path) -> 
     meta, rows = read_signatures(out)
     assert meta["reference_id"] == REF
     assert list(rows) == expected
+
+
+# --- SPLIT_INS: nearest collinear partner (TE body aligned elsewhere) ----------
+
+
+def _te_split_forward() -> tuple[str, str, list[PlacementRecord]]:
+    a, insert, b = _seq(1000, 90), _seq(800, 91), _seq(1200, 92)
+    read = a + insert + b
+    rec_a = _rec("t", qs=0, qe=1000, start=1000, end=2000, read_length=3000,
+                 sequence=read, rc=2000, has_supp=True)  # fmt: skip
+    # The insert itself aligns to a TE copy elsewhere on the same sequence.
+    rec_te = _rec("t", qs=1000, qe=1800, start=50000, end=50800,
+                  read_length=3000, sequence=insert, lh=1000, rh=1200,
+                  supp=True, has_supp=True)  # fmt: skip
+    rec_b = _rec("t", qs=1800, qe=3000, start=2000, end=3200, read_length=3000,
+                 sequence=b, lh=1800, supp=True, has_supp=True)  # fmt: skip
+    return read, insert, [rec_a, rec_te, rec_b]
+
+
+def test_split_skips_te_alignment_between_flanks_forward() -> None:
+    read, insert, recs = _te_split_forward()
+    (s,) = split_ins_signatures(recs, read, P)
+    assert s.locus == Locus(REF, "Chr3", 2000, 2000, "+")
+    assert s.insert_length == 800
+    assert s.sequence == read[1000:1800] == insert
+    assert (s.query_start, s.query_end) == (1000, 1800)
+
+
+def test_split_skips_te_alignment_and_partial_te_alignment() -> None:
+    read, insert, recs = _te_split_forward()
+    partial = _rec("t", qs=1250, qe=1550, start=60000, end=60300,
+                   read_length=3000, sequence=None, lh=1250, rh=1450,
+                   supp=True, has_supp=True)  # fmt: skip
+    for order in (recs + [partial], [partial] + recs[::-1]):
+        (s,) = split_ins_signatures(order, read, P)
+        assert (s.locus.start, s.insert_length, s.sequence) == (2000, 800, insert)
+
+
+def test_split_skips_te_alignment_between_flanks_reverse() -> None:
+    b_fw, ins_fw, a_fw = _seq(1200, 93), _seq(800, 94), _seq(1000, 95)
+    refwd = b_fw + ins_fw + a_fw
+    read = _rc(refwd)  # A, then the insert, then B
+    rec_a = _rec("u", qs=0, qe=1000, start=2000, end=3000, read_length=3000,
+                 sequence=refwd, strand="-", lc=2000, has_supp=True)  # fmt: skip
+    rec_te = _rec("u", qs=1000, qe=1800, start=50000, end=50800,
+                  read_length=3000, sequence=ins_fw, strand="-", lh=1200,
+                  rh=1000, supp=True, has_supp=True)  # fmt: skip
+    rec_b = _rec("u", qs=1800, qe=3000, start=800, end=2000, read_length=3000,
+                 sequence=b_fw, strand="-", rh=1800, supp=True,
+                 has_supp=True)  # fmt: skip
+    (s,) = split_ins_signatures([rec_b, rec_te, rec_a], read, P)
+    assert s.locus == Locus(REF, "Chr3", 2000, 2000, "-")
+    assert s.insert_length == 800
+    assert s.sequence == ins_fw == _rc(read[1000:1800])
+    assert s.left_flank == b_fw[-200:]
+    assert s.right_flank == a_fw[:200]
+
+
+def test_split_three_collinear_alignments_give_two() -> None:
+    # A, B, C collinear with an insert between each: pairs (A, B), (B, C).
+    rec_a = _rec("c3", qs=0, qe=1000, start=1000, end=2000, read_length=3600,
+                 sequence=None)  # fmt: skip
+    rec_b = _rec("c3", qs=1300, qe=2300, start=2000, end=3000,
+                 read_length=3600, sequence=None)  # fmt: skip
+    rec_c = _rec("c3", qs=2700, qe=3600, start=3010, end=3910,
+                 read_length=3600, sequence=None)  # fmt: skip
+    sigs = split_ins_signatures([rec_c, rec_a, rec_b], None, P)
+    got = [(s.locus.start, s.query_start, s.query_end, s.insert_length) for s in sigs]
+    assert got == [(2000, 1000, 1300, 300), (3000, 2300, 2700, 400)]
+
+
+# --- CLIP flanks stay inside the aligned bases -----------------------------------
+
+
+def test_clip_flanks_do_not_reach_the_opposite_clip() -> None:
+    lclip, aligned, rclip = _seq(150, 96), _seq(100, 97), _seq(150, 98)
+    # 150S100M150S at reference 1000.
+    rec = _rec("short", qs=150, qe=250, start=1000, end=1100, read_length=400,
+               sequence=lclip + aligned + rclip, lc=150, rc=150)  # fmt: skip
+    left, right = clip_signatures(rec, P)
+    assert left.right_flank == aligned
+    assert right.left_flank == aligned
+    assert (left.sequence, right.sequence) == (lclip, rclip)
+
+
+# --- collect: kept read sequence must have the read length ------------------------
+
+
+def test_collect_ignores_full_sequence_of_wrong_length() -> None:
+    _read, _a, _i, _b, rec_a, rec_b = _forward_split()
+    bad = replace(rec_a, sequence=rec_a.sequence[:-1])  # 2999 bases, L = 3000
+    stats: dict[str, int] = {}
+    sigs = list(collect_signatures([bad, rec_b], P, stats))
+    (split,) = [s for s in sigs if s.kind is SignatureKind.SPLIT_INS]
+    assert (split.sequence, split.left_flank, split.right_flank) == ("", "", "")
+    assert stats["split_ins_no_sequence"] == 1
