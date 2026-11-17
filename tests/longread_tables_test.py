@@ -176,3 +176,54 @@ def test_tab_in_field_rejected(tmp_path):
         write_signatures(path, [bad], read_type=ReadType.ONT, reference_id=REF)
     assert not path.exists()
     assert not Path(f"{path}.partial").exists()
+
+
+@pytest.mark.parametrize("sig_id", ["", "r,1:INS:0"])
+def test_ambiguous_signature_id_rejected(tmp_path, sig_id):
+    path = tmp_path / "sigs.tsv.gz"
+    bad = Signature(
+        sig_id, SignatureKind.INS, Locus(REF, "Chr3", 1, 1, "+"), 5,
+        ClipSide.NONE, "r1", 0, 5, 60, "ACGTA", "", "",
+    )  # fmt: skip
+    with pytest.raises(ValueError, match="signature_id"):
+        write_signatures(path, [bad], read_type=ReadType.ONT, reference_id=REF)
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("ids", [("",), ("s1", "a,b")])
+def test_ambiguous_cluster_signature_ids_rejected(tmp_path, ids):
+    path = tmp_path / "clusters.tsv.gz"
+    bad = Cluster("c1", Locus(REF, "Chr3", 1, 1, "+"), 1, 1, 0, 0, 0, (5,), ids)
+    with pytest.raises(ValueError, match="signature_ids"):
+        write_clusters(path, [bad], read_type=ReadType.ONT, reference_id=REF)
+    assert not path.exists()
+
+
+@pytest.mark.parametrize(
+    ("col", "value"), [("start", "x"), ("kind", "DEL"), ("strand", ".")]
+)
+def test_bad_row_value_names_line(tmp_path, col, value):
+    path = tmp_path / "sigs.tsv.gz"
+    write_signatures(path, _signatures(), read_type=ReadType.ONT,
+                     reference_id=REF)  # fmt: skip
+    with gzip.open(path, "rt") as fh:
+        lines = fh.read().split("\n")
+    fields = lines[3].split("\t")
+    fields[SIGNATURE_COLUMNS.index(col)] = value
+    lines[3] = "\t".join(fields)
+    bad = _write_raw(tmp_path / "bad.tsv.gz", lines[:-1])
+    _, rows = read_signatures(bad)
+    with pytest.raises(ValueError, match=r"bad\.tsv\.gz:4: "):
+        list(rows)
+
+
+def test_none_field_rejected(tmp_path):
+    path = tmp_path / "sigs.tsv.gz"
+    bad = Signature(
+        "s1", SignatureKind.INS, Locus(REF, "Chr3", 1, 1, "+"), 5,
+        ClipSide.NONE, "r1", 0, 5, 60, None, "", "",  # type: ignore[arg-type]
+    )  # fmt: skip
+    with pytest.raises(ValueError, match="None"):
+        write_signatures(path, [bad], read_type=ReadType.ONT, reference_id=REF)
+    assert not path.exists()
+    assert not Path(f"{path}.partial").exists()

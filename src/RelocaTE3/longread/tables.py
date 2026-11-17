@@ -8,7 +8,8 @@ header, so stages cannot silently read each other's output.
 
 Writes go to ``<path>.partial`` and are renamed on success; on any error the
 partial file is removed. An existing ``<path>`` is never overwritten.
-Fields are joined with tabs and must not contain tabs or newlines.
+Fields are joined with tabs; a field must not be None or contain a tab or
+newline, and an id in a comma-joined list must be non-empty and comma-free.
 """
 
 from __future__ import annotations
@@ -44,6 +45,8 @@ CLUSTER_COLUMNS = (
 
 
 def _join_line(fields: Sequence[object]) -> str:
+    if any(f is None for f in fields):
+        raise ValueError(f"field is None in row {list(fields)!r}")
     texts = [str(f) for f in fields]
     for text in texts:
         if "\t" in text or "\n" in text or "\r" in text:
@@ -142,14 +145,25 @@ def _iter_rows(
                 raise ValueError(
                     f"{path}:{lineno}: expected {n_columns} fields, got {len(fields)}"
                 )
-            yield from_fields(fields)
+            try:
+                row = from_fields(fields)
+            except ValueError as err:
+                raise ValueError(f"{path}:{lineno}: {err}") from err
+            yield row
 
 
 def _split_list(text: str) -> list[str]:
     return text.split(",") if text else []
 
 
+def _check_list_item(item: str, what: str) -> None:
+    # A comma-joined list cannot carry an empty item or one with a comma.
+    if not item or "," in item:
+        raise ValueError(f"{what} must be non-empty and comma-free: {item!r}")
+
+
 def _signature_fields(s: Signature) -> tuple[object, ...]:
+    _check_list_item(s.signature_id, "signature_id")
     loc = s.locus
     return (
         s.signature_id, s.kind, loc.reference_id, loc.sequence_id, loc.start,
@@ -177,6 +191,8 @@ def _signature_from(f: list[str]) -> Signature:
 
 
 def _cluster_fields(c: Cluster) -> tuple[object, ...]:
+    for sig_id in c.signature_ids:
+        _check_list_item(sig_id, f"cluster {c.cluster_id} signature_ids item")
     loc = c.locus
     return (
         c.cluster_id, loc.reference_id, loc.sequence_id, loc.start, loc.end,
@@ -220,7 +236,8 @@ def write_signatures(
 
     Raises:
         FileExistsError: If ``path`` already exists.
-        ValueError: If a field contains a tab or newline.
+        ValueError: If a field is None or contains a tab or newline, or a
+            ``signature_id`` is empty or contains a comma.
     """
     return _write_table(path, SIGNATURE_SCHEMA, SIGNATURE_COLUMNS, signatures,
                         _signature_fields, read_type, reference_id)  # fmt: skip
@@ -243,7 +260,8 @@ def read_signatures(
 
     Raises:
         ValueError: On a wrong schema, unknown version or changed header;
-            the iterator raises it on a row with the wrong field count.
+            the iterator raises it, naming the line, on a row with the
+            wrong field count or a bad value.
     """
     return _read_table(path, SIGNATURE_SCHEMA, SIGNATURE_COLUMNS,
                        _signature_from)  # fmt: skip
@@ -269,7 +287,8 @@ def write_clusters(
 
     Raises:
         FileExistsError: If ``path`` already exists.
-        ValueError: If a field contains a tab or newline.
+        ValueError: If a field is None or contains a tab or newline, or a
+            ``signature_ids`` item is empty or contains a comma.
     """
     return _write_table(path, CLUSTER_SCHEMA, CLUSTER_COLUMNS, clusters,
                         _cluster_fields, read_type, reference_id)  # fmt: skip
@@ -292,6 +311,7 @@ def read_clusters(
 
     Raises:
         ValueError: On a wrong schema, unknown version or changed header;
-            the iterator raises it on a row with the wrong field count.
+            the iterator raises it, naming the line, on a row with the
+            wrong field count or a bad value.
     """
     return _read_table(path, CLUSTER_SCHEMA, CLUSTER_COLUMNS, _cluster_from)
