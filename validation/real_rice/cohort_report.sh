@@ -51,7 +51,7 @@ cp "${OUT}/cohort/cohort.summary_mqc.tsv" "${OUT}/mqc_in/"
 # Check: cohort rows == concatenation of per-sample data rows, in sample order
 # (byte order of the sample name, as relocaTE3 cohort sorts; G_1 < G_104).
 expected=$(mktemp -p "${OUT}" .expected.XXXXXX); trap 'rm -f "${expected}"' EXIT
-printf '%s\n' "${INPUTS[@]}" | LC_ALL=C sort -t= -k1,1 | while IFS= read -r pair; do
+printf '%s\n' "${INPUTS[@]}" | LC_ALL=C sort -t '=' -k1,1 | while IFS= read -r pair; do
   tail -n +2 "${pair#*=}"
 done > "${expected}"
 if cmp -s "${expected}" <(tail -n +2 "${OUT}/cohort/cohort.characTErized.txt"); then
