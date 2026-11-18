@@ -21,8 +21,10 @@
 #   mkdir -p logs && sbatch validation/longread_l2/run_gate.slurm
 # Overridable: PANEL, GENOME, OUT, MAX_DIST, MIN_RECALL (environment variables).
 #
-# Rerun-safe: a set whose clusters file exists is skipped; a set directory
-# with partial outputs but no clusters file is refused (move it aside).
+# Rerun-safe, per stage: lr-align, lr-signatures and lr-cluster are each
+# skipped when their output (<set>.lr.bam + .bai, <set>.signatures.tsv.gz,
+# <set>.clusters.tsv.gz) exists. A BAM without its .bai is refused (remove the
+# set directory).
 
 set -euo pipefail
 
@@ -78,30 +80,39 @@ run_set() {
   local sigs="$dir/$name.signatures.tsv.gz"
   local clusters="$dir/$name.clusters.tsv.gz"
 
+  # Each stage refuses to overwrite its output and writes it atomically, so
+  # an existing output means that stage finished: skip it.
+  if [[ -f "$bam" && ! -f "$bam.bai" ]]; then
+    echo "ERROR: $bam exists without $bam.bai (interrupted lr-align);" \
+      "remove $dir and resubmit" >&2
+    exit 1
+  fi
+  if [[ -f "$bam" ]]; then
+    echo "[$(date '+%F %T')] $name: lr-align skipped ($bam exists)"
+  else
+    if [[ ! -f "$reads" ]]; then
+      echo "ERROR: missing reads for $name: $reads" >&2
+      exit 1
+    fi
+    echo "[$(date '+%F %T')] $name: lr-align ($platform, $reads)"
+    pixi run --frozen relocaTE3 lr-align --sample "$name" -o "$dir" \
+      --genome "$GENOME" --read-type "$platform" --reads "$reads" \
+      --threads "$THREADS"
+  fi
+  if [[ -f "$sigs" ]]; then
+    echo "[$(date '+%F %T')] $name: lr-signatures skipped ($sigs exists)"
+  else
+    echo "[$(date '+%F %T')] $name: lr-signatures"
+    pixi run --frozen relocaTE3 lr-signatures --sample "$name" -o "$dir" \
+      --bam "$bam" --read-type "$platform" --genome "$GENOME"
+  fi
   if [[ -f "$clusters" ]]; then
-    echo "[$(date '+%F %T')] $name: $clusters exists; skipping"
-    return 0
+    echo "[$(date '+%F %T')] $name: lr-cluster skipped ($clusters exists)"
+  else
+    echo "[$(date '+%F %T')] $name: lr-cluster"
+    pixi run --frozen relocaTE3 lr-cluster --sample "$name" -o "$dir" \
+      --signatures "$sigs"
   fi
-  if [[ -d "$dir" ]] && [[ -n "$(ls -A "$dir")" ]]; then
-    echo "ERROR: $dir has partial outputs but no $(basename "$clusters");" \
-      "move it aside to rerun this set" >&2
-    exit 1
-  fi
-  if [[ ! -f "$reads" ]]; then
-    echo "ERROR: missing reads for $name: $reads" >&2
-    exit 1
-  fi
-
-  echo "[$(date '+%F %T')] $name: lr-align ($platform, $reads)"
-  pixi run --frozen relocaTE3 lr-align --sample "$name" -o "$dir" \
-    --genome "$GENOME" --read-type "$platform" --reads "$reads" \
-    --threads "$THREADS"
-  echo "[$(date '+%F %T')] $name: lr-signatures"
-  pixi run --frozen relocaTE3 lr-signatures --sample "$name" -o "$dir" \
-    --bam "$bam" --read-type "$platform" --genome "$GENOME"
-  echo "[$(date '+%F %T')] $name: lr-cluster"
-  pixi run --frozen relocaTE3 lr-cluster --sample "$name" -o "$dir" \
-    --signatures "$sigs"
   echo "[$(date '+%F %T')] $name: done"
 }
 
@@ -140,7 +151,7 @@ column -t -s $'\t' "$GATE_TSV"
 
 # --- timing -----------------------------------------------------------------
 echo
-echo "Per-stage timing (from each set's timing.tsv; last row per stage):"
+echo "Per-stage timing (from each set's timing.tsv; last ok row per stage):"
 {
   printf 'set\tstage\twall_s\tmax_rss_mb\trecords_in\trecords_out\tstatus\n'
   for row in "${ROWS[@]}"; do
@@ -150,6 +161,7 @@ echo "Per-stage timing (from each set's timing.tsv; last row per stage):"
       [[ -f "$timing" ]] || continue
       awk -F'\t' -v OFS='\t' -v set="$name" '
         NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
+        $col["status"] != "ok" { next }  # e.g. FileExistsError rows from reruns
         { last[$col["stage"]] = set OFS $col["stage"] OFS $col["wall_s"] OFS \
             $col["max_rss_mb"] OFS $col["records_in"] OFS $col["records_out"] \
             OFS $col["status"]; order[$col["stage"]] = NR }

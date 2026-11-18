@@ -26,8 +26,11 @@ Overridable environment variables: `PANEL` (default
 The verdict is the `GATE: PASS` / `GATE: FAIL` line in
 `logs/longread_l2_gate.<jobid>.log`; the job exits 0 either way.
 
-Rerun-safe: a read set whose `<set>.clusters.tsv.gz` exists is skipped; a set
-directory with partial outputs and no clusters file is refused (move it aside).
+Rerun-safe, per stage: `lr-align` is skipped when `<set>.lr.bam` and its
+`.bai` exist, `lr-signatures` when `<set>.signatures.tsv.gz` exists,
+`lr-cluster` when `<set>.clusters.tsv.gz` exists (each stage writes its output
+atomically). A BAM without its `.bai` stops the job: remove that set directory
+and resubmit.
 
 Expected run time: to be filled after the first run.
 
@@ -36,6 +39,11 @@ Expected run time: to be filled after the first run.
 `$OUT/<platform>_<sample>/` and `$OUT/<platform>_<sample>_control/`, one per
 read set: `<set>.lr.bam`, `<set>.signatures.tsv.gz`, `<set>.clusters.tsv.gz`,
 `timing.tsv`. The control reads come from the reference with no inserts.
+
+The log's timing summary shows the last `status == ok` row per stage of each
+set's `timing.tsv` (reruns append `FileExistsError` rows, which are dropped).
+`records_in` is 0 for `lr-align` with FASTQ input (only `records_out`, the
+mapped records, is counted).
 
 `$OUT/gate.tsv`, one row per sample (`score_sites.py`):
 
