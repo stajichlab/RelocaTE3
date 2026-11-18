@@ -8,8 +8,11 @@ every step succeeded, so a final BAM is never half-written.
 
 from __future__ import annotations
 
+import glob
+import logging
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 from pathlib import Path
@@ -20,8 +23,11 @@ import pysam
 from RelocaTE3.longread.model import ReadType
 from RelocaTE3.longread.reference import ReferenceSpace
 
+log = logging.getLogger(__name__)
+
 _STDERR_TAIL = 20
-_INDEX_SUFFIXES = (".bai", ".csi", ".crai")
+_BAM_INDEX_SUFFIXES = (".bai", ".csi")
+_CRAM_INDEX_SUFFIXES = (".crai",)
 
 
 def _check_threads(threads: int) -> None:
@@ -60,9 +66,8 @@ def _tail(fh: IO[bytes]) -> str:
     return "\n".join(lines[-_STDERR_TAIL:])
 
 
-def _partial_path(out_bam: Path) -> Path:
-    stem = out_bam.name[:-4] if out_bam.name.endswith(".bam") else out_bam.name
-    return out_bam.with_name(stem + ".partial.bam")
+def _stem(out_bam: Path) -> str:
+    return out_bam.name[:-4] if out_bam.name.endswith(".bam") else out_bam.name
 
 
 def align_reads(
@@ -70,15 +75,18 @@ def align_reads(
 ) -> Path:
     """Align long reads to a coordinate-sorted, indexed BAM.
 
-    Runs ``minimap2 ... | samtools sort -@ threads -o <out>.partial.bam -``,
-    indexes the partial BAM, then renames the BAM and its ``.bai`` to
-    ``out_bam`` and ``out_bam.bai``.
+    Runs ``minimap2 ... | samtools sort -@ threads -T <out>.sorttmp
+    -o <out>.partial.bam -``, indexes the partial BAM, then renames the BAM
+    and then its ``.bai`` to ``out_bam`` and ``out_bam.bai``. On any failure
+    or interrupt both tools are stopped and the partial BAM, its index and
+    sort temporary files are removed.
 
     Args:
         genome: Genome FASTA (or minimap2 ``.mmi`` index).
         reads: Read files.
         read_type: Selects the minimap2 preset.
-        out_bam: Final BAM path; must not exist.
+        out_bam: Final BAM path; must not exist. An ``out_bam.bai`` without
+            ``out_bam`` is a leftover of an interrupted rename and is removed.
         threads: Threads for minimap2 and samtools sort; at least 1.
 
     Returns:
@@ -86,70 +94,116 @@ def align_reads(
 
     Raises:
         ValueError: If ``threads`` is below 1.
-        FileExistsError: If ``out_bam`` or its index already exists.
+        FileExistsError: If ``out_bam`` already exists.
         RuntimeError: If minimap2 or samtools is not on PATH, or a step
-            fails (the message holds the last lines of that tool's stderr).
+            fails (the message holds the last lines of the failing tools'
+            stderr).
     """
     _check_threads(threads)
     out_bam = Path(out_bam)
     out_bai = Path(str(out_bam) + ".bai")
-    for path in (out_bam, out_bai):
-        if path.exists():
-            raise FileExistsError(f"refusing to overwrite {path}")
+    if out_bam.exists():
+        raise FileExistsError(f"refusing to overwrite {out_bam}")
     for tool in ("minimap2", "samtools"):
         if shutil.which(tool) is None:
             raise RuntimeError(f"{tool} not found on PATH")
+    if out_bai.exists():
+        # The BAM is renamed before its index, so an index alone is stale.
+        log.warning("removing stale index %s (no %s)", out_bai, out_bam.name)
+        out_bai.unlink()
 
-    partial = _partial_path(out_bam)
+    stem = _stem(out_bam)
+    partial = out_bam.with_name(stem + ".partial.bam")
     partial_bai = Path(str(partial) + ".bai")
+    sort_tmp = out_bam.with_name(stem + ".sorttmp")
 
     def cleanup() -> None:
         for p in (partial, partial_bai):
             p.unlink(missing_ok=True)
+        for p in out_bam.parent.glob(glob.escape(sort_tmp.name) + "*"):
+            p.unlink(missing_ok=True)
 
-    cleanup()  # stale partials from an interrupted run
+    cleanup()  # stale files from an interrupted run
     mm2 = minimap2_command(genome, reads, read_type, threads)
-    sort = ["samtools", "sort", "-@", str(threads), "-o", str(partial), "-"]
+    sort = [
+        "samtools", "sort", "-@", str(threads), "-T", str(sort_tmp),
+        "-o", str(partial), "-",
+    ]  # fmt: skip
     # stderr goes to files, not pipes, so a chatty tool cannot deadlock.
     with tempfile.TemporaryFile() as mm2_err, tempfile.TemporaryFile() as sort_err:
-        p_mm2 = subprocess.Popen(mm2, stdout=subprocess.PIPE, stderr=mm2_err)
+        procs: list[subprocess.Popen[bytes]] = []
         try:
-            p_sort = subprocess.Popen(sort, stdin=p_mm2.stdout, stderr=sort_err)
+            p_mm2 = subprocess.Popen(mm2, stdout=subprocess.PIPE, stderr=mm2_err)
+            procs.append(p_mm2)
+            try:
+                p_sort = subprocess.Popen(sort, stdin=p_mm2.stdout, stderr=sort_err)
+                procs.append(p_sort)
+            finally:
+                assert p_mm2.stdout is not None
+                p_mm2.stdout.close()  # sort holds the read end; mm2 sees SIGPIPE
+            rc_sort = p_sort.wait()
+            rc_mm2 = p_mm2.wait()
         except BaseException:
-            p_mm2.kill()
-            p_mm2.wait()
+            for p in procs:
+                p.kill()
+            for p in procs:
+                p.wait()
+            cleanup()
             raise
-        finally:
-            assert p_mm2.stdout is not None
-            p_mm2.stdout.close()  # sort holds the read end; mm2 sees SIGPIPE
-        rc_sort = p_sort.wait()
-        rc_mm2 = p_mm2.wait()
         if rc_mm2 != 0 or rc_sort != 0:
             cleanup()
-            # minimap2 failing makes sort fail too; report the root cause.
-            cmd, rc, err = (
-                (mm2, rc_mm2, mm2_err) if rc_mm2 != 0 else (sort, rc_sort, sort_err)
-            )
             raise RuntimeError(
-                f"{cmd[0]} {'sort ' if cmd is sort else ''}failed (exit {rc}): "
-                f"{' '.join(cmd)}\n{_tail(err)}"
+                _pipe_failure(mm2, rc_mm2, mm2_err, sort, rc_sort, sort_err)
             )
 
-    idx = subprocess.run(
-        ["samtools", "index", str(partial)], capture_output=True, text=True
-    )
+    try:
+        idx = subprocess.run(
+            ["samtools", "index", str(partial)], capture_output=True, text=True
+        )
+    except BaseException:  # run() kills samtools; remove what it left
+        cleanup()
+        raise
     if idx.returncode != 0:
         cleanup()
         tail = "\n".join(idx.stderr.splitlines()[-_STDERR_TAIL:])
         raise RuntimeError(f"samtools index failed (exit {idx.returncode})\n{tail}")
-    os.replace(partial_bai, out_bai)
     os.replace(partial, out_bam)
+    os.replace(partial_bai, out_bai)
     return out_bam
 
 
-def _has_index(path: Path) -> bool:
-    candidates = [Path(str(path) + s) for s in _INDEX_SUFFIXES]
-    candidates += [path.with_suffix(s) for s in _INDEX_SUFFIXES]
+def _pipe_failure(
+    mm2: list[str],
+    rc_mm2: int,
+    mm2_err: IO[bytes],
+    sort: list[str],
+    rc_sort: int,
+    sort_err: IO[bytes],
+) -> str:
+    """Describe a failed ``minimap2 | samtools sort``, blaming the root cause.
+
+    minimap2 failing starves sort; sort dying first kills minimap2 with
+    SIGPIPE. When both failed, both stderr tails are included.
+    """
+    sort_first = rc_sort != 0 and rc_mm2 in (0, -signal.SIGPIPE)
+    parts = []
+    order = ("sort", "mm2") if sort_first else ("mm2", "sort")
+    for which in order:
+        if which == "sort" and rc_sort != 0:
+            parts.append(
+                f"samtools sort failed (exit {rc_sort}): {' '.join(sort)}\n"
+                f"{_tail(sort_err)}"
+            )
+        elif which == "mm2" and rc_mm2 != 0:
+            parts.append(
+                f"minimap2 failed (exit {rc_mm2}): {' '.join(mm2)}\n{_tail(mm2_err)}"
+            )
+    return "\n".join(parts)
+
+
+def _has_index(path: Path, suffixes: tuple[str, ...]) -> bool:
+    candidates = [Path(str(path) + s) for s in suffixes]
+    candidates += [path.with_suffix(s) for s in suffixes]
     return any(c.is_file() for c in candidates)
 
 
@@ -166,13 +220,15 @@ def check_alignment_input(
     Raises:
         ValueError: If a CRAM has no ``reference_fasta``; the header lacks
             ``@HD SO:coordinate`` (fix: ``samtools sort``); there is no
-            ``.bai``/``.csi``/``.crai`` index next to it (fix:
-            ``samtools index``); or the ``@SQ`` names and lengths differ from
-            ``space.sequences()`` as sets (fix: realign, or
-            ``samtools reheader`` if only names differ).
+            index of the right type next to it, ``.bai``/``.csi`` for a BAM
+            or ``.crai`` for a CRAM (fix: ``samtools index``); or the
+            ``@SQ`` names and lengths differ from ``space.sequences()`` as
+            sets (fix: realign, or ``samtools reheader`` if only names
+            differ).
     """
     bam = Path(bam)
-    if bam.suffix.lower() == ".cram":
+    is_cram = bam.suffix.lower() == ".cram"
+    if is_cram:
         if reference_fasta is None:
             raise ValueError(f"reading CRAM {bam} needs reference_fasta")
         fh = pysam.AlignmentFile(
@@ -189,10 +245,10 @@ def check_alignment_input(
             f"{bam} is not coordinate-sorted (@HD SO:{order}); "
             f"run: samtools sort -o sorted.bam {bam}"
         )
-    if not _has_index(bam):
-        raise ValueError(
-            f"{bam} has no .bai/.csi/.crai index; run: samtools index {bam}"
-        )
+    suffixes = _CRAM_INDEX_SUFFIXES if is_cram else _BAM_INDEX_SUFFIXES
+    if not _has_index(bam, suffixes):
+        kinds = "/".join(suffixes)
+        raise ValueError(f"{bam} has no {kinds} index; run: samtools index {bam}")
 
     got = {sq["SN"]: int(sq["LN"]) for sq in header.get("SQ", [])}
     want = dict(space.sequences())
