@@ -8,9 +8,15 @@ false positive; **chance recall** is the recall the control clusters alone
 reach against the same truth sites. Each metric is also given for clusters
 with ``n_reads >= 2`` (``*_min2``).
 
+Matching is by sequence name only, so the truth table must name sequences of
+the single reference the clusters were called against: the ``reference_id``
+in each clusters file's metadata. Every cluster row must carry that
+``reference_id``; a row with another one raises ``ValueError``.
+
 Inputs:
     --truth     truth_events.tsv (columns include ``chrom`` and ``position``,
-                0-based insertion point)
+                0-based insertion point; ``chrom`` names a sequence of the
+                clusters' reference)
     --clusters  <sample>.clusters.tsv.gz from ``relocaTE3 lr-cluster``
     --control   optional clusters file from the reference-only control reads
 
@@ -56,9 +62,23 @@ def read_truth(path: str | Path) -> Sites:
 
 
 def read_cluster_sites(path: str | Path) -> ClusterSites:
-    """Return ``(sequence_id, start, n_reads)`` for every cluster in ``path``."""
-    _meta, clusters = read_clusters(path)
-    return [(c.locus.sequence_id, c.locus.start, c.n_reads) for c in clusters]
+    """Return ``(sequence_id, start, n_reads)`` for every cluster in ``path``.
+
+    Raises:
+        ValueError: If a cluster's ``locus.reference_id`` differs from the
+            file's metadata ``reference_id``.
+    """
+    meta, clusters = read_clusters(path)
+    reference_id = meta["reference_id"]
+    sites: ClusterSites = []
+    for c in clusters:
+        if c.locus.reference_id != reference_id:
+            raise ValueError(
+                f"{path}: cluster {c.cluster_id} has reference_id "
+                f"{c.locus.reference_id!r}, file metadata says {reference_id!r}"
+            )
+        sites.append((c.locus.sequence_id, c.locus.start, c.n_reads))
+    return sites
 
 
 def _by_chrom(positions: Iterable[tuple[str, int]]) -> dict[str, list[int]]:

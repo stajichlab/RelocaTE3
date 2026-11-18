@@ -117,13 +117,16 @@ run_set() {
 }
 
 # Manifest columns: sample platform coverage replicate reads control_reads.
+# Read on fd 3 so the commands in the loop cannot consume the manifest from
+# stdin; "|| [[ -n $sample ]]" keeps a last line without a trailing newline.
 ROWS=()
-while IFS=$'\t' read -r sample platform coverage replicate reads control_reads; do
+while IFS=$'\t' read -r -u 3 sample platform coverage replicate reads control_reads \
+  || [[ -n "$sample" ]]; do
   [[ "$sample" == "sample" || -z "$sample" ]] && continue
   ROWS+=("$sample"$'\t'"$platform"$'\t'"$coverage")
   run_set "${platform}_${sample}" "$platform" "$reads"
   run_set "${platform}_${sample}_control" "$platform" "$control_reads"
-done <"$MANIFEST"
+done 3<"$MANIFEST"
 
 if [[ ${#ROWS[@]} -eq 0 ]]; then
   echo "ERROR: no rows in $MANIFEST" >&2

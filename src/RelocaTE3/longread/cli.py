@@ -26,9 +26,7 @@ from typing import TypeVar
 
 import pysam
 
-from RelocaTE3.longread.align import (
-    _BAM_INDEX_SUFFIXES, _CRAM_INDEX_SUFFIXES, align_reads, check_alignment_input,
-)  # fmt: skip
+from RelocaTE3.longread.align import align_reads, check_alignment_input, find_index
 from RelocaTE3.longread.cluster import ClusterParams, cluster_signatures
 from RelocaTE3.longread.model import Reference, ReadType
 from RelocaTE3.longread.placements import iter_placements
@@ -76,15 +74,6 @@ def _counted(items: Iterable[T], counts: StageCounts) -> Iterator[T]:
         yield item
 
 
-def _find_index(aln: Path, suffixes: tuple[str, ...]) -> tuple[Path, str]:
-    """Return the index next to ``aln`` (as ``check_alignment_input`` finds it)."""
-    for suffix in suffixes:
-        for cand in (Path(str(aln) + suffix), aln.with_suffix(suffix)):
-            if cand.is_file():
-                return cand, suffix
-    raise ValueError(f"{aln} has no {'/'.join(suffixes)} index")
-
-
 def _mapped_records(aln: Path, genome: Path) -> int:
     """Mapped-record count from the index, or 0 if the index has none."""
     try:
@@ -104,9 +93,10 @@ def _link_alignment(bam: Path, genome: Path, reference_id: str, outdir: Path,
     is_cram = bam.suffix.lower() == ".cram"
     space = LinearFastaReferenceSpace(Reference(reference_id, str(genome)))
     check_alignment_input(bam, space, reference_fasta=genome if is_cram else None)
-    index, suffix = _find_index(
-        bam, _CRAM_INDEX_SUFFIXES if is_cram else _BAM_INDEX_SUFFIXES
-    )
+    index = find_index(bam)
+    if index is None:  # check_alignment_input already requires one
+        raise ValueError(f"{bam} has no index")
+    suffix = index.suffix
     link = outdir / f"{sample}.lr.{'cram' if is_cram else 'bam'}"
     link_index = Path(str(link) + suffix)
     _refuse_existing(link, link_index)
@@ -231,8 +221,9 @@ def _add_sample_outdir(parser: argparse.ArgumentParser) -> None:
                         help="Output directory (created if missing)")  # fmt: skip
 
 
-def _add_read_type(parser: argparse.ArgumentParser, help: str) -> None:
-    parser.add_argument("--read-type", required=True, choices=READ_TYPES, help=help)
+def _add_read_type(parser: argparse.ArgumentParser, help_text: str) -> None:
+    parser.add_argument("--read-type", required=True, choices=READ_TYPES,
+                        help=help_text)  # fmt: skip
 
 
 def _add_reference_id(parser: argparse.ArgumentParser) -> None:
@@ -300,7 +291,9 @@ def _menu_lr_cluster(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
 
 def register_longread_commands(subparsers: argparse._SubParsersAction) -> None:
     """Add the lr-align, lr-signatures and lr-cluster subcommands."""
-    # Imported here: RelocaTE3.cli imports this module while it is loading.
+    # Function-local to avoid a circular import (RelocaTE3.cli imports this
+    # module); _add_common_args stays private because RelocaTE3/cli.py is not
+    # edited beyond registering these commands.
     from RelocaTE3.cli import CustomHelpFormatter, _add_common_args
 
     menus = [

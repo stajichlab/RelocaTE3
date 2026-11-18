@@ -13,17 +13,20 @@ import pysam
 
 from RelocaTE3.longread.model import Locus, Reference
 
-_COMP = str.maketrans("ACGTNacgtn", "TGCANtgcan")
+# IUPAC complements: R<->Y, K<->M, B<->V, D<->H; N, S and W are their own.
+_COMP = str.maketrans(
+    "ACGTRYKMSWBVDHNacgtrykmswbvdhn", "TGCAYRMKSWVBHDNtgcayrmkswvbhdn"
+)
 
 
 def reverse_complement(seq: str) -> str:
     """Return the reverse complement of ``seq``, keeping case.
 
     Args:
-        seq: DNA sequence over ``ACGTN`` in either case.
+        seq: DNA sequence over ``ACGT`` and the IUPAC codes, in either case.
 
     Returns:
-        The reverse complement; ``N`` stays ``N``.
+        The reverse complement; ``N``, ``S`` and ``W`` stay themselves.
     """
     return seq.translate(_COMP)[::-1]
 

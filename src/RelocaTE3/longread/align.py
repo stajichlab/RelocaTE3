@@ -201,10 +201,26 @@ def _pipe_failure(
     return "\n".join(parts)
 
 
-def _has_index(path: Path, suffixes: tuple[str, ...]) -> bool:
-    candidates = [Path(str(path) + s) for s in suffixes]
-    candidates += [path.with_suffix(s) for s in suffixes]
-    return any(c.is_file() for c in candidates)
+def find_index(path: Path) -> Path | None:
+    """Return the index file next to a BAM or CRAM, or None if there is none.
+
+    A ``.cram`` (any case) takes a ``.crai``; anything else a ``.bai`` or
+    ``.csi``. For each suffix in that order, ``x.bam.bai`` is tried before
+    ``x.bai``; the first existing file wins.
+
+    Args:
+        path: The BAM or CRAM.
+
+    Returns:
+        The index path, or None.
+    """
+    path = Path(path)
+    is_cram = path.suffix.lower() == ".cram"
+    for suffix in _CRAM_INDEX_SUFFIXES if is_cram else _BAM_INDEX_SUFFIXES:
+        for cand in (Path(str(path) + suffix), path.with_suffix(suffix)):
+            if cand.is_file():
+                return cand
+    return None
 
 
 def check_alignment_input(
@@ -245,8 +261,8 @@ def check_alignment_input(
             f"{bam} is not coordinate-sorted (@HD SO:{order}); "
             f"run: samtools sort -o sorted.bam {bam}"
         )
-    suffixes = _CRAM_INDEX_SUFFIXES if is_cram else _BAM_INDEX_SUFFIXES
-    if not _has_index(bam, suffixes):
+    if find_index(bam) is None:
+        suffixes = _CRAM_INDEX_SUFFIXES if is_cram else _BAM_INDEX_SUFFIXES
         kinds = "/".join(suffixes)
         raise ValueError(f"{bam} has no {kinds} index; run: samtools index {bam}")
 

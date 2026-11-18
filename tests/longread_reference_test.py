@@ -81,3 +81,13 @@ def test_reverse_complement_handles_lowercase_and_n():
     assert reverse_complement("acgtn") == "nacgt"
     assert reverse_complement("AcGtN") == "NaCgT"
     assert reverse_complement("") == ""
+
+
+def test_reverse_complement_iupac_codes():
+    pairs = ["RY", "KM", "BV", "DH"]
+    for a, b in pairs + [p.lower() for p in pairs]:
+        assert reverse_complement(a) == b
+        assert reverse_complement(b) == a
+    for code in "NSWnsw":
+        assert reverse_complement(code) == code
+    assert reverse_complement("ARYKMSWBVDHNt") == "aNDHBVWSKMRYT"

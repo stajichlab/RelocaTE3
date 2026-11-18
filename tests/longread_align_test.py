@@ -18,7 +18,7 @@ import pytest
 
 from RelocaTE3.longread import align
 from RelocaTE3.longread.align import (
-    align_reads, check_alignment_input, minimap2_command,
+    align_reads, check_alignment_input, find_index, minimap2_command,
 )  # fmt: skip
 from RelocaTE3.longread.model import Reference, ReadType, SignatureKind
 from RelocaTE3.longread.placements import iter_placements
@@ -117,6 +117,34 @@ def test_check_rejects_unindexed(tmp_path: Path) -> None:
     bam = _bam(tmp_path / "n.bam", GOOD_SQ, index=False)
     with pytest.raises(ValueError, match="samtools index"):
         check_alignment_input(bam, _space(tmp_path))
+
+
+def test_find_index_bam_forms_and_order(tmp_path: Path) -> None:
+    bam = tmp_path / "x.bam"
+    assert find_index(bam) is None
+    (tmp_path / "x.csi").touch()
+    assert find_index(bam) == tmp_path / "x.csi"
+    (tmp_path / "x.bai").touch()
+    assert find_index(bam) == tmp_path / "x.bai"
+    (tmp_path / "x.bam.bai").touch()
+    assert find_index(bam) == tmp_path / "x.bam.bai"
+    (tmp_path / "x.crai").touch()
+    (tmp_path / "x.bam.crai").touch()
+    assert find_index(tmp_path / "y.bam") is None
+
+
+def test_find_index_cram_only_crai(tmp_path: Path) -> None:
+    cram = tmp_path / "x.cram"
+    (tmp_path / "x.cram.bai").touch()
+    (tmp_path / "x.bai").touch()
+    assert find_index(cram) is None
+    (tmp_path / "x.crai").touch()
+    assert find_index(cram) == tmp_path / "x.crai"
+    (tmp_path / "x.cram.crai").touch()
+    assert find_index(cram) == tmp_path / "x.cram.crai"
+    upper = tmp_path / "u.CRAM"
+    (tmp_path / "u.CRAM.crai").touch()
+    assert find_index(upper) == tmp_path / "u.CRAM.crai"
 
 
 def test_check_rejects_wrong_sq_name(tmp_path: Path) -> None:

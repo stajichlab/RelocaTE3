@@ -10,6 +10,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 from RelocaTE3.longread.model import Cluster, Locus, ReadType
 from RelocaTE3.longread.tables import write_clusters
 
@@ -39,13 +41,23 @@ def _truth(tmp_path: Path) -> Path:
     return path
 
 
-def _clusters(tmp_path: Path, name: str, sites: list[tuple[str, int, int]]) -> Path:
-    """Write clusters at ``(chrom, start, n_reads)`` sites."""
+def _clusters(
+    tmp_path: Path,
+    name: str,
+    sites: list[tuple[str, int, int]],
+    row_reference_ids: list[str] | None = None,
+) -> Path:
+    """Write clusters at ``(chrom, start, n_reads)`` sites.
+
+    The file's metadata says ``reference_id=ref``; ``row_reference_ids``
+    overrides each row's ``locus.reference_id`` (default ``ref``).
+    """
     path = tmp_path / f"{name}.clusters.tsv.gz"
+    ref_ids = row_reference_ids or ["ref"] * len(sites)
     clusters = [
         Cluster(
             cluster_id=f"c{i}",
-            locus=Locus("ref", chrom, start, start, "+"),
+            locus=Locus(ref_ids[i], chrom, start, start, "+"),
             n_reads=n_reads,
             n_ins=n_reads,
             n_split_ins=0,
@@ -159,3 +171,20 @@ def test_main_without_header_or_control(tmp_path, capsys):
     assert rc == 0
     lines = capsys.readouterr().out.splitlines()
     assert lines == ["x\t3\t1\t0.3333\t1\t0.3333\t1\t0\t0\t\t\t\t"]
+
+
+def test_cluster_with_other_reference_id_raises(tmp_path):
+    truth = _truth(tmp_path)
+    mixed = _clusters(tmp_path, "s", [("Chr3", 1000, 3), ("Chr3", 5000, 2)],
+                      row_reference_ids=["ref", "other"])  # fmt: skip
+    with pytest.raises(ValueError, match="other"):
+        score_sites.score(truth, mixed, None, 50)
+
+
+def test_control_with_other_reference_id_raises(tmp_path):
+    truth = _truth(tmp_path)
+    clusters = _clusters(tmp_path, "s", [("Chr3", 1000, 3)])
+    control = _clusters(tmp_path, "k", [("Chr3", 9000, 1)],
+                        row_reference_ids=["other"])  # fmt: skip
+    with pytest.raises(ValueError, match="other"):
+        score_sites.score(truth, clusters, control, 50)

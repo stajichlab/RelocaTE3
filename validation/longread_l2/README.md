@@ -12,10 +12,8 @@ are reported, not gated.
 From the repo root, on a checkout with the pixi `default` env installed:
 
 ```bash
-# Link the panel once (built in simulate_data / make_simulation_new; gitignored)
-ln -s /rhome/nmath020/wessler_bigdata/rice/make_simulated_genome/make_simulation_new/results/chr3_lr_small \
-  tests/data/longread_small
-
+# Link the panel once at tests/data/longread_small (gitignored); the ln -s
+# command is in docs/long-read-test-panel.md ("Use from RelocaTE3").
 mkdir -p logs && sbatch validation/longread_l2/run_gate.slurm
 ```
 
