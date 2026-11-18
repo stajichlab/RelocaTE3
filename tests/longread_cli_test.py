@@ -220,3 +220,58 @@ def test_lr_align_bam_rejects_wrong_reference(
                "--bam", str(out / "S.lr.bam")])  # fmt: skip
     assert rc == 1
     assert not (tmp_path / "l" / "L.lr.bam").exists()
+
+
+# --- dangling links, missing files, CRAM without --genome -----------------------
+
+
+def test_lr_align_reads_refuses_dangling_output_links(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fa = tmp_path / "g.fa"
+    fa.write_text(">chr1\n" + "A" * 100 + "\n")
+    fq = tmp_path / "r.fq"
+    fq.write_text("@r\nACGT\n+\nIIII\n")
+    out = tmp_path / "out"
+    out.mkdir()
+    link = out / "S.lr.bam"
+    link.symlink_to(tmp_path / "gone.bam")
+    rc = main(["lr-align", "--sample", "S", "-o", str(out), "--genome", str(fa),
+               "--read-type", "hifi", "--reads", str(fq)])  # fmt: skip
+    assert rc == 1
+    assert link.is_symlink() and link.readlink() == tmp_path / "gone.bam"
+    assert _timing(out)[0]["status"] == "FileExistsError"
+
+    link.unlink()
+    index_link = out / "S.lr.bam.bai"
+    index_link.symlink_to(tmp_path / "gone.bam.bai")
+    rc = main(["lr-align", "--sample", "S", "-o", str(out), "--genome", str(fa),
+               "--read-type", "hifi", "--reads", str(fq)])  # fmt: skip
+    assert rc == 1
+    assert index_link.is_symlink() and not link.exists()
+
+
+def test_missing_input_dangling_symlink_is_named(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    sigs = tmp_path / "s.tsv.gz"
+    sigs.symlink_to(tmp_path / "gone.tsv.gz")
+    rc = main(["lr-cluster", "--sample", "S", "-o", str(tmp_path / "o"),
+               "--signatures", str(sigs)])  # fmt: skip
+    assert rc == 1
+    assert (
+        f"dangling symlink (target missing): {sigs} -> {tmp_path / 'gone.tsv.gz'}"
+        in caplog.text
+    )
+
+
+def test_cram_without_genome_fails_early(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    cram = tmp_path / "a.cram"
+    cram.write_bytes(b"not read")
+    rc = main(["lr-signatures", "--sample", "S", "-o", str(tmp_path / "o"),
+               "--bam", str(cram), "--read-type", "hifi"])  # fmt: skip
+    assert rc == 1
+    assert "CRAM input needs --genome (the reference FASTA)" in caplog.text
+    assert not (tmp_path / "o" / "S.signatures.tsv.gz").exists()

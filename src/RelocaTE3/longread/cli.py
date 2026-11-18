@@ -48,12 +48,22 @@ READ_TYPES = [rt.value for rt in ReadType]
 
 
 def _require_file(path: Path, what: str) -> Path:
+    if path.is_symlink() and not path.exists():
+        raise FileNotFoundError(
+            f"{what}: dangling symlink (target missing): {path} -> {os.readlink(path)}"
+        )
     if not path.is_file():
         raise FileNotFoundError(f"{what} not found: {path}")
     return path
 
 
+def _require_genome_for_cram(aln: Path, genome: str | Path | None) -> None:
+    if aln.suffix.lower() == ".cram" and genome is None:
+        raise ValueError(f"CRAM input needs --genome (the reference FASTA): {aln}")
+
+
 def _refuse_existing(*paths: Path) -> None:
+    """Raise if any path exists; a dangling symlink counts as existing."""
     for path in paths:
         if os.path.lexists(path):
             raise FileExistsError(f"refusing to overwrite {path}")
@@ -120,11 +130,13 @@ def cmd_lr_align(args: argparse.Namespace) -> int:
         _require_file(genome, "genome FASTA")
         if args.bam is not None:
             bam = _require_file(Path(args.bam), "alignment file")
+            _require_genome_for_cram(bam, genome)
             counts.records_in = _mapped_records(bam, genome)
             out = _link_alignment(bam, genome, args.reference_id, outdir, args.sample)
         else:
             reads = [_require_file(Path(r), "read file") for r in args.reads]
             out = outdir / f"{args.sample}.lr.bam"
+            _refuse_existing(out, Path(f"{out}.bai"))
             log.info("aligning %d read file(s) as %s with %d thread(s)",
                      len(reads), read_type, args.threads)  # fmt: skip
             align_reads(genome, reads, read_type, out, args.threads)
@@ -150,6 +162,7 @@ def cmd_lr_signatures(args: argparse.Namespace) -> int:
     signature_stats: dict[str, int] = {}
     with stage_timer(outdir, "lr-signatures", args.sample) as counts:
         bam = _require_file(Path(args.bam), "alignment file")
+        _require_genome_for_cram(bam, args.genome)
         if args.genome is not None:
             _require_file(Path(args.genome), "genome FASTA")
         _refuse_existing(out)
