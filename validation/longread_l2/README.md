@@ -32,7 +32,7 @@ Rerun-safe, per stage: `lr-align` is skipped when `<set>.lr.bam` and its
 atomically). A BAM without its `.bai` stops the job: remove that set directory
 and resubmit.
 
-Expected run time: to be filled after the first run.
+Expected run time: about 3 minutes on 8 CPUs for all eight read sets (job 32185663, 2026-11-18); peak memory about 2 GB (minimap2 on ONT-HQ 20x).
 
 ## Outputs
 
