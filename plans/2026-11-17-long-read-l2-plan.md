@@ -1,5 +1,7 @@
 # Long-read L2: alignment, signatures, clustering — implementation plan
 
+> **Implemented 2026-11-18.** Final details that differ from this text are listed in `docs/2026-11-18-long-read-l2.md` ("Where the plan and the code differ").
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task.
 
 **Goal:** Add `lr-align`, `lr-signatures` and `lr-cluster` to RelocaTE3, built on
