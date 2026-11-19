@@ -11,6 +11,7 @@ from pathlib import Path
 
 from RelocaTE3 import __author__, __entry_points__, __version__, logger
 from RelocaTE3.aligners import BLAT_CHUNK_SEQS, GENOME_ALIGNERS, TE_ALIGNERS
+from RelocaTE3.longread.cli import register_longread_commands
 
 
 class CustomHelpFormatter(argparse.HelpFormatter):
@@ -2077,6 +2078,7 @@ def build_parser() -> argparse.ArgumentParser:
             "genome-aligned BAM files, classifying each site by zygosity and excision status.",
         )
     )
+    register_longread_commands(subparsers)
 
     return parser
 
