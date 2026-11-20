@@ -651,3 +651,24 @@ def test_group_vote_recomputed_over_merged_reads() -> None:
     assert c.strand_fraction == 1.0
     assert c.te_read_fraction == 1.0
     assert c.filters == (FilterReason.FAMILY_DISCORDANT,)
+
+
+# --- CallParams validation ----------------------------------------------------
+
+
+@pytest.mark.parametrize("field, value", [
+    ("min_support", 0), ("merge_window", -1), ("min_te_identity", -0.01),
+    ("min_te_identity", 1.01), ("min_te_reads_fraction", 1.5),
+    ("min_family_fraction", -1.0), ("min_te_coverage", 2.0),
+])  # fmt: skip
+def test_call_params_reject_out_of_range(field: str, value: float) -> None:
+    kwargs: dict[str, float] = {"min_support": 2, "min_te_identity": 0.8,
+                                "merge_window": 50, field: value}  # fmt: skip
+    with pytest.raises(ValueError, match=field):
+        CallParams(**kwargs)  # type: ignore[arg-type]
+
+
+def test_call_params_accept_bounds() -> None:
+    CallParams(min_support=1, min_te_identity=0.0, merge_window=0,
+               min_te_reads_fraction=1.0, min_family_fraction=0.0,
+               min_te_coverage=1.0)  # fmt: skip

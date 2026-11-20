@@ -208,6 +208,20 @@ class CallParams:
     min_family_fraction: float = 0.80
     min_te_coverage: float = 0.80
 
+    def __post_init__(self) -> None:
+        """Reject a support below 1, a negative window or a fraction outside [0, 1]."""
+        if self.min_support < 1:
+            raise ValueError(f"min_support must be at least 1, got {self.min_support}")
+        if self.merge_window < 0:
+            raise ValueError(
+                f"merge_window must be at least 0, got {self.merge_window}"
+            )
+        for name in ("min_te_identity", "min_te_reads_fraction",
+                     "min_family_fraction", "min_te_coverage"):  # fmt: skip
+            value = getattr(self, name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be in [0, 1], got {value}")
+
 
 @dataclass(frozen=True)
 class SignatureFacts:

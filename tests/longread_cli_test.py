@@ -15,6 +15,7 @@ import pysam
 import pytest
 
 from RelocaTE3.cli import main
+from RelocaTE3.longread import cli as lr_cli
 from RelocaTE3.longread.model import (
     NO_HIT, CallTier, ClipSide, Cluster, FilterReason, Locus, ReadType, Signature,
     SignatureKind, TeHit,
@@ -461,13 +462,16 @@ def _cluster(cid: str, pos: int, sigs: list[Signature]) -> Cluster:
 
 def _call_tables(tmp_path: Path, *, cluster_ref: str = "ref",
                  hits_read_type: ReadType = ReadType.HIFI,
-                 drop_hit: str | None = None) -> list[str]:  # fmt: skip
+                 drop_hit: str | None = None,
+                 extra_hit: TeHit | None = None) -> list[str]:  # fmt: skip
     """Two clusters: 3 reads with a synTE INS at 5000; 1 unhit clip at 20000."""
     spanning = [_ins(f"s{i}", f"r{i}", 5000 + i) for i in range(3)]
     clip = _clip("c1", "r9", 20_000)
     sigs = [*spanning, clip]
     hits = [*(_hit(s) for s in spanning), _hit(clip, NO_HIT)]
     hits = [h for h in hits if h.signature_id != drop_hit]
+    if extra_hit is not None:
+        hits.append(extra_hit)
     paths = {k: tmp_path / f"in.{k}.tsv.gz" for k in ("clusters", "sigs", "hits")}
     write_signatures(paths["sigs"], sigs, read_type=ReadType.HIFI,
                      reference_id="ref")  # fmt: skip
@@ -480,7 +484,10 @@ def _call_tables(tmp_path: Path, *, cluster_ref: str = "ref",
             "--te-hits", str(paths["hits"])]  # fmt: skip
 
 
-def test_lr_call_on_hand_written_tables(tmp_path: Path) -> None:
+def test_lr_call_on_hand_written_tables(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("INFO")
     out = tmp_path / "o"
     assert main(["lr-call", "--sample", "S", "-o", str(out),
                  *_call_tables(tmp_path)]) == 0  # fmt: skip
@@ -496,6 +503,7 @@ def test_lr_call_on_hand_written_tables(tmp_path: Path) -> None:
     row = _timing(out)[0]
     assert row["stage"] == "lr-call" and row["status"] == "ok"
     assert row["records_in"] == "2" and row["records_out"] == "2"
+    assert "calls by tier: clip_only filtered 1, spanning PASS 1" in caplog.text
 
 
 def test_lr_call_thresholds_from_options(tmp_path: Path) -> None:
@@ -595,3 +603,159 @@ def test_end_to_end_five_stages(
     assert int(rows[3]["records_in"]) == n_sigs
     assert int(rows[3]["records_out"]) == len(hits)
     assert int(rows[4]["records_in"]) == int(rows[2]["records_out"])
+
+
+# --- input checks -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ["", "\n\n", "synTE\nACGT\n", "@r\nACGT\n+\nIIII\n"])
+def test_lr_annotate_rejects_non_fasta_library(
+    text: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    lib = tmp_path / "lib.fa"
+    lib.write_text(text)
+    sigs = _two_signatures_60bp_apart(tmp_path / "s.tsv.gz", ReadType.HIFI)
+    rc = main(["lr-annotate", "--sample", "S", "-o", str(tmp_path / "o"),
+               "--signatures", str(sigs), "--te-library", str(lib)])  # fmt: skip
+    assert rc == 1
+    assert str(lib) in caplog.text and "FASTA" in caplog.text
+    assert _timing(tmp_path / "o")[0]["status"] == "ValueError"
+
+
+def test_lr_annotate_library_may_start_with_blank_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lib = tmp_path / "lib.fa"
+    lib.write_text("\n  \n>synTE\nACGT\n")
+    sigs = _two_signatures_60bp_apart(tmp_path / "s.tsv.gz", ReadType.HIFI)
+    monkeypatch.setattr(lr_cli, "annotate_signatures", lambda *a, **k: [])
+    assert main(["lr-annotate", "--sample", "S", "-o", str(tmp_path / "o"),
+                 "--signatures", str(sigs), "--te-library", str(lib)]) == 0  # fmt: skip
+
+
+def test_lr_annotate_warns_when_nothing_hits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    lib = tmp_path / "lib.fa"
+    lib.write_text(">synTE\nACGT\n")
+    sigs = _two_signatures_60bp_apart(tmp_path / "s.tsv.gz", ReadType.HIFI)
+
+    def fake(signatures, library, *, threads, workdir, stats):  # noqa: ANN001, ANN202
+        sigs = list(signatures)
+        stats.update(signatures=len(sigs), queries=len(sigs), with_hit=0,
+                     without_hit=len(sigs), hits=0)  # fmt: skip
+        return [_hit(s, NO_HIT) for s in sigs]
+
+    monkeypatch.setattr(lr_cli, "annotate_signatures", fake)
+    assert main(["lr-annotate", "--sample", "S", "-o", str(tmp_path / "o"),
+                 "--signatures", str(sigs), "--te-library", str(lib)]) == 0  # fmt: skip
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any("no signature" in r.getMessage() and str(lib) in r.getMessage()
+               for r in warnings), caplog.text  # fmt: skip
+
+
+def test_lr_align_bad_sidecar_value_fails_before_any_work(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    out = tmp_path / "o"
+    rc = main(["lr-align", "--sample", "S", "-o", str(out),
+               "--genome", str(tmp_path / "missing.fa"), "--read-type", "hifi",
+               "--reads", str(tmp_path / "missing.fq"),
+               "--reference-id", "a\tb"])  # fmt: skip
+    assert rc == 1
+    assert "tab or newline" in caplog.text
+    assert _timing(out)[0]["status"] == "ValueError"  # not FileNotFoundError
+    assert sorted(p.name for p in out.iterdir()) == ["timing.tsv"]
+
+
+def test_write_meta_removes_partial_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(self: Path, target: Path) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "replace", boom)
+    path = tmp_path / "S.lr.meta.tsv"
+    values = lr_cli._meta_values("ref", ReadType.HIFI, tmp_path / "g.fa")
+    with pytest.raises(OSError, match="disk full"):
+        lr_cli._write_meta(path, values)
+    assert list(tmp_path.iterdir()) == []
+
+
+def _genome_for_user_bam(tmp_path: Path) -> Path:
+    fa = tmp_path / "g.fa"
+    fa.write_text(">chr1\n" + "A" * 1000 + "\n")
+    return fa
+
+
+def test_lr_align_bam_checks_source_sidecar_before_linking(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    fa = _genome_for_user_bam(tmp_path)
+    bam = _user_bam(tmp_path, "src.lr.bam")
+    _write_sidecar(bam, "other", "hifi")
+    out = tmp_path / "o"
+    args = ["lr-align", "--sample", "L", "-o", str(out), "--genome", str(fa),
+            "--read-type", "hifi", "--bam", str(bam)]  # fmt: skip
+    assert main(args) == 1
+    assert "'other'" in caplog.text and "'ref'" in caplog.text
+    assert sorted(p.name for p in out.iterdir()) == ["timing.tsv"]
+
+    _write_sidecar(bam, "ref", "ont")
+    assert main(args) == 1
+    _write_sidecar(bam, "ref", "hifi")
+    assert main(args) == 0
+    assert (out / "L.lr.bam").is_symlink()
+    assert _read_meta_file(out / "L.lr.meta.tsv")["reference_id"] == "ref"
+
+
+def test_sidecar_duplicate_key_is_an_error(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    bam = _user_bam(tmp_path)
+    bam.with_suffix(".meta.tsv").write_text(
+        "key\tvalue\nreference_id\tref\nreference_id\tother\nread_type\thifi\n"
+    )
+    rc = main(["lr-signatures", "--sample", "S", "-o", str(tmp_path / "o"),
+               "--bam", str(bam), "--read-type", "hifi"])  # fmt: skip
+    assert rc == 1
+    assert "duplicate key 'reference_id'" in caplog.text
+    assert "x.lr.meta.tsv:3" in caplog.text
+
+
+@pytest.mark.parametrize("kind", ["dangling", "directory"])
+def test_sidecar_path_that_is_not_a_file_is_an_error(kind: str, tmp_path: Path) -> None:
+    bam = _user_bam(tmp_path)
+    meta = bam.with_suffix(".meta.tsv")
+    if kind == "dangling":
+        meta.symlink_to(tmp_path / "gone.tsv")
+    else:
+        meta.mkdir()
+    rc = main(["lr-signatures", "--sample", "S", "-o", str(tmp_path / "o"),
+               "--bam", str(bam), "--read-type", "hifi"])  # fmt: skip
+    assert rc == 1
+    assert not (tmp_path / "o" / "S.signatures.tsv.gz").exists()
+
+
+def test_lr_call_rejects_hit_for_unknown_signature(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    stray = TeHit("ghost", "r42", "synTE", "+", 0, 10, 10, 0, 10, 10, 0.99)
+    args = _call_tables(tmp_path, extra_hit=stray)
+    rc = main(["lr-call", "--sample", "S", "-o", str(tmp_path / "o"), *args])
+    assert rc == 1
+    assert "unknown signature 'ghost'" in caplog.text and args[5] in caplog.text
+
+
+@pytest.mark.parametrize("option", [
+    ["--min-support", "0"], ["--merge-window", "-1"], ["--min-te-identity", "1.5"],
+    ["--min-te-reads-fraction", "-0.1"], ["--min-family-fraction", "2"],
+    ["--min-te-coverage", "1.01"],
+])  # fmt: skip
+def test_lr_call_rejects_bad_params(option: list[str], tmp_path: Path) -> None:
+    out = tmp_path / "o"
+    rc = main(["lr-call", "--sample", "S", "-o", str(out), *_call_tables(tmp_path),
+               *option])  # fmt: skip
+    assert rc == 1
+    assert _timing(out)[0]["status"] == "ValueError"
+    assert not (out / "S.calls.tsv.gz").exists()

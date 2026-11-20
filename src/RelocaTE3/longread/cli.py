@@ -123,20 +123,29 @@ def _meta_path(alignment: Path) -> Path:
     return alignment.with_suffix(".meta.tsv")
 
 
-def _write_meta(path: Path, reference_id: str, read_type: ReadType,
-                genome: Path) -> None:  # fmt: skip
-    """Write the sidecar via ``<path>.partial`` and a rename."""
+def _meta_values(reference_id: str, read_type: ReadType,
+                 genome: Path) -> dict[str, str]:  # fmt: skip
+    """Sidecar values, checked to hold no tab or newline."""
     values = {"reference_id": reference_id, "read_type": read_type.value,
               "genome": str(genome.resolve())}  # fmt: skip
     for key, value in values.items():
         if any(c in value for c in "\t\n\r"):
             raise ValueError(f"sidecar {key} contains a tab or newline: {value!r}")
+    return values
+
+
+def _write_meta(path: Path, values: dict[str, str]) -> None:
+    """Write checked sidecar values via ``<path>.partial`` and a rename."""
     partial = Path(f"{path}.partial")
-    with partial.open("w") as fh:
-        fh.write("key\tvalue\n")
-        for key in _META_KEYS:
-            fh.write(f"{key}\t{values[key]}\n")
-    partial.replace(path)
+    try:
+        with partial.open("w") as fh:
+            fh.write("key\tvalue\n")
+            for key in _META_KEYS:
+                fh.write(f"{key}\t{values[key]}\n")
+        partial.replace(path)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
     log.info("wrote %s", path)
 
 
@@ -151,6 +160,8 @@ def _read_meta(path: Path) -> dict[str, str]:
         fields = line.split("\t")
         if len(fields) != 2:
             raise ValueError(f"{path}:{n}: expected 2 fields, got {len(fields)}")
+        if fields[0] in meta:
+            raise ValueError(f"{path}:{n}: duplicate key {fields[0]!r}")
         meta[fields[0]] = fields[1]
     return meta
 
@@ -158,7 +169,7 @@ def _read_meta(path: Path) -> dict[str, str]:
 def _check_meta(alignment: Path, reference_id: str, read_type: ReadType) -> None:
     """Compare the alignment's sidecar, if any, with the given options."""
     path = _meta_path(alignment)
-    if not path.is_file():
+    if not os.path.lexists(path):  # a dangling link or directory fails in _read_meta
         log.info("no sidecar %s (a user BAM/CRAM); --reference-id %r and "
                  "--read-type %s are not checked", path, reference_id,
                  read_type)  # fmt: skip
@@ -208,10 +219,12 @@ def cmd_lr_align(args: argparse.Namespace) -> int:
     genome = Path(args.genome)
     read_type = ReadType(args.read_type)
     with stage_timer(outdir, "lr-align", args.sample) as counts:
+        meta_values = _meta_values(args.reference_id, read_type, genome)
         _require_file(genome, "genome FASTA")
         if args.bam is not None:
             bam = _require_file(Path(args.bam), "alignment file")
             _require_genome_for_cram(bam, genome)
+            _check_meta(bam, args.reference_id, read_type)
             counts.records_in = _mapped_records(bam, genome)
             out = _link_alignment(bam, genome, args.reference_id, outdir, args.sample)
         else:
@@ -222,7 +235,7 @@ def cmd_lr_align(args: argparse.Namespace) -> int:
                      len(reads), read_type, args.threads)  # fmt: skip
             align_reads(genome, reads, read_type, out, args.threads)
         counts.records_out = _mapped_records(out, genome)
-        _write_meta(_meta_path(out), args.reference_id, read_type, genome)
+        _write_meta(_meta_path(out), meta_values)
     log.info("lr-align wrote %s (%d mapped records)", out, counts.records_out)
     return 0
 
@@ -301,6 +314,18 @@ def cmd_lr_cluster(args: argparse.Namespace) -> int:
 # --- lr-annotate ------------------------------------------------------------
 
 
+def _require_fasta(path: Path) -> None:
+    """Raise unless the first non-blank line of ``path`` starts with ``>``."""
+    with path.open(errors="replace") as fh:
+        for line in fh:
+            if line.strip():
+                if line.startswith(">"):
+                    return
+                raise ValueError(f"TE library is not FASTA (first line does not "
+                                 f"start with '>'): {path}")  # fmt: skip
+    raise ValueError(f"TE library is empty (no FASTA record): {path}")
+
+
 def cmd_lr_annotate(args: argparse.Namespace) -> int:
     """Align every signature's sequence to the TE library."""
     outdir = Path(args.outdir)
@@ -310,6 +335,7 @@ def cmd_lr_annotate(args: argparse.Namespace) -> int:
     with stage_timer(outdir, "lr-annotate", args.sample) as counts:
         sig_path = _require_file(Path(args.signatures), "signatures file")
         library = _require_file(Path(args.te_library), "TE library FASTA")
+        _require_fasta(library)
         _refuse_existing(out)
         meta, signatures = read_signatures(sig_path)
         read_type = _read_type_of(meta, sig_path)
@@ -323,6 +349,9 @@ def cmd_lr_annotate(args: argparse.Namespace) -> int:
             out, hits, read_type=read_type, reference_id=meta["reference_id"]
         )
     log.info("annotation stats: %s", stats)
+    if stats.get("queries", 0) > 0 and stats.get("with_hit", 0) == 0:
+        log.warning("no signature hit the TE library %s (%d queries); check the "
+                    "library", library, stats["queries"])  # fmt: skip
     log.info("lr-annotate wrote %s (%d hit rows for %d signatures)",
              out, counts.records_out, counts.records_in)  # fmt: skip
     return 0
