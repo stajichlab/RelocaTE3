@@ -129,6 +129,16 @@ def test_parse_secondary_line_is_none() -> None:
     assert parse_paf_line(PAF.replace("tp:A:P", "tp:A:S"), {"s1": "r1"}) is None
 
 
+def test_parse_short_line_is_malformed() -> None:
+    with pytest.raises(ValueError, match="malformed PAF line"):
+        parse_paf_line("s1\t440\t5\t435\t-\tmPing\n", {"s1": "r1"})
+
+
+def test_parse_unknown_query_is_runtime_error() -> None:
+    with pytest.raises(RuntimeError, match="unknown query 's1'"):
+        parse_paf_line(PAF, {"other": "r1"})
+
+
 # --- integration (real minimap2) -------------------------------------------
 
 
@@ -290,3 +300,75 @@ def test_minimap2_failure_names_command(
         annotate_signatures([_sig("s1", "r1", "ACGT")], library, threads=1,
                             workdir=work)  # fmt: skip
     assert not list(work.glob(".lr-annotate.*"))
+
+
+def _fake_minimap2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, paf: str) -> None:
+    fake = tmp_path / "fakebin"
+    fake.mkdir()
+    (tmp_path / "fake.paf").write_text(paf)
+    script = fake / "minimap2"
+    script.write_text(f"#!/bin/sh\nexec /bin/cat {tmp_path / 'fake.paf'}\n")
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", str(fake))
+
+
+@pytest.mark.parametrize("bad", ["", "s 1", "s\t1", "s1\n"])
+def test_bad_signature_id_raises_before_minimap2(
+    bad: str, library: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", "")  # minimap2 must not be reached
+    with pytest.raises(ValueError, match="signature_id"):
+        annotate_signatures([_sig(bad, "r1", "ACGT")], library, threads=1,
+                            workdir=tmp_path)  # fmt: skip
+
+
+def test_unknown_paf_query_raises(
+    library: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_minimap2(tmp_path, monkeypatch, PAF.replace("s1", "ghost"))
+    with pytest.raises(RuntimeError, match="unknown query 'ghost'"):
+        annotate_signatures([_sig("s1", "r1", "A" * 440)], library, threads=1,
+                            workdir=tmp_path)  # fmt: skip
+
+
+def test_hit_sort_is_total(
+    library: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def line(te_start: int, te_end: int, strand: str) -> str:
+        return (f"s1\t440\t0\t100\t{strand}\tmPing\t430\t{te_start}\t"
+                f"{te_end}\t90\t100\t60\ttp:A:P\n")  # fmt: skip
+
+    lines = [line(5, 105, "-"), line(5, 105, "+"), line(0, 110, "+"),
+             line(0, 100, "+")]  # fmt: skip
+    _fake_minimap2(tmp_path, monkeypatch, "".join(lines))
+    hits = annotate_signatures([_sig("s1", "r1", "A" * 440)], library,
+                               threads=1, workdir=tmp_path)  # fmt: skip
+    assert [(h.te_start, h.te_end, h.te_strand) for h in hits] == [
+        (0, 100, "+"), (0, 110, "+"), (5, 105, "+"), (5, 105, "-"),
+    ]  # fmt: skip
+
+
+def test_missing_workdir_raises(
+    library: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", "")  # checked before looking for minimap2
+    missing = tmp_path / "nowhere"
+    with pytest.raises(FileNotFoundError, match="nowhere"):
+        annotate_signatures([_sig("s1", "r1", "ACGT")], library, threads=1,
+                            workdir=missing)  # fmt: skip
+
+
+def test_all_empty_sequences_need_no_minimap2(
+    library: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", "")
+    stats: dict[str, int] = {}
+    hits = annotate_signatures([_sig("e1", "r1", ""), _sig("e2", "r2", "")],
+                               library, threads=1, workdir=tmp_path,
+                               stats=stats)  # fmt: skip
+    assert hits == [_no_hit_row("e1", "r1"), _no_hit_row("e2", "r2")]
+    assert (stats["queries"], stats["without_hit"]) == (0, 2)
+
+
+def _no_hit_row(sig_id: str, read_id: str) -> TeHit:
+    return TeHit(sig_id, read_id, NO_HIT, ".", 0, 0, 0, 0, 0, 0, 0.0)

@@ -7,6 +7,10 @@ the HiFi preset misses 145 bp TEs entirely; ``map-ont`` with k=11, w=5 hits
 every family at 1-10 % error and nothing in random sequence; ``-r 100,100``
 splits nested inserts. The same flags serve every read type, because the
 query is a short insert, not a read.
+
+minimap2 truncates sequence names at the first whitespace, so a hit's
+family is the first word of the library FASTA header, and signature ids
+(which become query names) must not contain whitespace.
 """
 
 from __future__ import annotations
@@ -56,9 +60,14 @@ def parse_paf_line(line: str, read_of: Mapping[str, str]) -> TeHit | None:
         The hit, or None for a secondary alignment (``tp:A:S``).
 
     Raises:
-        KeyError: If the query name is not in ``read_of``.
+        ValueError: If the line has fewer than the 12 mandatory PAF fields.
+        RuntimeError: If the query name is not in ``read_of``.
     """
     f = line.rstrip("\n").split("\t")
+    if len(f) < 12:
+        raise ValueError(f"malformed PAF line ({len(f)} fields): {line!r}")
+    if f[0] not in read_of:
+        raise RuntimeError(f"minimap2 reported unknown query {f[0]!r}")
     if any(tag == "tp:A:S" for tag in f[12:]):
         return None
     nmatch, block = int(f[9]), int(f[10])
@@ -72,6 +81,11 @@ def parse_paf_line(line: str, read_of: Mapping[str, str]) -> TeHit | None:
 
 def _no_hit(sig_id: str, read_id: str, length: int) -> TeHit:
     return TeHit(sig_id, read_id, NO_HIT, ".", 0, 0, 0, 0, 0, length, 0.0)
+
+
+def _hit_order(h: TeHit) -> tuple[int, int, str, int, int, str]:
+    return (h.query_start, h.query_end, h.family, h.te_start, h.te_end,
+            h.te_strand)  # fmt: skip
 
 
 def _tail(path: Path) -> str:
@@ -103,18 +117,25 @@ def annotate_signatures(
 
     Returns:
         Per signature, in input order, its hits sorted by
-        ``(query_start, query_end, family)``, or one ``NO_HIT`` row.
+        ``(query_start, query_end, family, te_start, te_end, te_strand)``,
+        or one ``NO_HIT`` row.
 
     Raises:
-        FileNotFoundError: If ``library`` is not a file.
-        ValueError: If a signature id repeats, or ``threads`` is below 1.
+        FileNotFoundError: If ``library`` is not a file or ``workdir`` is
+            not a directory.
+        ValueError: If a signature id is empty, contains whitespace or
+            repeats, or ``threads`` is below 1.
         RuntimeError: If minimap2 is not on PATH (checked only when there
             is a query) or exits non-zero (the message names the command and
-            holds the last lines of its stderr).
+            holds the last lines of its stderr), or reports a query name
+            that is not a signature id.
     """
     library = Path(library)
     if not library.is_file():
         raise FileNotFoundError(f"TE library not found: {library}")
+    workdir = Path(workdir)
+    if not workdir.is_dir():
+        raise FileNotFoundError(f"workdir is not a directory: {workdir}")
     if threads < 1:
         raise ValueError(f"threads must be at least 1, got {threads}")
 
@@ -123,6 +144,11 @@ def annotate_signatures(
     queries: list[tuple[str, str]] = []
     for sig in signatures:
         sid = sig.signature_id
+        if not sid or any(c.isspace() for c in sid):
+            raise ValueError(
+                f"signature_id {sid!r} is empty or contains whitespace"
+                " (minimap2 truncates query names at whitespace)"
+            )
         if sid in read_of:
             raise ValueError(f"duplicate signature_id {sid!r}")
         read_of[sid] = sig.read_id
@@ -163,7 +189,7 @@ def annotate_signatures(
     for sid, read_id, length in order:
         group = by_sig.get(sid)
         if group:
-            group.sort(key=lambda h: (h.query_start, h.query_end, h.family))
+            group.sort(key=_hit_order)
             result.extend(group)
             with_hit += 1
             n_hits += len(group)
