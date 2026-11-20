@@ -38,8 +38,10 @@ lr-align -> lr-signatures -> lr-cluster          (L2, unchanged except reference
   (versioned, `.partial` then rename, refuse to overwrite).
 - Both stages write a `timing.tsv` row via `stage_timer`.
 - Short-read code is not touched.
-- L2 known limit fixed here: `lr-align` records the reference id in the BAM
-  header (`@CO`); `lr-signatures` refuses a mismatch with `--reference-id`.
+- L2 known limit fixed here: `lr-align` writes a sidecar
+  `<sample>.lr.meta.tsv` (reference id, read type, genome); `lr-signatures`
+  refuses a mismatch. A sidecar, not a BAM `@CO` line, because a linked
+  user BAM cannot be edited.
 - Deferred: read groups / multi-sample BAMs; short-read format outputs
   (`all_nonref_insert.txt`, etc.) stay in L5.
 
@@ -47,8 +49,9 @@ lr-align -> lr-signatures -> lr-cluster          (L2, unchanged except reference
 
 - Each signature's sequence (inserted bases; clipped bases for CLIP) goes to
   a temporary FASTA; minimap2 aligns it to the TE library with `-c`.
-- Flags: start from the read-type preset, lower k-mer size for short
-  queries. The final flags and why are recorded in the results note.
+- Flags (measured 2026-11-19, see the plan): `-c -x map-ont -k 11 -w 5
+  -r 100,100 --secondary=no` for every read type. The HiFi preset finds no
+  145 bp TE at all.
 - One row per hit: `signature_id`, `read_id`, `family`, `te_strand`
   (TE orientation on the reference-forward strand), `te_start`, `te_end`,
   `te_length`, `query_start`, `query_end`, `identity`.
@@ -74,8 +77,8 @@ Per cluster:
    (fixes the L2 limit where length splitting leaves two clusters at one
    site). Different families nearby stay separate.
 5. Nothing is dropped: every cluster yields a row with `filter=PASS` or a
-   fixed-order list of reasons (`no_te_hit`, `family_discordant`,
-   `low_support`, `low_te_fraction`).
+   fixed-order list of reasons (`no_te_hit`, `few_te_reads`,
+   `family_discordant`, `low_support`, `low_te_fraction`).
 6. Position = cluster median breakpoint (exact breakpoints are L4).
 
 Calls columns: `call_id`, `reference_id`, `sequence_id`, `position`, `tier`,
