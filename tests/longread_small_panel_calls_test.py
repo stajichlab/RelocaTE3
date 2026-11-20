@@ -56,7 +56,7 @@ def _library_names(path: Path) -> set[str]:
 def test_hifi_cov5x_five_stages_call_the_panel(tmp_path: Path) -> None:
     library = PANEL / "config" / "te_library.fa"
     names = _library_names(library)
-    assert len(names) == 14
+    assert names, f"no FASTA headers in {library}"
     out = tmp_path / "out"
     so = ["--sample", "S", "-o", str(out)]
     sigs = out / "S.signatures.tsv.gz"

@@ -7,6 +7,7 @@ reports recall, precision, F1, strand accuracy and diagnostics.
 
 from __future__ import annotations
 
+import random
 import sys
 from pathlib import Path
 
@@ -71,11 +72,16 @@ def _call(
     )  # fmt: skip
 
 
-def _calls(tmp_path: Path, name: str, specs: list[tuple]) -> Path:
-    """Write calls from ``(chrom, pos, family[, strand, tier, filters, ref])``."""
+def _calls(
+    tmp_path: Path, name: str, specs: list[tuple], reference_id: str = "ref"
+) -> Path:
+    """Write calls from ``(chrom, pos, family[, strand, tier, filters, ref])``.
+
+    ``reference_id`` is the file's metadata reference.
+    """
     path = tmp_path / f"{name}.calls.tsv.gz"
     calls = [_call(i, *spec) for i, spec in enumerate(specs)]
-    write_calls(path, calls, read_type=ReadType.HIFI, reference_id="ref")
+    write_calls(path, calls, read_type=ReadType.HIFI, reference_id=reference_id)
     return path
 
 
@@ -277,3 +283,98 @@ def test_main_without_header_or_control(tmp_path, capsys):
 def test_negative_max_dist_rejected(tmp_path):
     with pytest.raises(ValueError, match="max_dist"):
         score_calls.score(_truth(tmp_path), _perfect(tmp_path), None, -1)
+
+
+# --- edge cases -------------------------------------------------------------------
+
+
+def test_equidistant_tie_goes_to_lower_truth_index(tmp_path):
+    truth = score_calls.read_truth(_truth(tmp_path, [
+        ("Chr3", 1000, "mPing", "+"), ("Chr3", 1100, "mPing", "+"),
+    ]))  # fmt: skip
+    _, scored = score_calls.read_scored_calls(
+        _calls(tmp_path, "s", [("Chr3", 1050, "mPing")])
+    )
+    assert score_calls.greedy_match(truth, scored, 50) == [(0, 0)]
+
+
+def test_empty_calls_file(tmp_path):
+    row = score_calls.score(_truth(tmp_path), _calls(tmp_path, "s", []), None, 50)
+    assert row["n_pass"] == 0 and row["tp"] == 0
+    assert row["recall"] == "0.0000"
+    assert row["precision"] == ""
+    assert row["f1"] == "0.0000"  # 2*0 / (3 + 0)
+    assert row["strand_accuracy"] == ""
+
+
+def test_empty_truth(tmp_path):
+    truth = _truth(tmp_path, [])
+    row = score_calls.score(truth, _perfect(tmp_path), None, 50)
+    assert row["n_truth"] == 0 and row["n_pass"] == 3 and row["tp"] == 0
+    assert row["recall"] == ""
+    assert row["precision"] == "0.0000"
+    assert row["f1"] == "0.0000"  # 2*0 / (0 + 3)
+
+
+def test_empty_truth_and_calls_leave_ratios_empty(tmp_path):
+    row = score_calls.score(_truth(tmp_path, []), _calls(tmp_path, "s", []), None, 50)
+    assert row["recall"] == row["precision"] == row["f1"] == ""
+
+
+@pytest.mark.parametrize("strand", [".", "", "plus"])
+def test_bad_truth_strand_raises(tmp_path, strand):
+    truth = _truth(tmp_path, [("Chr3", 1000, "mPing", "+"),
+                              ("Chr3", 5000, "Dasheng", strand)])  # fmt: skip
+    with pytest.raises(ValueError, match=rf"line 3: strand {strand!r}"):
+        score_calls.read_truth(truth)
+
+
+def test_control_reference_must_match_sample(tmp_path):
+    control = _calls(tmp_path, "k", [("Chr3", 1000, "mPing", "+", SPAN, (), "other")],
+                     reference_id="other")  # fmt: skip
+    with pytest.raises(ValueError, match="'other'.*'ref'"):
+        score_calls.score(_truth(tmp_path), _perfect(tmp_path), control, 50)
+
+
+def test_per_family_refuses_existing_path(tmp_path):
+    out = tmp_path / "pf.tsv"
+    out.write_text("keep\n")
+    with pytest.raises(FileExistsError):
+        score_calls.score(_truth(tmp_path), _perfect(tmp_path), None, 50,
+                          per_family=out)  # fmt: skip
+    assert out.read_text() == "keep\n"
+
+
+def _brute_match(truth, calls, max_dist, use_family=True):
+    """Reference matcher: every truth-call pair, no indexing."""
+    pairs = sorted(
+        (abs(c.locus.start - t.position), i, j)
+        for i, t in enumerate(truth)
+        for j, c in enumerate(calls)
+        if c.locus.sequence_id == t.chrom
+        and abs(c.locus.start - t.position) <= max_dist
+        and (not use_family or c.family == t.family)
+    )
+    used_t, used_c, out = set(), set(), []
+    for _, i, j in pairs:
+        if i not in used_t and j not in used_c:
+            used_t.add(i)
+            used_c.add(j)
+            out.append((i, j))
+    return out
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_greedy_match_equals_brute_force(seed):
+    rng = random.Random(seed)
+    chroms, fams = ["Chr1", "Chr3"], ["mPing", "karma", "RIRE2"]
+    truth = [score_calls.TruthSite(rng.choice(chroms), rng.randrange(0, 2000),
+                                   rng.choice(fams), "+")
+             for _ in range(rng.randrange(0, 40))]  # fmt: skip
+    calls = [_call(j, rng.choice(chroms), rng.randrange(0, 2000), rng.choice(fams))
+             for j in range(rng.randrange(0, 40))]  # fmt: skip
+    for max_dist in (0, 10, 50, 300):
+        for use_family in (True, False):
+            assert score_calls.greedy_match(truth, calls, max_dist, use_family) == (
+                _brute_match(truth, calls, max_dist, use_family)
+            )

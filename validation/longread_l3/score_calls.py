@@ -26,12 +26,18 @@ truth site nor its call is used yet; ``tp`` is the number of pairs taken.
 Matching is by sequence name only, so the truth table must name sequences of
 the reference the calls were made against: the ``reference_id`` in each
 calls file's metadata. Every call row must carry that ``reference_id``; a
-row with another one raises ``ValueError``.
+row with another one raises ``ValueError``, as does a control whose
+``reference_id`` differs from the sample's.
+
+Every truth row is scored, whatever its ``biological_class`` (the small
+panel is all homozygous). A truth ``strand`` other than ``+`` or ``-``
+raises ``ValueError``.
 
 ``--per-family PATH`` writes ``family n_truth tp recall n_pass precision``
 per family (``n_pass``: PASS spanning calls naming that family; ``tp``:
 matched pairs of that family), one row for each family in the truth or in
-the scored calls, sorted by family name.
+the scored calls, sorted by family name. An existing ``PATH`` is refused
+(``FileExistsError``).
 
 Inputs:
     --truth     truth_events.tsv (columns include ``chrom``, ``position``
@@ -50,7 +56,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import bisect
 import csv
+import os
 import sys
 from collections import Counter
 from collections.abc import Sequence
@@ -80,23 +88,33 @@ class TruthSite(NamedTuple):
 
 
 def read_truth(path: str | Path) -> list[TruthSite]:
-    """Return every row of a truth table as a :class:`TruthSite`."""
+    """Return every row of a truth table as a :class:`TruthSite`.
+
+    Raises:
+        ValueError: If a column is missing or a ``strand`` is not ``+``/``-``.
+    """
     with open(path, newline="") as fh:
         reader = csv.DictReader(fh, delimiter="\t")
         need = {"chrom", "position", "te_family", "strand"}
         missing = need - set(reader.fieldnames or ())
         if missing:
             raise ValueError(f"{path}: truth table lacks columns {sorted(missing)}")
-        return [
-            TruthSite(
-                row["chrom"], int(row["position"]), row["te_family"], row["strand"]
-            )  # fmt: skip
-            for row in reader
-        ]
+        sites: list[TruthSite] = []
+        for row in reader:
+            strand = row["strand"]
+            if strand not in ("+", "-"):
+                raise ValueError(
+                    f"{path}: line {reader.line_num}: strand {strand!r} "
+                    "is not '+' or '-'"
+                )
+            sites.append(
+                TruthSite(row["chrom"], int(row["position"]), row["te_family"], strand)
+            )
+        return sites
 
 
-def read_checked_calls(path: str | Path) -> list[Call]:
-    """Return all calls in ``path``.
+def read_checked_calls(path: str | Path) -> tuple[str, list[Call]]:
+    """Return the metadata ``reference_id`` and all calls in ``path``.
 
     Raises:
         ValueError: If a call's ``locus.reference_id`` differs from the
@@ -112,12 +130,12 @@ def read_checked_calls(path: str | Path) -> list[Call]:
                 f"{c.locus.reference_id!r}, file metadata says {reference_id!r}"
             )
         out.append(c)
-    return out
+    return reference_id, out
 
 
 def read_scored_calls(path: str | Path) -> tuple[list[Call], list[Call]]:
     """Return ``(all calls, scored calls)``; scored = PASS spanning."""
-    calls = read_checked_calls(path)
+    _, calls = read_checked_calls(path)
     return calls, _pass_of(calls, CallTier.SPANNING)
 
 
@@ -136,16 +154,25 @@ def greedy_match(
     Returns:
         ``(truth index, call index)`` pairs in the order they were taken.
     """
-    by_chrom: dict[str, list[int]] = {}
+    # Per sequence, (start, call index) sorted by start; a bisect window over
+    # the starts gives the calls within max_dist of each truth site.
+    by_chrom: dict[str, list[tuple[int, int]]] = {}
     for j, c in enumerate(calls):
-        by_chrom.setdefault(c.locus.sequence_id, []).append(j)
+        by_chrom.setdefault(c.locus.sequence_id, []).append((c.locus.start, j))
+    starts: dict[str, list[int]] = {}
+    for chrom, entries in by_chrom.items():
+        entries.sort()
+        starts[chrom] = [start for start, _ in entries]
     pairs: list[tuple[int, int, int]] = []
     for i, t in enumerate(truth):
-        for j in by_chrom.get(t.chrom, ()):
-            c = calls[j]
-            dist = abs(c.locus.start - t.position)
-            if dist <= max_dist and (not use_family or c.family == t.family):
-                pairs.append((dist, i, j))
+        if t.chrom not in by_chrom:
+            continue
+        keys = starts[t.chrom]
+        lo = bisect.bisect_left(keys, t.position - max_dist)
+        hi = bisect.bisect_right(keys, t.position + max_dist)
+        for start, j in by_chrom[t.chrom][lo:hi]:
+            if not use_family or calls[j].family == t.family:
+                pairs.append((abs(start - t.position), i, j))
     pairs.sort()
     used_truth: set[int] = set()
     used_calls: set[int] = set()
@@ -176,7 +203,8 @@ def _write_per_family(
         fields = (family, n_truth[family], tp[family], _ratio(tp[family], n_truth[family]),
                   n_pass[family], _ratio(tp[family], n_pass[family]))  # fmt: skip
         lines.append("\t".join(str(f) for f in fields))
-    Path(path).write_text("\n".join(lines) + "\n")
+    with open(path, "x") as fh:
+        fh.write("\n".join(lines) + "\n")
 
 
 def score(
@@ -193,12 +221,27 @@ def score(
         A dict keyed by ``COLUMNS``; ratios are 4-decimal strings (``""``
         when the denominator is 0), control fields are ``""`` when
         ``control_path`` is None.
+
+    Raises:
+        FileExistsError: If ``per_family`` already exists.
+        ValueError: On a bad truth row, a call row or control whose
+            ``reference_id`` disagrees, or a negative ``max_dist``.
     """
     if max_dist < 0:
         raise ValueError(f"max_dist must be >= 0, got {max_dist}")
+    if per_family is not None and os.path.lexists(per_family):
+        raise FileExistsError(f"per-family output exists: {per_family}")
     truth = read_truth(truth_path)
-    calls, scored = read_scored_calls(calls_path)
-    control = read_checked_calls(control_path) if control_path is not None else None
+    sample_ref, calls = read_checked_calls(calls_path)
+    scored = _pass_of(calls, CallTier.SPANNING)
+    control: list[Call] | None = None
+    if control_path is not None:
+        control_ref, control = read_checked_calls(control_path)
+        if control_ref != sample_ref:
+            raise ValueError(
+                f"{control_path}: control reference_id {control_ref!r} differs "
+                f"from the sample's {sample_ref!r} ({calls_path})"
+            )
     n_truth, n_pass = len(truth), len(scored)
 
     matched = greedy_match(truth, scored, max_dist)
