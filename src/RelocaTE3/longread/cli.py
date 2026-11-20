@@ -6,8 +6,11 @@ Each stage reads the previous stage's file and writes one file into
 
 - ``lr-align``: reads (minimap2 | samtools sort) or an existing BAM/CRAM
   (checked, then symlinked) -> ``<sample>.lr.bam`` (+ index), or
-  ``<sample>.lr.cram`` (+ ``.crai``) for a CRAM.
-- ``lr-signatures``: BAM/CRAM -> ``<sample>.signatures.tsv.gz``.
+  ``<sample>.lr.cram`` (+ ``.crai``) for a CRAM, plus the sidecar
+  ``<sample>.lr.meta.tsv`` (``reference_id``, ``read_type``, ``genome``).
+- ``lr-signatures``: BAM/CRAM -> ``<sample>.signatures.tsv.gz``. If the
+  sidecar sits beside the BAM/CRAM (same name, last suffix replaced by
+  ``.meta.tsv``), its reference id and read type must match the options.
 - ``lr-cluster``: signatures -> ``<sample>.clusters.tsv.gz``.
 
 ``--read-type`` exists only here; ``run-all``/``run-batch`` are unchanged.
@@ -84,6 +87,68 @@ def _mapped_records(aln: Path, genome: Path) -> int:
         return 0
 
 
+# --- reference-id sidecar ----------------------------------------------------
+
+_META_KEYS = ("reference_id", "read_type", "genome")
+
+
+def _meta_path(alignment: Path) -> Path:
+    """Sidecar of an alignment: ``x.lr.bam`` / ``x.lr.cram`` -> ``x.lr.meta.tsv``."""
+    return alignment.with_suffix(".meta.tsv")
+
+
+def _write_meta(path: Path, reference_id: str, read_type: ReadType,
+                genome: Path) -> None:  # fmt: skip
+    """Write the sidecar via ``<path>.partial`` and a rename."""
+    values = {"reference_id": reference_id, "read_type": read_type.value,
+              "genome": str(genome.resolve())}  # fmt: skip
+    for key, value in values.items():
+        if any(c in value for c in "\t\n\r"):
+            raise ValueError(f"sidecar {key} contains a tab or newline: {value!r}")
+    partial = Path(f"{path}.partial")
+    with partial.open("w") as fh:
+        fh.write("key\tvalue\n")
+        for key in _META_KEYS:
+            fh.write(f"{key}\t{values[key]}\n")
+    partial.replace(path)
+    log.info("wrote %s", path)
+
+
+def _read_meta(path: Path) -> dict[str, str]:
+    """Read a sidecar into a dict; the header must be ``key<TAB>value``."""
+    with path.open() as fh:
+        lines = fh.read().splitlines()
+    if not lines or lines[0] != "key\tvalue":
+        raise ValueError(f"{path}: not a long-read sidecar (header 'key\\tvalue')")
+    meta: dict[str, str] = {}
+    for n, line in enumerate(lines[1:], start=2):
+        fields = line.split("\t")
+        if len(fields) != 2:
+            raise ValueError(f"{path}:{n}: expected 2 fields, got {len(fields)}")
+        meta[fields[0]] = fields[1]
+    return meta
+
+
+def _check_meta(alignment: Path, reference_id: str, read_type: ReadType) -> None:
+    """Compare the alignment's sidecar, if any, with the given options."""
+    path = _meta_path(alignment)
+    if not path.is_file():
+        log.info("no sidecar %s (a user BAM/CRAM); --reference-id %r and "
+                 "--read-type %s are not checked", path, reference_id,
+                 read_type)  # fmt: skip
+        return
+    meta = _read_meta(path)
+    for key, given, option in (("reference_id", reference_id, "--reference-id"),
+                               ("read_type", read_type.value, "--read-type")):  # fmt: skip
+        if key not in meta:
+            raise ValueError(f"{path}: sidecar has no {key}")
+        if meta[key] != given:
+            raise ValueError(f"{option} {given!r} differs from {key} "
+                             f"{meta[key]!r} recorded by lr-align in {path}")  # fmt: skip
+    log.info("sidecar %s matches (reference_id %s, read_type %s)", path,
+             reference_id, read_type)  # fmt: skip
+
+
 # --- lr-align ---------------------------------------------------------------
 
 
@@ -99,7 +164,7 @@ def _link_alignment(bam: Path, genome: Path, reference_id: str, outdir: Path,
     suffix = index.suffix
     link = outdir / f"{sample}.lr.{'cram' if is_cram else 'bam'}"
     link_index = Path(str(link) + suffix)
-    _refuse_existing(link, link_index)
+    _refuse_existing(link, link_index, _meta_path(link))
     link.symlink_to(bam.resolve())
     try:
         link_index.symlink_to(index.resolve())
@@ -126,11 +191,12 @@ def cmd_lr_align(args: argparse.Namespace) -> int:
         else:
             reads = [_require_file(Path(r), "read file") for r in args.reads]
             out = outdir / f"{args.sample}.lr.bam"
-            _refuse_existing(out, Path(f"{out}.bai"))
+            _refuse_existing(out, Path(f"{out}.bai"), _meta_path(out))
             log.info("aligning %d read file(s) as %s with %d thread(s)",
                      len(reads), read_type, args.threads)  # fmt: skip
             align_reads(genome, reads, read_type, out, args.threads)
         counts.records_out = _mapped_records(out, genome)
+        _write_meta(_meta_path(out), args.reference_id, read_type, genome)
     log.info("lr-align wrote %s (%d mapped records)", out, counts.records_out)
     return 0
 
@@ -155,6 +221,7 @@ def cmd_lr_signatures(args: argparse.Namespace) -> int:
         _require_genome_for_cram(bam, args.genome)
         if args.genome is not None:
             _require_file(Path(args.genome), "genome FASTA")
+        _check_meta(bam, args.reference_id, read_type)
         _refuse_existing(out)
         log.info("signature parameters: min_mapq=%d %s", args.min_mapq, params)
         placements = iter_placements(

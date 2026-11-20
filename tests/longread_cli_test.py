@@ -8,6 +8,7 @@ the real minimap2 and samtools and are skipped without them.
 from __future__ import annotations
 
 import csv
+import os
 from pathlib import Path
 
 import pysam
@@ -17,7 +18,7 @@ from RelocaTE3.cli import main
 from RelocaTE3.longread.model import ClipSide, Locus, ReadType, Signature, SignatureKind
 from RelocaTE3.longread.tables import read_clusters, read_signatures, write_signatures
 from tests import longread_align_test
-from tests.longread_align_test import HAVE_TOOLS, INS_AT
+from tests.longread_align_test import HAVE_TOOLS, INS_AT, _bam
 
 # The synthetic genome (1 kb insert at INS_AT) and three reads over it.
 lr_synthetic = longread_align_test.synthetic
@@ -28,6 +29,13 @@ needs_tools = pytest.mark.skipif(not HAVE_TOOLS, reason="minimap2/samtools not o
 def _timing(outdir: Path) -> list[dict[str, str]]:
     with (outdir / "timing.tsv").open() as fh:
         return list(csv.DictReader(fh, delimiter="\t"))
+
+
+def _read_meta_file(path: Path) -> dict[str, str]:
+    with path.open() as fh:
+        rows = list(csv.reader(fh, delimiter="\t"))
+    assert rows[0] == ["key", "value"]
+    return dict(rows[1:])
 
 
 # --- parser -----------------------------------------------------------------
@@ -275,3 +283,106 @@ def test_cram_without_genome_fails_early(
     assert rc == 1
     assert "CRAM input needs --genome (the reference FASTA)" in caplog.text
     assert not (tmp_path / "o" / "S.signatures.tsv.gz").exists()
+
+
+# --- reference-id sidecar between lr-align and lr-signatures --------------------
+
+
+def _user_bam(tmp_path: Path, name: str = "x.lr.bam") -> Path:
+    return _bam(tmp_path / name, [("chr1", 1000)])
+
+
+def _write_sidecar(bam: Path, reference_id: str, read_type: str) -> Path:
+    meta = bam.with_suffix(".meta.tsv")
+    meta.write_text(f"key\tvalue\nreference_id\t{reference_id}\n"
+                    f"read_type\t{read_type}\ngenome\t/g.fa\n")  # fmt: skip
+    return meta
+
+
+def test_lr_signatures_rejects_sidecar_reference_mismatch(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    bam = _user_bam(tmp_path)
+    meta = _write_sidecar(bam, "other", "hifi")
+    assert meta.name == "x.lr.meta.tsv"
+    rc = main(["lr-signatures", "--sample", "S", "-o", str(tmp_path / "o"),
+               "--bam", str(bam), "--read-type", "hifi",
+               "--reference-id", "ref"])  # fmt: skip
+    assert rc == 1
+    assert "'other'" in caplog.text and "'ref'" in caplog.text
+    assert str(meta) in caplog.text
+    assert not (tmp_path / "o" / "S.signatures.tsv.gz").exists()
+
+
+def test_lr_signatures_rejects_sidecar_read_type_mismatch(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    bam = _user_bam(tmp_path)
+    _write_sidecar(bam, "ref", "ont")
+    rc = main(["lr-signatures", "--sample", "S", "-o", str(tmp_path / "o"),
+               "--bam", str(bam), "--read-type", "hifi"])  # fmt: skip
+    assert rc == 1
+    assert "'ont'" in caplog.text and "'hifi'" in caplog.text
+
+
+def test_lr_signatures_matching_sidecar_runs(tmp_path: Path) -> None:
+    bam = _user_bam(tmp_path)
+    _write_sidecar(bam, "ref", "hifi")
+    assert main(["lr-signatures", "--sample", "S", "-o", str(tmp_path / "o"),
+                 "--bam", str(bam), "--read-type", "hifi"]) == 0  # fmt: skip
+
+
+def test_lr_signatures_without_sidecar_runs(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("INFO")
+    bam = _user_bam(tmp_path)
+    assert main(["lr-signatures", "--sample", "S", "-o", str(tmp_path / "o"),
+                 "--bam", str(bam), "--read-type", "hifi"]) == 0  # fmt: skip
+    assert (tmp_path / "o" / "S.signatures.tsv.gz").is_file()
+    assert "no sidecar" in caplog.text
+
+
+@needs_tools
+def test_lr_align_writes_sidecar_and_refuses_second_run(
+    lr_synthetic: tuple[Path, Path], tmp_path: Path
+) -> None:
+    fa, fq = lr_synthetic
+    out = tmp_path / "out"
+    args = ["lr-align", "--sample", "S", "-o", str(out), "--genome", str(fa),
+            "--read-type", "ont", "--reads", str(fq),
+            "--reference-id", "IRGSP"]  # fmt: skip
+    assert main(args) == 0
+    meta_path = out / "S.lr.meta.tsv"
+    assert _read_meta_file(meta_path) == {
+        "reference_id": "IRGSP", "read_type": "ont", "genome": str(fa.resolve()),
+    }  # fmt: skip
+    assert not (out / "S.lr.meta.tsv.partial").exists()
+    before = meta_path.read_bytes()
+    stat = meta_path.stat()
+
+    # Only the sidecar is left: the BAM is moved away, the sidecar still blocks.
+    (out / "S.lr.bam").rename(tmp_path / "moved.bam")
+    (out / "S.lr.bam.bai").rename(tmp_path / "moved.bam.bai")
+    assert main(args) == 1
+    assert not (out / "S.lr.bam").exists()
+    assert meta_path.read_bytes() == before
+    assert meta_path.stat().st_mtime_ns == stat.st_mtime_ns
+
+    # --bam branch writes the sidecar too, and checks it before linking.
+    linked = tmp_path / "linked"
+    largs = ["lr-align", "--sample", "L", "-o", str(linked), "--genome", str(fa),
+             "--read-type", "ont", "--bam", str(tmp_path / "moved.bam"),
+             "--reference-id", "IRGSP"]  # fmt: skip
+    assert main(largs) == 0
+    assert _read_meta_file(linked / "L.lr.meta.tsv")["reference_id"] == "IRGSP"
+    # lr-signatures reads the sidecar beside the linked BAM.
+    sig_args = ["lr-signatures", "--sample", "L", "-o", str(linked),
+                "--bam", str(linked / "L.lr.bam"), "--read-type", "ont"]  # fmt: skip
+    assert main([*sig_args, "--reference-id", "ref"]) == 1
+    assert main([*sig_args, "--reference-id", "IRGSP"]) == 0
+
+    (linked / "L.lr.bam").unlink()
+    (linked / "L.lr.bam.bai").unlink()
+    assert main(largs) == 1
+    assert not os.path.lexists(linked / "L.lr.bam")
