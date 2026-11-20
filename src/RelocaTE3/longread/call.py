@@ -6,7 +6,8 @@ min_identity`` are dropped. Aligned query bases are summed per
 name, then strand, ``"+"`` before ``"-"``). Coverage is the union of all
 kept hits over the query length. The signature is nested when a hit of
 another family, at least ``NESTED_MIN_BP`` long, overlaps the best family's
-hits by at most ``NESTED_MAX_OVERLAP`` of its length.
+hits by at most ``NESTED_MAX_OVERLAP`` of its length. Kept hits must agree
+on ``query_length`` (``ValueError`` otherwise).
 
 Read summary (:func:`read_family`): bases per ``(family, strand)`` summed
 over the read's signatures; the top pair, ranked as above.
@@ -31,7 +32,10 @@ Calls (:func:`call_clusters`):
    ``family_fraction`` = its read count / hit reads; the strand is the
    majority strand among reads of the top family (tie: ``"+"``) and
    ``strand_fraction`` = that count / those reads. With no hit reads:
-   family ``NO_HIT``, strand ``"."``, all three fractions 0.0.
+   family ``NO_HIT``, strand ``"."``, all three fractions 0.0. The group
+   vote is recomputed over the merged reads, so it can differ from the
+   member clusters' families (a read's signatures from several clusters are
+   summed); such groups usually fail a filter, e.g. ``FAMILY_DISCORDANT``.
 5. Tier: ``SPANNING`` if the group has an INS or SPLIT_INS signature, else
    ``CLIP_ONLY``.
 6. Position: lower median of insert-signature positions (``SPANNING``),
@@ -48,13 +52,15 @@ Calls (:func:`call_clusters`):
    ``te_read_fraction < min_te_reads_fraction``); ``FAMILY_DISCORDANT``
    (hit reads and ``family_fraction < min_family_fraction``);
    ``LOW_SUPPORT`` (``n_reads < min_support``); ``LOW_TE_FRACTION``
-   (``SPANNING`` and ``median_te_coverage < min_te_coverage``).
+   (``SPANNING`` and ``median_te_coverage < min_te_coverage``, comparing the
+   4-decimal rounded median).
 9. Output is ordered by ``(reference_id, sequence_id, position, first
    cluster_id)``; ``call_id`` is ``{reference_id}:{sequence_id}:{position}``
    with ``.1``, ``.2`` ... on repeats, as for clusters.
 
 Signature counts (``n_ins`` ... ``n_clip_right``) are over the group's
-union of signatures. ``min_te_identity`` is applied when ``te`` is built
+union of signatures, each counted once; clip sides are counted over CLIP
+signatures only. ``min_te_identity`` is applied when ``te`` is built
 with :func:`summarize_signature`; :class:`CallParams` carries it so one
 object describes a run.
 """
@@ -128,6 +134,9 @@ def summarize_signature(hits: Sequence[TeHit], min_identity: float) -> Signature
 
     Returns:
         The signature's best family, strand, coverage and nesting.
+
+    Raises:
+        ValueError: If kept hits disagree on ``query_length``.
     """
     kept = [h for h in hits if h.family != NO_HIT and h.identity >= min_identity]
     if not kept:
@@ -138,6 +147,10 @@ def summarize_signature(hits: Sequence[TeHit], min_identity: float) -> Signature
     ranked = sorted(bases.items(), key=_rank)
     family, strand = ranked[0][0]
     length = kept[0].query_length
+    if any(h.query_length != length for h in kept):
+        lengths = sorted({h.query_length for h in kept})
+        raise ValueError(f"signature {kept[0].signature_id!r}: kept hits disagree "
+                         f"on query_length {lengths}")  # fmt: skip
     covered = sum(b - a for a, b in _union((h.query_start, h.query_end) for h in kept))
     best_union = _union(
         (h.query_start, h.query_end) for h in kept if h.family == family
@@ -276,6 +289,8 @@ def _group_clusters(
 ) -> list[list[Cluster]]:  # fmt: skip
     groups: list[list[Cluster]] = []
     open_group: dict[tuple[str, str, str], list[Cluster]] = {}
+    # cluster_id breaks start ties as text ("...:1000.1" < "...:1000.2"):
+    # not numeric, but deterministic.
     order = sorted(clusters, key=lambda c: (*c.locus.key, c.locus.start, c.cluster_id))
     for c in order:
         family = _vote(c.signature_ids, facts, te).family
@@ -316,7 +331,8 @@ def _make_call(group: list[Cluster], facts: Mapping[str, SignatureFacts],
         FilterReason.LOW_TE_FRACTION: spanning and coverage < params.min_te_coverage,
     }
     kinds = [facts[sid].kind for sid in sig_ids]
-    sides = [facts[sid].clip_side for sid in sig_ids]
+    sides = [facts[sid].clip_side for sid in sig_ids
+             if facts[sid].kind is SignatureKind.CLIP]  # fmt: skip
     key = group[0].locus.key
     return Call(
         call_id="",

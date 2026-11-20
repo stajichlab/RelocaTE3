@@ -69,6 +69,23 @@ def test_hit_below_identity_ignored() -> None:
     assert s.coverage == 0.0
 
 
+def test_hit_at_min_identity_kept() -> None:
+    s = summarize_signature([_hit("mPing", 0, 440, 440, identity=MIN_ID)], MIN_ID)
+    assert s.family == "mPing"
+    assert s.identities == (MIN_ID,)
+
+
+def test_kept_hits_with_different_query_lengths_raise() -> None:
+    hits = [_hit("mPing", 0, 200, 440), _hit("Gaijin", 200, 400, 450)]
+    with pytest.raises(ValueError, match="query_length"):
+        summarize_signature(hits, MIN_ID)
+
+
+def test_query_length_of_dropped_hit_not_checked() -> None:
+    hits = [_hit("mPing", 0, 200, 440), _hit("Gaijin", 0, 400, 450, identity=0.1)]
+    assert summarize_signature(hits, MIN_ID).family == "mPing"
+
+
 def test_low_identity_hit_does_not_count_next_to_good_one() -> None:
     hits = [_hit("Gaijin", 0, 400, 440, identity=0.5),
             _hit("mPing", 0, 200, 440, identity=0.9)]  # fmt: skip
@@ -214,14 +231,14 @@ class World:
         self.te: dict[str, SignatureTe] = {}
 
     def add(self, pos: int, sigs: list[Spec], *, seq: str = "Chr3",
-            cid: str | None = None) -> str:  # fmt: skip
+            cid: str | None = None, ref: str = "ref") -> str:  # fmt: skip
         facts = [f for _, f, _ in sigs]
         kinds = [f.kind for f in facts]
         sides = [f.clip_side for f in facts]
-        cid = cid or f"ref:{seq}:{pos}"
+        cid = cid or f"{ref}:{seq}:{pos}"
         self.clusters.append(Cluster(
             cluster_id=cid,
-            locus=Locus("ref", seq, pos, pos, "+"),
+            locus=Locus(ref, seq, pos, pos, "+"),
             n_reads=len({f.read_id for f in facts}),
             n_ins=kinds.count(INS),
             n_split_ins=kinds.count(SPLIT),
@@ -575,3 +592,62 @@ def test_missing_signature_raises(drop: str) -> None:
     del getattr(w, drop)[sid]
     with pytest.raises(ValueError, match=sid):
         w.call()
+
+
+def test_merge_at_exactly_merge_window() -> None:
+    w = World()
+    a = w.add(1000, [_s(f"a{i}", 1000, _te()) for i in range(3)])
+    b = w.add(1050, [_s(f"b{i}", 1050, _te()) for i in range(3)])
+    assert _one(w).cluster_ids == (a, b)
+
+
+def test_signature_shared_by_merged_clusters_counted_once() -> None:
+    shared = _s("r2", 1010, _te())
+    w = World()
+    w.add(1000, [_s("r1", 1000, _te()), shared])
+    w.add(1030, [shared, _s("r3", 1030, _te())])
+    c = _one(w)
+    assert len(c.cluster_ids) == 2
+    assert (c.n_ins, c.n_reads) == (3, 3)
+    assert c.locus.start == 1010  # lower median of 1000, 1010, 1030
+
+
+def test_same_sequence_name_on_two_references_never_merges() -> None:
+    w = World()
+    w.add(1000, [_s(f"a{i}", 1000, _te()) for i in range(3)], ref="refB")
+    w.add(1010, [_s(f"b{i}", 1010, _te()) for i in range(3)], ref="refA")
+    assert [c.call_id for c in w.call()] == ["refA:Chr3:1010", "refB:Chr3:1000"]
+
+
+def test_clip_counts_only_from_clip_signatures() -> None:
+    # An INS whose facts carry a clip side (inconsistent input) is not a clip.
+    sid = "odd:INS"
+    w = World()
+    w.add(1000, [(sid, SignatureFacts("r1", INS, 1000, 430, ClipSide.LEFT), _te()),
+                 _s("r2", 1000, _te()), _s("r3", 1000, _te(), CLIP)])  # fmt: skip
+    c = _one(w)
+    assert (c.n_ins, c.n_clip_left, c.n_clip_right) == (2, 0, 1)
+
+
+def test_group_vote_recomputed_over_merged_reads() -> None:
+    # Cluster A (1000): r1 mPing, r2 mPing, g1 Gaijin -> reads 2 mPing / 1 Gaijin.
+    # Cluster B (1020): r1 and r2 again, now with 1000-bp Gaijin signatures,
+    # plus f3-f5 mPing -> reads 2 Gaijin / 3 mPing. Both clusters are mPing,
+    # so they merge. In the group r1 and r2 sum 430 mPing + 1000 Gaijin and
+    # turn Gaijin: 3 Gaijin reads (r1, r2, g1) vs 3 mPing (f3-f5); the read
+    # tie goes to more bases (Gaijin 1000 + 1000 + 430 = 2430 vs mPing 1290).
+    w = World()
+    a = w.add(1000, [_s("r1", 1000, _te()), _s("r2", 1000, _te()),
+                     _s("g1", 1000, _te("Gaijin"))])  # fmt: skip
+    b = w.add(1020, [_s("r1", 1020, _te("Gaijin", bases=1000)),
+                     _s("r2", 1020, _te("Gaijin", bases=1000)),
+                     _s("f3", 1020, _te()), _s("f4", 1020, _te()),
+                     _s("f5", 1020, _te())])  # fmt: skip
+    c = _one(w)
+    assert c.cluster_ids == (a, b)
+    assert c.n_reads == 6
+    assert (c.family, c.te_strand) == ("Gaijin", "+")
+    assert c.family_fraction == 0.5
+    assert c.strand_fraction == 1.0
+    assert c.te_read_fraction == 1.0
+    assert c.filters == (FilterReason.FAMILY_DISCORDANT,)
