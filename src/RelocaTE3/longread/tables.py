@@ -6,6 +6,11 @@ Each file is gzip text. Line 1 is the schema line, tab-separated:
 A stage refuses a file of the wrong schema or version, or with a changed
 header, so stages cannot silently read each other's output.
 
+Schemas: ``lr-signatures`` (read evidence), ``lr-clusters`` (candidate
+sites), ``lr-te-hits`` (TE-library alignments of signature sequences, with
+a ``.`` row for a signature with no hit) and ``lr-calls`` (insertion calls;
+``filter`` is ``PASS`` or the comma-joined failed checks).
+
 Writes go to ``<path>.partial`` and are renamed on success; on any error the
 partial file is removed. An existing ``<path>`` is never overwritten.
 Fields are joined with tabs; a field must not be None or contain a tab or
@@ -21,13 +26,16 @@ from pathlib import Path
 from typing import TextIO, TypeVar
 
 from RelocaTE3.longread.model import (
-    ClipSide, Cluster, Locus, ReadType, Signature, SignatureKind,
+    Call, CallTier, ClipSide, Cluster, FilterReason, Locus, ReadType,
+    Signature, SignatureKind, TeHit,
 )  # fmt: skip
 
 T = TypeVar("T")
 
 SIGNATURE_SCHEMA = "lr-signatures"
 CLUSTER_SCHEMA = "lr-clusters"
+TE_HIT_SCHEMA = "lr-te-hits"
+CALL_SCHEMA = "lr-calls"
 VERSION = 1
 _MAGIC = "#relocate3:"
 _META_KEYS = ("read_type", "reference_id")
@@ -42,6 +50,18 @@ CLUSTER_COLUMNS = (
     "n_reads", "n_ins", "n_split_ins", "n_clip_left", "n_clip_right",
     "insert_lengths", "signature_ids",
 )  # fmt: skip
+TE_HIT_COLUMNS = (
+    "signature_id", "read_id", "family", "te_strand", "te_start", "te_end",
+    "te_length", "query_start", "query_end", "query_length", "identity",
+)  # fmt: skip
+CALL_COLUMNS = (
+    "call_id", "reference_id", "sequence_id", "position", "tier", "filter",
+    "family", "strand", "family_fraction", "strand_fraction",
+    "te_read_fraction", "n_reads", "n_ins", "n_split_ins", "n_clip_left",
+    "n_clip_right", "median_insert_length", "median_te_coverage",
+    "median_identity", "nested", "cluster_ids",
+)  # fmt: skip
+PASS = "PASS"
 
 
 def _join_line(fields: Sequence[object]) -> str:
@@ -160,6 +180,10 @@ def _check_list_item(item: str, what: str) -> None:
     # A comma-joined list cannot carry an empty item or one with a comma.
     if not item or "," in item:
         raise ValueError(f"{what} must be non-empty and comma-free: {item!r}")
+
+
+def _fraction(x: float) -> str:
+    return f"{x:.4f}"
 
 
 def _signature_fields(s: Signature) -> tuple[object, ...]:
@@ -315,3 +339,189 @@ def read_clusters(
             wrong field count or a bad value.
     """
     return _read_table(path, CLUSTER_SCHEMA, CLUSTER_COLUMNS, _cluster_from)
+
+
+def _te_hit_fields(h: TeHit) -> tuple[object, ...]:
+    return (
+        h.signature_id, h.read_id, h.family, h.te_strand, h.te_start,
+        h.te_end, h.te_length, h.query_start, h.query_end, h.query_length,
+        _fraction(h.identity),
+    )  # fmt: skip
+
+
+def _te_hit_from(f: list[str]) -> TeHit:
+    return TeHit(
+        signature_id=f[0],
+        read_id=f[1],
+        family=f[2],
+        te_strand=f[3],
+        te_start=int(f[4]),
+        te_end=int(f[5]),
+        te_length=int(f[6]),
+        query_start=int(f[7]),
+        query_end=int(f[8]),
+        query_length=int(f[9]),
+        identity=float(f[10]),
+    )
+
+
+def _call_fields(c: Call) -> tuple[object, ...]:
+    for cluster_id in c.cluster_ids:
+        _check_list_item(cluster_id, f"call {c.call_id} cluster_ids item")
+    loc = c.locus  # strand is always "+" for a call locus; not written
+    filters = ",".join(str(r) for r in c.filters) if c.filters else PASS
+    return (
+        c.call_id, loc.reference_id, loc.sequence_id, loc.start, c.tier,
+        filters, c.family, c.te_strand, _fraction(c.family_fraction),
+        _fraction(c.strand_fraction), _fraction(c.te_read_fraction),
+        c.n_reads, c.n_ins, c.n_split_ins, c.n_clip_left, c.n_clip_right,
+        c.median_insert_length, _fraction(c.median_te_coverage),
+        _fraction(c.median_identity), "yes" if c.nested else "no",
+        ",".join(c.cluster_ids),
+    )  # fmt: skip
+
+
+def _parse_filters(text: str) -> tuple[FilterReason, ...]:
+    if text == PASS:
+        return ()
+    return tuple(FilterReason(x) for x in text.split(","))
+
+
+def _parse_yes_no(text: str, what: str) -> bool:
+    if text == "yes":
+        return True
+    if text == "no":
+        return False
+    raise ValueError(f"{what} must be 'yes' or 'no': {text!r}")
+
+
+def _call_from(f: list[str]) -> Call:
+    position = int(f[3])
+    return Call(
+        call_id=f[0],
+        locus=Locus(f[1], f[2], position, position, "+"),
+        tier=CallTier(f[4]),
+        filters=_parse_filters(f[5]),
+        family=f[6],
+        te_strand=f[7],
+        family_fraction=float(f[8]),
+        strand_fraction=float(f[9]),
+        te_read_fraction=float(f[10]),
+        n_reads=int(f[11]),
+        n_ins=int(f[12]),
+        n_split_ins=int(f[13]),
+        n_clip_left=int(f[14]),
+        n_clip_right=int(f[15]),
+        median_insert_length=int(f[16]),
+        median_te_coverage=float(f[17]),
+        median_identity=float(f[18]),
+        nested=_parse_yes_no(f[19], "nested"),
+        cluster_ids=tuple(_split_list(f[20])),
+    )
+
+
+def write_te_hits(
+    path: str | os.PathLike[str],
+    hits: Iterable[TeHit],
+    *,
+    read_type: ReadType,
+    reference_id: str,
+) -> int:
+    """Write TE hits to a new ``lr-te-hits`` v1 TSV.gz file.
+
+    ``identity`` is written with 4 decimals.
+
+    Args:
+        path: Output path; must not exist.
+        hits: TE hits to write, consumed once.
+        read_type: Read technology, recorded in the schema line.
+        reference_id: Reference identifier, recorded in the schema line.
+
+    Returns:
+        Number of rows written.
+
+    Raises:
+        FileExistsError: If ``path`` already exists.
+        ValueError: If a field is None or contains a tab or newline.
+    """
+    return _write_table(path, TE_HIT_SCHEMA, TE_HIT_COLUMNS, hits,
+                        _te_hit_fields, read_type, reference_id)  # fmt: skip
+
+
+def read_te_hits(
+    path: str | os.PathLike[str],
+) -> tuple[dict[str, str], Iterator[TeHit]]:
+    """Read an ``lr-te-hits`` v1 TSV.gz file.
+
+    The schema line and header are checked before returning; rows are
+    streamed by the returned iterator.
+
+    Args:
+        path: Input path.
+
+    Returns:
+        The metadata (``schema``, ``version``, ``read_type``,
+        ``reference_id``) and an iterator over the TE hits.
+
+    Raises:
+        ValueError: On a wrong schema, unknown version or changed header;
+            the iterator raises it, naming the line, on a row with the
+            wrong field count or a bad value.
+    """
+    return _read_table(path, TE_HIT_SCHEMA, TE_HIT_COLUMNS, _te_hit_from)
+
+
+def write_calls(
+    path: str | os.PathLike[str],
+    calls: Iterable[Call],
+    *,
+    read_type: ReadType,
+    reference_id: str,
+) -> int:
+    """Write calls to a new ``lr-calls`` v1 TSV.gz file.
+
+    ``filter`` is ``PASS`` or the comma-joined filter reasons; ``nested``
+    is ``yes``/``no``; fractions, coverage and identity have 4 decimals.
+    The locus strand (always ``"+"``) is not written; ``strand`` holds the
+    TE orientation.
+
+    Args:
+        path: Output path; must not exist.
+        calls: Calls to write, consumed once.
+        read_type: Read technology, recorded in the schema line.
+        reference_id: Reference identifier, recorded in the schema line.
+
+    Returns:
+        Number of rows written.
+
+    Raises:
+        FileExistsError: If ``path`` already exists.
+        ValueError: If a field is None or contains a tab or newline, or a
+            ``cluster_ids`` item is empty or contains a comma.
+    """
+    return _write_table(path, CALL_SCHEMA, CALL_COLUMNS, calls, _call_fields,
+                        read_type, reference_id)  # fmt: skip
+
+
+def read_calls(
+    path: str | os.PathLike[str],
+) -> tuple[dict[str, str], Iterator[Call]]:
+    """Read an ``lr-calls`` v1 TSV.gz file.
+
+    The schema line and header are checked before returning; rows are
+    streamed by the returned iterator.
+
+    Args:
+        path: Input path.
+
+    Returns:
+        The metadata (``schema``, ``version``, ``read_type``,
+        ``reference_id``) and an iterator over the calls.
+
+    Raises:
+        ValueError: On a wrong schema, unknown version or changed header;
+            the iterator raises it, naming the line, on a row with the
+            wrong field count or a bad value (including ``nested`` not
+            ``yes``/``no`` or an unknown filter reason).
+    """
+    return _read_table(path, CALL_SCHEMA, CALL_COLUMNS, _call_from)
