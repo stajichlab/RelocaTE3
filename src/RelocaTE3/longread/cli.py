@@ -1,4 +1,4 @@
-"""Long-read subcommands: lr-align, lr-signatures and lr-cluster.
+"""Long-read subcommands: lr-align, lr-signatures, lr-cluster, lr-annotate, lr-call.
 
 Each stage reads the previous stage's file and writes one file into
 ``--outdir``, named after ``--sample``, and appends one row to
@@ -12,6 +12,13 @@ Each stage reads the previous stage's file and writes one file into
   sidecar sits beside the BAM/CRAM (same name, last suffix replaced by
   ``.meta.tsv``), its reference id and read type must match the options.
 - ``lr-cluster``: signatures -> ``<sample>.clusters.tsv.gz``.
+- ``lr-annotate``: signatures + TE library (one minimap2 run) ->
+  ``<sample>.te_hits.tsv.gz``.
+- ``lr-call``: clusters + signatures + TE hits -> ``<sample>.calls.tsv.gz``.
+  The three inputs must share read type and reference id, and every
+  signature must have at least one TE-hit row.
+
+The table outputs keep their input's read type and reference id.
 
 ``--read-type`` exists only here; ``run-all``/``run-batch`` are unchanged.
 Errors are raised as exceptions; :func:`RelocaTE3.cli.main` logs them and
@@ -23,6 +30,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from collections import Counter
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import TypeVar
@@ -30,12 +38,19 @@ from typing import TypeVar
 import pysam
 
 from RelocaTE3.longread.align import align_reads, check_alignment_input, find_index
+from RelocaTE3.longread.annotate import TE_MINIMAP2_ARGS, annotate_signatures
+from RelocaTE3.longread.call import (
+    CallParams, SignatureFacts, SignatureTe, call_clusters, summarize_signature,
+)  # fmt: skip
 from RelocaTE3.longread.cluster import ClusterParams, cluster_signatures
-from RelocaTE3.longread.model import Reference, ReadType
+from RelocaTE3.longread.model import Reference, ReadType, TeHit
 from RelocaTE3.longread.placements import iter_placements
 from RelocaTE3.longread.reference import LinearFastaReferenceSpace
 from RelocaTE3.longread.signatures import SignatureParams, collect_signatures
-from RelocaTE3.longread.tables import read_signatures, write_clusters, write_signatures
+from RelocaTE3.longread.tables import (
+    read_clusters, read_signatures, read_te_hits, write_calls, write_clusters,
+    write_signatures, write_te_hits,
+)  # fmt: skip
 from RelocaTE3.longread.timing import StageCounts, stage_timer
 
 log = logging.getLogger(__name__)
@@ -75,6 +90,17 @@ def _counted(items: Iterable[T], counts: StageCounts) -> Iterator[T]:
     for item in items:
         counts.records_in += 1
         yield item
+
+
+def _read_type_of(meta: dict[str, str], path: Path) -> ReadType:
+    """The read type recorded in a table's schema line."""
+    try:
+        return ReadType(meta["read_type"])
+    except ValueError:
+        raise ValueError(
+            f"{path}: unknown read_type {meta['read_type']!r} "
+            f"(expected one of {', '.join(READ_TYPES)})"
+        ) from None
 
 
 def _mapped_records(aln: Path, genome: Path) -> int:
@@ -253,13 +279,7 @@ def cmd_lr_cluster(args: argparse.Namespace) -> int:
         sig_path = _require_file(Path(args.signatures), "signatures file")
         _refuse_existing(out)
         meta, signatures = read_signatures(sig_path)
-        try:
-            read_type = ReadType(meta["read_type"])
-        except ValueError:
-            raise ValueError(
-                f"{sig_path}: unknown read_type {meta['read_type']!r} "
-                f"(expected one of {', '.join(READ_TYPES)})"
-            ) from None
+        read_type = _read_type_of(meta, sig_path)
         window = args.cluster_window
         if window is None:
             window = read_type.default_cluster_window
@@ -275,6 +295,109 @@ def cmd_lr_cluster(args: argparse.Namespace) -> int:
         )
     log.info("lr-cluster wrote %s (%d clusters from %d signatures)",
              out, counts.records_out, counts.records_in)  # fmt: skip
+    return 0
+
+
+# --- lr-annotate ------------------------------------------------------------
+
+
+def cmd_lr_annotate(args: argparse.Namespace) -> int:
+    """Align every signature's sequence to the TE library."""
+    outdir = Path(args.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    out = outdir / f"{args.sample}.te_hits.tsv.gz"
+    stats: dict[str, int] = {}
+    with stage_timer(outdir, "lr-annotate", args.sample) as counts:
+        sig_path = _require_file(Path(args.signatures), "signatures file")
+        library = _require_file(Path(args.te_library), "TE library FASTA")
+        _refuse_existing(out)
+        meta, signatures = read_signatures(sig_path)
+        read_type = _read_type_of(meta, sig_path)
+        log.info("TE minimap2 flags: %s -t %d", " ".join(TE_MINIMAP2_ARGS),
+                 args.threads)  # fmt: skip
+        hits = annotate_signatures(
+            _counted(signatures, counts), library, threads=args.threads,
+            workdir=outdir, stats=stats,
+        )  # fmt: skip
+        counts.records_out = write_te_hits(
+            out, hits, read_type=read_type, reference_id=meta["reference_id"]
+        )
+    log.info("annotation stats: %s", stats)
+    log.info("lr-annotate wrote %s (%d hit rows for %d signatures)",
+             out, counts.records_out, counts.records_in)  # fmt: skip
+    return 0
+
+
+# --- lr-call ----------------------------------------------------------------
+
+
+def _check_same_origin(tables: list[tuple[Path, dict[str, str]]]) -> None:
+    """Raise unless every table has the first one's read type and reference id."""
+    first_path, first = tables[0]
+    for path, meta in tables[1:]:
+        for key in ("read_type", "reference_id"):
+            if meta[key] != first[key]:
+                raise ValueError(f"{key} differs between inputs: {first[key]!r} "
+                                 f"in {first_path}, {meta[key]!r} in {path}")  # fmt: skip
+
+
+def _summaries(hits: Iterable[TeHit], facts: dict[str, SignatureFacts],
+               min_identity: float, path: Path) -> dict[str, SignatureTe]:  # fmt: skip
+    """Group hits by signature id and summarize each signature."""
+    by_sig: dict[str, list[TeHit]] = {}
+    for hit in hits:
+        if hit.signature_id not in facts:
+            raise ValueError(f"{path}: hit for unknown signature "
+                             f"{hit.signature_id!r}")  # fmt: skip
+        by_sig.setdefault(hit.signature_id, []).append(hit)
+    missing = [sid for sid in facts if sid not in by_sig]
+    if missing:
+        shown = ", ".join(repr(sid) for sid in missing[:5])
+        raise ValueError(f"{len(missing)} signature(s) not annotated in {path} "
+                         f"(no TE-hit row): {shown}")  # fmt: skip
+    return {sid: summarize_signature(h, min_identity) for sid, h in by_sig.items()}
+
+
+def cmd_lr_call(args: argparse.Namespace) -> int:
+    """Call TE insertion sites from clusters, signatures and TE hits."""
+    outdir = Path(args.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    out = outdir / f"{args.sample}.calls.tsv.gz"
+    with stage_timer(outdir, "lr-call", args.sample) as counts:
+        clu_path = _require_file(Path(args.clusters), "clusters file")
+        sig_path = _require_file(Path(args.signatures), "signatures file")
+        hit_path = _require_file(Path(args.te_hits), "TE hits file")
+        _refuse_existing(out)
+        clu_meta, clusters = read_clusters(clu_path)
+        sig_meta, signatures = read_signatures(sig_path)
+        hit_meta, hits = read_te_hits(hit_path)
+        _check_same_origin([(sig_path, sig_meta), (clu_path, clu_meta),
+                            (hit_path, hit_meta)])  # fmt: skip
+        read_type = _read_type_of(sig_meta, sig_path)
+        params = CallParams(
+            min_support=(read_type.default_min_support if args.min_support is None
+                         else args.min_support),
+            min_te_identity=(read_type.default_min_te_identity
+                             if args.min_te_identity is None
+                             else args.min_te_identity),
+            merge_window=(read_type.default_cluster_window
+                          if args.merge_window is None else args.merge_window),
+            min_te_reads_fraction=args.min_te_reads_fraction,
+            min_family_fraction=args.min_family_fraction,
+            min_te_coverage=args.min_te_coverage,
+        )  # fmt: skip
+        log.info("call parameters (%s): %s", read_type, params)
+        facts = {s.signature_id: SignatureFacts.of(s) for s in signatures}
+        te = _summaries(hits, facts, params.min_te_identity, hit_path)
+        calls = call_clusters(_counted(clusters, counts), facts, te, params)
+        counts.records_out = write_calls(
+            out, calls, read_type=read_type, reference_id=sig_meta["reference_id"]
+        )
+    by_tier = Counter((str(c.tier), "PASS" if c.passed else "filtered") for c in calls)
+    log.info("calls by tier: %s",
+             ", ".join(f"{t} {p} {n}" for (t, p), n in sorted(by_tier.items())))  # fmt: skip
+    log.info("lr-call wrote %s (%d calls from %d clusters, %d signatures)",
+             out, counts.records_out, counts.records_in, len(facts))  # fmt: skip
     return 0
 
 
@@ -356,8 +479,48 @@ def _menu_lr_cluster(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
     return parser
 
 
+def _menu_lr_annotate(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    _add_sample_outdir(parser)
+    parser.add_argument("--signatures", required=True,
+                        help="Signatures file from lr-signatures")  # fmt: skip
+    parser.add_argument("--te-library", required=True,
+                        help="TE library FASTA; a hit's family is the first "
+                        "word of the header")  # fmt: skip
+    parser.add_argument("--threads", type=int, default=1,
+                        help="Threads for minimap2")  # fmt: skip
+    parser.set_defaults(func=cmd_lr_annotate)
+    return parser
+
+
+def _menu_lr_call(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    _add_sample_outdir(parser)
+    parser.add_argument("--clusters", required=True,
+                        help="Clusters file from lr-cluster")  # fmt: skip
+    parser.add_argument("--signatures", required=True,
+                        help="Signatures file the clusters were made from")  # fmt: skip
+    parser.add_argument("--te-hits", required=True,
+                        help="TE hits file from lr-annotate")  # fmt: skip
+    parser.add_argument("--min-support", type=int, default=None,
+                        help="Fewest distinct reads for a PASS call (default: 2 "
+                        "for hifi/ont-hq, 3 for ont/clr)")  # fmt: skip
+    parser.add_argument("--min-te-identity", type=float, default=None,
+                        help="Lowest TE-hit identity used (default: 0.85 hifi, "
+                        "0.80 ont-hq, 0.70 ont/clr)")  # fmt: skip
+    parser.add_argument("--merge-window", type=int, default=None,
+                        help="Largest distance (bp) merging same-family "
+                        "clusters (default: the read type's cluster window)")  # fmt: skip
+    parser.add_argument("--min-te-reads-fraction", type=float, default=0.80,
+                        help="Lowest fraction of reads with a TE hit")  # fmt: skip
+    parser.add_argument("--min-family-fraction", type=float, default=0.80,
+                        help="Lowest fraction of hit reads of the top family")  # fmt: skip
+    parser.add_argument("--min-te-coverage", type=float, default=0.80,
+                        help="Lowest median TE coverage of a spanning call")  # fmt: skip
+    parser.set_defaults(func=cmd_lr_call)
+    return parser
+
+
 def register_longread_commands(subparsers: argparse._SubParsersAction) -> None:
-    """Add the lr-align, lr-signatures and lr-cluster subcommands."""
+    """Add the lr-align, lr-signatures, lr-cluster, lr-annotate and lr-call subcommands."""
     # Function-local to avoid a circular import (RelocaTE3.cli imports this
     # module); _add_common_args stays private because RelocaTE3/cli.py is not
     # edited beyond registering these commands.
@@ -365,23 +528,36 @@ def register_longread_commands(subparsers: argparse._SubParsersAction) -> None:
 
     menus = [
         (_menu_lr_align, "lr-align",
-         "Long reads, 1/3: align reads (or link a BAM/CRAM) to the genome",
+         "Long reads, 1/5: align reads (or link a BAM/CRAM) to the genome",
          "Align long reads with minimap2 (preset from --read-type) into a "
          "sorted, indexed <outdir>/<sample>.lr.bam, or check an existing "
          "coordinate-sorted, indexed BAM/CRAM against --genome and symlink it "
          "(and its index) as <outdir>/<sample>.lr.bam or .lr.cram. Appends a "
          "row to <outdir>/timing.tsv."),
         (_menu_lr_signatures, "lr-signatures",
-         "Long reads, 2/3: extract insertion signatures from the alignment",
+         "Long reads, 2/5: extract insertion signatures from the alignment",
          "Turn primary and supplementary alignments into insertion signatures "
          "(CIGAR insertions, split-read gaps, long soft clips) in "
          "<outdir>/<sample>.signatures.tsv.gz. Appends a row to "
          "<outdir>/timing.tsv."),
         (_menu_lr_cluster, "lr-cluster",
-         "Long reads, 3/3: cluster signatures into candidate insertion sites",
+         "Long reads, 3/5: cluster signatures into candidate insertion sites",
          "Cluster the signatures of one sample into candidate insertion sites "
          "in <outdir>/<sample>.clusters.tsv.gz, keeping the input's read type "
          "and reference id. Appends a row to <outdir>/timing.tsv."),
+        (_menu_lr_annotate, "lr-annotate",
+         "Long reads, 4/5: annotate signatures against the TE library",
+         "Align every signature's sequence to the TE library with one "
+         "minimap2 run and write all hits (one no-hit row for a signature "
+         "without a hit) to <outdir>/<sample>.te_hits.tsv.gz, keeping the "
+         "input's read type and reference id. Appends a row to "
+         "<outdir>/timing.tsv."),
+        (_menu_lr_call, "lr-call",
+         "Long reads, 5/5: call TE insertion sites from clusters",
+         "Merge same-family clusters, vote the family and strand, and filter "
+         "the calls into <outdir>/<sample>.calls.tsv.gz (PASS or the failed "
+         "checks). The clusters, signatures and TE hits must share read "
+         "type and reference id. Appends a row to <outdir>/timing.tsv."),
     ]  # fmt: skip
     for menu, name, help, description in menus:
         parser = subparsers.add_parser(

@@ -15,8 +15,14 @@ import pysam
 import pytest
 
 from RelocaTE3.cli import main
-from RelocaTE3.longread.model import ClipSide, Locus, ReadType, Signature, SignatureKind
-from RelocaTE3.longread.tables import read_clusters, read_signatures, write_signatures
+from RelocaTE3.longread.model import (
+    NO_HIT, CallTier, ClipSide, Cluster, FilterReason, Locus, ReadType, Signature,
+    SignatureKind, TeHit,
+)  # fmt: skip
+from RelocaTE3.longread.tables import (
+    read_calls, read_clusters, read_signatures, read_te_hits, write_clusters,
+    write_signatures, write_te_hits,
+)  # fmt: skip
 from tests import longread_align_test
 from tests.longread_align_test import HAVE_TOOLS, INS_AT, _bam
 
@@ -41,7 +47,10 @@ def _read_meta_file(path: Path) -> dict[str, str]:
 # --- parser -----------------------------------------------------------------
 
 
-@pytest.mark.parametrize("command", ["lr-align", "lr-signatures", "lr-cluster"])
+LR_COMMANDS = ["lr-align", "lr-signatures", "lr-cluster", "lr-annotate", "lr-call"]
+
+
+@pytest.mark.parametrize("command", LR_COMMANDS)
 def test_help_exits_zero(command: str, capsys: pytest.CaptureFixture[str]) -> None:
     assert main([command, "--help"]) == 0
     out = capsys.readouterr().out
@@ -54,7 +63,7 @@ def test_top_level_help_lists_long_read_commands(
 ) -> None:
     assert main(["--help"]) == 0
     out = capsys.readouterr().out
-    for command in ("lr-align", "lr-signatures", "lr-cluster", "run-all"):
+    for command in (*LR_COMMANDS, "run-all"):
         assert command in out
 
 
@@ -386,3 +395,203 @@ def test_lr_align_writes_sidecar_and_refuses_second_run(
     (linked / "L.lr.bam.bai").unlink()
     assert main(largs) == 1
     assert not os.path.lexists(linked / "L.lr.bam")
+
+
+# --- lr-annotate and lr-call ----------------------------------------------------
+
+
+def test_lr_annotate_missing_inputs_are_errors(tmp_path: Path) -> None:
+    lib = tmp_path / "lib.fa"
+    lib.write_text(">synTE\nACGT\n")
+    sigs = _two_signatures_60bp_apart(tmp_path / "s.tsv.gz", ReadType.HIFI)
+    base = ["lr-annotate", "--sample", "S", "-o", str(tmp_path / "o")]
+    assert main([*base, "--signatures", str(tmp_path / "nope.tsv.gz"),
+                 "--te-library", str(lib)]) == 1  # fmt: skip
+    assert main([*base, "--signatures", str(sigs),
+                 "--te-library", str(tmp_path / "nope.fa")]) == 1  # fmt: skip
+    assert not (tmp_path / "o" / "S.te_hits.tsv.gz").exists()
+    assert [r["stage"] for r in _timing(tmp_path / "o")] == ["lr-annotate"] * 2
+
+
+def test_lr_annotate_refuses_existing_output(tmp_path: Path) -> None:
+    lib = tmp_path / "lib.fa"
+    lib.write_text(">synTE\nACGT\n")
+    sigs = _two_signatures_60bp_apart(tmp_path / "s.tsv.gz", ReadType.HIFI)
+    out = tmp_path / "o"
+    out.mkdir()
+    (out / "S.te_hits.tsv.gz").write_bytes(b"old")
+    assert main(["lr-annotate", "--sample", "S", "-o", str(out),
+                 "--signatures", str(sigs), "--te-library", str(lib)]) == 1  # fmt: skip
+    assert (out / "S.te_hits.tsv.gz").read_bytes() == b"old"
+    assert _timing(out)[0]["status"] == "FileExistsError"
+
+
+def _clip(sig_id: str, read_id: str, pos: int) -> Signature:
+    return Signature(
+        signature_id=sig_id, kind=SignatureKind.CLIP,
+        locus=Locus("ref", "chr1", pos, pos, "+"), insert_length=300,
+        clip_side=ClipSide.RIGHT, read_id=read_id, query_start=0,
+        query_end=300, mapq=60, sequence="T" * 300, left_flank="C",
+        right_flank="",
+    )  # fmt: skip
+
+
+def _hit(sig: Signature, family: str = "synTE", identity: float = 0.95) -> TeHit:
+    n = sig.insert_length
+    if family == NO_HIT:
+        return TeHit(sig.signature_id, sig.read_id, NO_HIT, ".", 0, 0, 0, 0, 0, n, 0.0)
+    return TeHit(sig.signature_id, sig.read_id, family, "+", 0, n, n, 0, n, n,
+                 identity)  # fmt: skip
+
+
+def _cluster(cid: str, pos: int, sigs: list[Signature]) -> Cluster:
+    kinds = [s.kind for s in sigs]
+    return Cluster(
+        cluster_id=cid, locus=Locus("ref", "chr1", pos, pos, "+"),
+        n_reads=len({s.read_id for s in sigs}),
+        n_ins=kinds.count(SignatureKind.INS),
+        n_split_ins=kinds.count(SignatureKind.SPLIT_INS),
+        n_clip_left=sum(s.clip_side is ClipSide.LEFT for s in sigs),
+        n_clip_right=sum(s.clip_side is ClipSide.RIGHT for s in sigs),
+        insert_lengths=tuple(sorted(s.insert_length for s in sigs
+                                    if s.kind is not SignatureKind.CLIP)),
+        signature_ids=tuple(s.signature_id for s in sigs),
+    )  # fmt: skip
+
+
+def _call_tables(tmp_path: Path, *, cluster_ref: str = "ref",
+                 hits_read_type: ReadType = ReadType.HIFI,
+                 drop_hit: str | None = None) -> list[str]:  # fmt: skip
+    """Two clusters: 3 reads with a synTE INS at 5000; 1 unhit clip at 20000."""
+    spanning = [_ins(f"s{i}", f"r{i}", 5000 + i) for i in range(3)]
+    clip = _clip("c1", "r9", 20_000)
+    sigs = [*spanning, clip]
+    hits = [*(_hit(s) for s in spanning), _hit(clip, NO_HIT)]
+    hits = [h for h in hits if h.signature_id != drop_hit]
+    paths = {k: tmp_path / f"in.{k}.tsv.gz" for k in ("clusters", "sigs", "hits")}
+    write_signatures(paths["sigs"], sigs, read_type=ReadType.HIFI,
+                     reference_id="ref")  # fmt: skip
+    write_te_hits(paths["hits"], hits, read_type=hits_read_type,
+                  reference_id="ref")  # fmt: skip
+    write_clusters(paths["clusters"],
+                   [_cluster("k1", 5000, spanning), _cluster("k2", 20_000, [clip])],
+                   read_type=ReadType.HIFI, reference_id=cluster_ref)  # fmt: skip
+    return ["--clusters", str(paths["clusters"]), "--signatures", str(paths["sigs"]),
+            "--te-hits", str(paths["hits"])]  # fmt: skip
+
+
+def test_lr_call_on_hand_written_tables(tmp_path: Path) -> None:
+    out = tmp_path / "o"
+    assert main(["lr-call", "--sample", "S", "-o", str(out),
+                 *_call_tables(tmp_path)]) == 0  # fmt: skip
+    meta, calls = read_calls(out / "S.calls.tsv.gz")
+    calls = list(calls)
+    assert meta["read_type"] == "hifi" and meta["reference_id"] == "ref"
+    assert [(c.locus.start, c.tier, c.family, c.filters) for c in calls] == [
+        (5001, CallTier.SPANNING, "synTE", ()),
+        (20_000, CallTier.CLIP_ONLY, NO_HIT,
+         (FilterReason.NO_TE_HIT, FilterReason.LOW_SUPPORT)),
+    ]  # fmt: skip
+    assert calls[0].n_reads == 3 and calls[0].median_identity == 0.95
+    row = _timing(out)[0]
+    assert row["stage"] == "lr-call" and row["status"] == "ok"
+    assert row["records_in"] == "2" and row["records_out"] == "2"
+
+
+def test_lr_call_thresholds_from_options(tmp_path: Path) -> None:
+    out = tmp_path / "o"
+    assert main(["lr-call", "--sample", "S", "-o", str(out), *_call_tables(tmp_path),
+                 "--min-support", "4", "--min-te-identity", "0.96"]) == 0  # fmt: skip
+    _, calls = read_calls(out / "S.calls.tsv.gz")
+    first = next(iter(calls))
+    assert first.family == NO_HIT  # every hit is below 0.96 identity
+    assert FilterReason.LOW_SUPPORT in first.filters
+
+
+def test_lr_call_refuses_existing_output(tmp_path: Path) -> None:
+    args = ["lr-call", "--sample", "S", "-o", str(tmp_path / "o"),
+            *_call_tables(tmp_path)]  # fmt: skip
+    assert main(args) == 0
+    assert main(args) == 1
+    assert [r["status"] for r in _timing(tmp_path / "o")] == ["ok", "FileExistsError"]
+
+
+def test_lr_call_rejects_mismatched_reference_id(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    args = _call_tables(tmp_path, cluster_ref="other")
+    rc = main(["lr-call", "--sample", "S", "-o", str(tmp_path / "o"), *args])
+    assert rc == 1
+    assert args[1] in caplog.text and args[3] in caplog.text
+    assert not (tmp_path / "o" / "S.calls.tsv.gz").exists()
+
+
+def test_lr_call_rejects_mismatched_read_type(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    args = _call_tables(tmp_path, hits_read_type=ReadType.ONT)
+    rc = main(["lr-call", "--sample", "S", "-o", str(tmp_path / "o"), *args])
+    assert rc == 1
+    assert args[5] in caplog.text
+
+
+def test_lr_call_rejects_unannotated_signature(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    args = _call_tables(tmp_path, drop_hit="s1")
+    rc = main(["lr-call", "--sample", "S", "-o", str(tmp_path / "o"), *args])
+    assert rc == 1
+    assert "not annotated" in caplog.text and "'s1'" in caplog.text
+
+
+def test_lr_call_missing_input_is_an_error(tmp_path: Path) -> None:
+    args = _call_tables(tmp_path)
+    args[5] = str(tmp_path / "nope.tsv.gz")
+    assert main(["lr-call", "--sample", "S", "-o", str(tmp_path / "o"), *args]) == 1
+
+
+@needs_tools
+def test_end_to_end_five_stages(
+    lr_synthetic: tuple[Path, Path], tmp_path: Path
+) -> None:
+    fa, fq = lr_synthetic
+    # The insert itself is the TE: bases 3500-4500 of the "fwd" read
+    # (sample[6_500:14_500], insert at sample[10_000:11_000]).
+    reads = fq.read_text().split("\n")
+    fwd = reads[reads.index("@fwd") + 1]
+    lib = tmp_path / "lib.fa"
+    lib.write_text(f">synTE test insert\n{fwd[3_500:4_500]}\n")
+    out = tmp_path / "out"
+    so = ["--sample", "S", "-o", str(out)]
+    assert main(["lr-align", *so, "--genome", str(fa), "--read-type", "hifi",
+                 "--reads", str(fq)]) == 0  # fmt: skip
+    assert main(["lr-signatures", *so, "--bam", str(out / "S.lr.bam"),
+                 "--read-type", "hifi"]) == 0  # fmt: skip
+    sigs = out / "S.signatures.tsv.gz"
+    assert main(["lr-cluster", *so, "--signatures", str(sigs)]) == 0
+    assert main(["lr-annotate", *so, "--signatures", str(sigs),
+                 "--te-library", str(lib), "--threads", "2"]) == 0  # fmt: skip
+    hits_path = out / "S.te_hits.tsv.gz"
+    meta, hits = read_te_hits(hits_path)
+    hits = list(hits)
+    assert meta["read_type"] == "hifi" and meta["reference_id"] == "ref"
+    assert any(h.family == "synTE" for h in hits)
+    # hifi default min support is 2; the synthetic set has 3 reads.
+    assert main(["lr-call", *so, "--clusters", str(out / "S.clusters.tsv.gz"),
+                 "--signatures", str(sigs), "--te-hits", str(hits_path)]) == 0  # fmt: skip
+    _, calls = read_calls(out / "S.calls.tsv.gz")
+    passed = [c for c in calls if c.passed]
+    assert len(passed) == 1, passed
+    call = passed[0]
+    assert call.tier is CallTier.SPANNING and call.family == "synTE"
+    assert abs(call.locus.start - INS_AT) <= 50
+    assert call.n_reads == 3
+
+    rows = _timing(out)
+    assert [r["stage"] for r in rows] == ["lr-align", "lr-signatures", "lr-cluster",
+                                          "lr-annotate", "lr-call"]  # fmt: skip
+    assert all(r["status"] == "ok" for r in rows)
+    n_sigs = len(list(read_signatures(sigs)[1]))
+    assert int(rows[3]["records_in"]) == n_sigs
+    assert int(rows[3]["records_out"]) == len(hits)
+    assert int(rows[4]["records_in"]) == int(rows[2]["records_out"])
