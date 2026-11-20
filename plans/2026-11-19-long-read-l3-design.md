@@ -1,5 +1,7 @@
 # Long-read L3: TE annotation, filters, first calls (design)
 
+> **Implemented 2026-11-19.** Final details that differ from this text are listed in docs/2026-11-19-long-read-l3.md ("Where the plan and the code differ").
+
 **Date:** 2026-11-19 (America/Los_Angeles)
 **Status:** approved by the maintainer 2026-11-19; implementation plan next.
 **Parent:** `plans/2026-11-09-long-read-algorithm-proposal.md`, milestone L3

@@ -1,5 +1,7 @@
 # Long-read L3: TE annotation, filters, first calls — implementation plan
 
+> **Implemented 2026-11-19.** Final details that differ from this text are listed in docs/2026-11-19-long-read-l3.md ("Where the plan and the code differ").
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task.
 
 **Goal:** Add `lr-annotate` and `lr-call` to RelocaTE3 so the long-read path

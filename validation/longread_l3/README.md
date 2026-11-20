@@ -20,6 +20,10 @@ From the repo root, on a checkout with the pixi `default` env installed:
 mkdir -p logs && sbatch validation/longread_l3/run_gate.slurm
 ```
 
+Measured (job 32235104, 2026-11-19): about 1.6 min for all eight read sets
+on 8 CPUs; peak memory about 2 GB, in `lr-align` on ONT-HQ 20x (every other
+stage stays near 110 MB). Results: `docs/2026-11-19-long-read-l3.md`.
+
 Overridable environment variables:
 
 | Variable | Default |
