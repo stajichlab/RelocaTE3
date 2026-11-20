@@ -7,8 +7,8 @@ import dataclasses
 import pytest
 
 from RelocaTE3.longread.model import (
-    ClipSide, Cluster, Locus, PlacementRecord, ReadType, Reference,
-    Signature, SignatureKind,
+    NO_HIT, Call, CallTier, ClipSide, Cluster, FilterReason, Locus,
+    PlacementRecord, ReadType, Reference, Signature, SignatureKind, TeHit,
 )  # fmt: skip
 
 
@@ -77,3 +77,56 @@ def test_enum_text_form_is_the_value(member):
 
 def test_clip_side_none_text_is_empty():
     assert str(ClipSide.NONE) == f"{ClipSide.NONE}" == ""
+
+
+@pytest.mark.parametrize(
+    "read_type,support,identity",
+    [(ReadType.HIFI, 2, 0.85), (ReadType.ONT_HQ, 2, 0.80),
+     (ReadType.ONT, 3, 0.70), (ReadType.CLR, 3, 0.70)],
+)  # fmt: skip
+def test_read_type_call_defaults(read_type, support, identity) -> None:
+    assert read_type.default_min_support == support
+    assert read_type.default_min_te_identity == identity
+
+
+def test_tier_and_reason_text() -> None:
+    assert f"{CallTier.CLIP_ONLY}" == "clip_only"
+    assert str(CallTier.SPANNING) == "spanning"
+    assert [r.value for r in FilterReason] == [
+        "no_te_hit", "few_te_reads", "family_discordant", "low_support",
+        "low_te_fraction",
+    ]  # fmt: skip
+
+
+def _hit(**kw) -> TeHit:
+    base = dict(signature_id="s1", read_id="r1", family="mPing", te_strand="+",
+                te_start=0, te_end=430, te_length=430, query_start=5,
+                query_end=435, query_length=440, identity=0.99)  # fmt: skip
+    base.update(kw)
+    return TeHit(**base)
+
+
+def test_te_hit_checks() -> None:
+    assert _hit().aligned == 430
+    _hit(family=NO_HIT, te_strand=".", te_start=0, te_end=0, te_length=0,
+         query_start=0, query_end=0, identity=0.0)  # fmt: skip
+    with pytest.raises(ValueError, match="strand"):
+        _hit(te_strand=".")  # a real hit needs + or -
+    with pytest.raises(ValueError, match="strand"):
+        _hit(family=NO_HIT, te_strand="+")
+    with pytest.raises(ValueError, match="query"):
+        _hit(query_start=10, query_end=5)
+
+
+def test_call_passed() -> None:
+    loc = Locus("ref", "Chr3", 100, 100, "+")
+    common = dict(call_id="c", locus=loc, tier=CallTier.SPANNING,
+                  family="mPing", te_strand="+", family_fraction=1.0,
+                  strand_fraction=1.0, te_read_fraction=1.0, n_reads=3,
+                  n_ins=3, n_split_ins=0, n_clip_left=0, n_clip_right=0,
+                  median_insert_length=435, median_te_coverage=0.99,
+                  median_identity=0.99, nested=False, cluster_ids=("k",))  # fmt: skip
+    assert Call(filters=(), **common).passed
+    assert not Call(filters=(FilterReason.LOW_SUPPORT,), **common).passed
+    with pytest.raises(ValueError, match="insertion point"):
+        Call(filters=(), **{**common, "locus": Locus("ref", "Chr3", 1, 5, "+")})
