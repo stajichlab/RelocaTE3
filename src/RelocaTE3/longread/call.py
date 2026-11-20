@@ -378,9 +378,10 @@ def call_clusters(
     calls.sort(key=lambda c: (*c.locus.key, c.locus.start, c.cluster_ids[0]))
     out: list[Call] = []
     used: dict[str, int] = {}
-    for c in calls:
-        base = f"{c.locus.reference_id}:{c.locus.sequence_id}:{c.locus.start}"
+    for call in calls:
+        locus = call.locus
+        base = f"{locus.reference_id}:{locus.sequence_id}:{locus.start}"
         n = used.get(base, 0)
         used[base] = n + 1
-        out.append(replace(c, call_id=base if n == 0 else f"{base}.{n}"))
+        out.append(replace(call, call_id=base if n == 0 else f"{base}.{n}"))
     return out
