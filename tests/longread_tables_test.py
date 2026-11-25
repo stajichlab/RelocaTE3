@@ -1,4 +1,4 @@
-"""Long-read versioned TSV.gz tables: signatures and clusters."""
+"""Long-read versioned TSV.gz tables: signatures, clusters, TE hits, calls."""
 
 from __future__ import annotations
 
@@ -8,11 +8,13 @@ from pathlib import Path
 import pytest
 
 from RelocaTE3.longread.model import (
-    ClipSide, Cluster, Locus, ReadType, Signature, SignatureKind,
+    NO_HIT, Call, CallTier, ClipSide, Cluster, FilterReason, Locus, ReadType,
+    Signature, SignatureKind, TeHit,
 )  # fmt: skip
 from RelocaTE3.longread.tables import (
-    CLUSTER_COLUMNS, SIGNATURE_COLUMNS, read_clusters, read_signatures,
-    write_clusters, write_signatures,
+    CALL_COLUMNS, CLUSTER_COLUMNS, SIGNATURE_COLUMNS, read_calls, read_clusters,
+    read_signatures, read_te_hits, write_calls, write_clusters,
+    write_signatures, write_te_hits,
 )  # fmt: skip
 
 REF = "msu7"
@@ -225,5 +227,76 @@ def test_none_field_rejected(tmp_path):
     )  # fmt: skip
     with pytest.raises(ValueError, match="None"):
         write_signatures(path, [bad], read_type=ReadType.ONT, reference_id=REF)
+    assert not path.exists()
+    assert not Path(f"{path}.partial").exists()
+
+
+def _te_hits() -> list[TeHit]:
+    return [
+        TeHit("s1", "r1", "mPing", "+", 0, 430, 430, 5, 435, 500, 0.9876),
+        TeHit("s1", "r1", "Ping", "-", 100, 300, 5341, 200, 400, 500, 0.81),
+        TeHit("s2", "r2", NO_HIT, ".", 0, 0, 0, 0, 0, 800, 0.0),
+    ]  # fmt: skip
+
+
+def _calls() -> list[Call]:
+    return [
+        Call(
+            "call1", Locus(REF, "Chr3", 100, 100, "+"), CallTier.SPANNING, (),
+            "mPing", "+", 1.0, 0.75, 0.9876, 3, 1, 1, 1, 0, 430, 0.95, 0.9123,
+            False, ("c1", "c2"),
+        ),
+        Call(
+            "call2", Locus(REF, "Chr3", 5000, 5000, "+"), CallTier.CLIP_ONLY,
+            (FilterReason.NO_TE_HIT, FilterReason.LOW_SUPPORT), NO_HIT, ".",
+            0.0, 0.0, 0.0, 1, 0, 0, 0, 1, 0, 0.0, 0.0, True, ("c3",),
+        ),
+    ]  # fmt: skip
+
+
+def test_te_hits_round_trip_and_metadata(tmp_path):
+    path = tmp_path / "hits.tsv.gz"
+    n = write_te_hits(path, iter(_te_hits()), read_type=ReadType.HIFI,
+                      reference_id=REF)  # fmt: skip
+    assert n == 3
+    assert not Path(f"{path}.partial").exists()
+    meta, rows = read_te_hits(path)
+    assert meta["schema"] == "lr-te-hits"
+    assert meta["read_type"] == "hifi"
+    assert meta["reference_id"] == REF
+    assert list(rows) == _te_hits()
+
+
+def test_calls_round_trip_and_filter_text(tmp_path):
+    path = tmp_path / "calls.tsv.gz"
+    n = write_calls(path, _calls(), read_type=ReadType.ONT, reference_id=REF)
+    assert n == 2
+    meta, rows = read_calls(path)
+    assert meta["schema"] == "lr-calls"
+    got = list(rows)
+    assert got == _calls()
+    assert got[0].passed
+    assert got[1].filters == (FilterReason.NO_TE_HIT, FilterReason.LOW_SUPPORT)
+    with gzip.open(path, "rt") as fh:
+        lines = fh.read().split("\n")
+    assert lines[1] == "\t".join(CALL_COLUMNS)
+    col = CALL_COLUMNS.index("filter")
+    assert lines[2].split("\t")[col] == "PASS"
+    assert lines[3].split("\t")[col] == "no_te_hit,low_support"
+
+
+def test_read_calls_rejects_te_hits_file(tmp_path):
+    path = tmp_path / "hits.tsv.gz"
+    write_te_hits(path, _te_hits(), read_type=ReadType.ONT, reference_id=REF)
+    with pytest.raises(ValueError, match="wrong schema"):
+        read_calls(path)
+
+
+def test_ambiguous_call_cluster_ids_rejected(tmp_path):
+    path = tmp_path / "calls.tsv.gz"
+    good = _calls()[0]
+    bad = Call(**{**good.__dict__, "cluster_ids": ("c1", "a,b")})
+    with pytest.raises(ValueError, match="cluster_ids"):
+        write_calls(path, [bad], read_type=ReadType.ONT, reference_id=REF)
     assert not path.exists()
     assert not Path(f"{path}.partial").exists()

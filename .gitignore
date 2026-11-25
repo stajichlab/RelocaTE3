@@ -193,3 +193,6 @@ work/
 
 # Long-read L2 gate run outputs (validation/longread_l2/run_gate.slurm)
 /validation/longread_l2/output/
+
+# Long-read L3 gate run outputs (validation/longread_l3/run_gate.slurm)
+/validation/longread_l3/output/
